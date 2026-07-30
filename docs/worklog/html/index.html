@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Worklog Index — drone-sim</title>
+<style>
+/* Design system copied verbatim from 2026-07-28-phase-0-scaffold.html, the canonical
+   worklog design source. Self-contained: no external css/js/fonts/images. */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] *{transition:none!important}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:18px 20px;display:block;text-decoration:none;color:inherit;transition:border-color .2s ease}
+.card:hover{border-color:var(--chrome)}
+.card .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.card h3{font-size:19px;margin:6px 0 8px;color:var(--chrome-ink)}
+[data-theme="dark"] .card h3{color:var(--chrome)}
+.card p{font-size:13.5px;color:var(--ink2);margin:0 0 10px}
+.card .tags{display:flex;gap:6px;flex-wrap:wrap}
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)} .p-chrome{color:var(--chrome)}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+p code,li code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+ul{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">DRONE-SIM · WORKLOGS</span>
+  <nav>
+    <a href="#logs">Logs</a>
+    <a href="#about">About</a>
+  </nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+
+<div class="wrap">
+
+<header class="mast">
+  <span class="eyebrow">Running record · Triple-lane drone simulation framework</span>
+  <h1>Worklog Index</h1>
+  <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
+  <div class="mastmeta">
+    <span>Entries <b>3</b></span>
+    <span>Newest <b>2026-07-29</b></span>
+    <span>Phase <b>0</b></span>
+  </div>
+</header>
+
+<section id="logs">
+<span class="secnum">§ 1 · ENTRIES</span>
+<h2>Worklogs</h2>
+
+<div class="grid g2">
+  <a class="card" href="2026-07-29-d01-container-parity.html">
+    <span class="k">2026-07-29 · D-01 · newest</span>
+    <h3>Container Parity &amp; the PX4 Prompt Spin</h3>
+    <p>Closed <code>D-01</code>: the Lane A image is <strong>native-equivalent</strong> on a normal container runtime (aggregate RTF 0.9967 vs 1.0000); the 2.3% deficit belongs to this box's nested Docker, not to containerization. Root cause of nearly every anomaly across two sessions: PX4's pxh shell clears <code>ICANON</code> without setting <code>VMIN</code>, busy-spinning its prompt 1.45 M times/second — 4.1 GB per 300 s run. Also corrects the acceptance metric from Gazebo's noisy instantaneous RTF to the aggregate ratio.</p>
+    <div class="tags">
+      <span class="pill p-ok">D-01 closed</span>
+      <span class="pill p-stop">PX4 upstream defect</span>
+      <span class="pill p-warn">metric corrected</span>
+      <span class="pill p-chrome">host podman</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-07-28-phase-0-lane-a-install.html">
+    <span class="k">2026-07-28 · Phase 0 · Lane A</span>
+    <h3>Lane A Bring-Up — PX4 v1.16 · Gazebo Harmonic · ROS 2 Jazzy</h3>
+    <p>Installed and smoke-tested the CI backbone: 24 <code>/fmu/out/*</code> topics at 100.02 Hz, RTF 1.000 flat, 0 sensor TIMEOUTs over 300 s, QGC connected. Three plan corrections: the pinned XRCE agent v2.4.2 is <strong>unbuildable</strong> (its Fast-DDS branch was deleted upstream), airframe targets need the <code>gz_</code> prefix, and <code>CUDA_VISIBLE_DEVICES</code> alone does not pin the Blackwell card.</p>
+    <div class="tags">
+      <span class="pill p-ok">4/5 exit criteria</span>
+      <span class="pill p-warn">3 plan corrections</span>
+      <span class="pill p-stop">agent v2.4.2 unbuildable</span>
+      <span class="pill p-chrome">QGC via Xvfb</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-07-28-phase-0-scaffold.html">
+    <span class="k">2026-07-28 · Phase 0</span>
+    <h3>Phase 0 Scaffold &amp; Drafted Version Lock</h3>
+    <p>Monorepo layout, master backlog index, Phase 0 area doc with 16 tasks, and a <code>versions.lock</code> that separates what was measured from what was merely read. Found the installed NVIDIA driver (610.43.03) sits four branches past Isaac Sim 5.1's validated 580.65.06 — a Lane B blocker on an immutable host. Confirmed GPU 1 is the 16 GB variant, which upgrades the local VLM ceiling to Qwen3-VL-8B AWQ.</p>
+    <div class="tags">
+      <span class="pill p-chrome">scaffold</span>
+      <span class="pill p-warn">version lock</span>
+      <span class="pill p-stop">blocker: P0-09</span>
+      <span class="pill p-ok">no installs</span>
+    </div>
+  </a>
+</div>
+</section>
+
+<section id="about">
+<span class="secnum">§ 2 · CONVENTION</span>
+<h2>About these logs</h2>
+
+<div class="callout">
+  <span class="lbl">Standing rule</span>
+  <p style="margin:0">A worklog is a <strong>running record, not a final report</strong>. Findings, numbers, decisions, and dead ends are appended as they happen, so a resumed session — or a human — can pick up exactly where the work stopped, with the evidence intact.</p>
+</div>
+
+<ul>
+  <li><strong>Standalone.</strong> Each entry carries its own findings in full — never a "see other doc" pointer.</li>
+  <li><strong>Honest.</strong> What failed, what was abandoned, and what remains unverified are recorded alongside what worked.</li>
+  <li><strong>Sourced.</strong> Repo facts cite <code>file:line</code>; sim results cite the command and its output; external claims cite the URL or issue.</li>
+  <li><strong>Rendered.</strong> Every Markdown worklog has a companion page here, hand-authored and self-contained, with at least one diagram built only from the log's real content.</li>
+</ul>
+
+<p>Markdown sources live in <code>docs/worklog/</code>; these renders live in <code>docs/worklog/html/</code>. The backlog they feed is <code>docs/drone-sim-todo.md</code>.</p>
+</section>
+
+<footer>
+  <span>drone-sim · worklog index</span>
+  <span>docs/worklog/html/index.html</span>
+  <span>Updated 2026-07-28</span>
+</footer>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,
+      btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),
+      order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){
+    root.setAttribute('data-theme',t);
+    var next=order[(order.indexOf(t)+1)%order.length];
+    lbl.textContent=names[next];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[next]);
+    btn.setAttribute('aria-label','Colour theme: '+names[t]+'. Switch to '+names[next]+'.');
+  }
+  if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){set('dark');}
+  else{set('light');}
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);
+  });
+})();
+</script>
+</body>
+</html>

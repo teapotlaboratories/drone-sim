@@ -5,6 +5,9 @@
 > container, and the tools you have, so you know what you are working on before you touch
 > anything. Project background and design decisions live in [`reference/`](./reference/).
 
+_Network coordinates (hostname, LAN IP, NetBird management URL and overlay IP) are
+redacted as `<placeholders>` because this repository is public; substitute your own._
+
 _Last verified: 2026-07-28. If a version or IP below disagrees with what you observe, trust
 what you observe and update this file._
 
@@ -30,7 +33,7 @@ hypothetical — they are about the two GPUs you actually have.
 
 ## 2. The host machine — `carbonite`
 
-- **Hostname:** `carbonite` — reachable at `<lan-ip>` (LAN) and over the netbird tunnel.
+- **Hostname:** `<workstation>` — reachable at `<lan-ip>` (LAN) and over the netbird tunnel.
 - **OS:** Fedora 44-based **ostree immutable** system (uBlue/Bazzite-family), kernel
   `7.1.3-ogc5.1.fc44`. The root filesystem is read-only/composefs; user work lives under
   `/home/deck`. Treat the host OS as immutable — install software **inside the container**,
@@ -102,7 +105,7 @@ The container comes up automatically on host boot and needs no manual start:
 
 ### netbird (mesh VPN)
 - **v0.75.0**, managed as a systemd service, **auto-connects on boot**.
-- Management URL: `https://<netbird-mgmt-url>`
+- Management URL: `<netbird-mgmt-url>`
 - This node: **`<node>.<tailnet>.internal`**, NetBird IP **`<overlay-ip>/16`**,
   kernel WireGuard on `wt0`.
 - The tunnel lives **only inside this container's netns** — the host and other apps do not

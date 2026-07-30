@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 0 Scaffold &amp; Version Lock — Worklog 2026-07-28</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">WORKLOG · 2026-07-28</span>
+  <nav>
+    <a href="#context">Context</a>
+    <a href="#findings">Findings</a>
+    <a href="#driver">Driver conflict</a>
+    <a href="#path">Critical path</a>
+    <a href="#decisions">Decisions</a>
+    <a href="#notdone">Not done</a>
+    <a href="#next">Next</a>
+    <a href="#evidence">Evidence</a>
+  </nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+
+<div class="wrap">
+
+<header class="mast">
+  <span class="eyebrow">Worklog · Phase 0 · Environment &amp; Version Lock</span>
+  <h1>Phase 0 Scaffold<br>&amp; Drafted Version Lock</h1>
+  <p class="sub">Planning and scaffolding only — no installs. Monorepo layout, master backlog index, Phase 0 area doc, and a <code>versions.lock</code> that distinguishes what was measured from what was merely read. One unplanned blocker found.</p>
+  <div class="mastmeta">
+    <span>Date <b>2026-07-28</b></span>
+    <span>Phase <b>0</b></span>
+    <span>Installs <b>none</b></span>
+    <span>Commits <b>held</b></span>
+    <span>Blockers found <b>1</b></span>
+  </div>
+</header>
+
+<div class="toc">
+  <span class="lbl">On this page</span>
+  <ol>
+    <li><a href="#context">Context &amp; task</a></li>
+    <li><a href="#findings">Findings</a></li>
+    <li><a href="#driver">The driver conflict</a></li>
+    <li><a href="#path">Phase 0 critical path</a></li>
+    <li><a href="#decisions">Decisions</a></li>
+    <li><a href="#notdone">What was not done</a></li>
+    <li><a href="#next">Next steps</a></li>
+    <li><a href="#evidence">Evidence</a></li>
+  </ol>
+</div>
+
+<section id="context">
+<span class="secnum">§ 1 · SETTING</span>
+<h2>Context &amp; task</h2>
+
+<p>The repository was freshly <code>git init</code>'d on <code>main</code> with <strong>no commits</strong>, holding only <code>.ai/</code>, <code>AGENTS.md</code>, <code>CLAUDE.md</code>, and <code>docs/</code> (the bench briefing plus three reference docs). The task was explicitly <em>planning and scaffolding, not installing</em>: create the master backlog index and a Phase 0 area doc, lay out the monorepo from the development plan, and draft <code>versions.lock</code> capturing every pin the plan calls out.</p>
+
+<div class="callout ok">
+  <span class="lbl">Outcome</span>
+  <p style="margin:0">Scaffold complete — 19 placeholder READMEs, master index, Phase 0 backlog with 16 tasks, <code>versions.lock</code>, <code>.repos</code>, <code>.gitignore</code>. Two findings that change the plan: one adverse (<strong>F2</strong>, the driver), one favourable (<strong>F3</strong>, the 16&nbsp;GB card). Nothing installed, nothing committed.</p>
+</div>
+</section>
+
+<section id="findings">
+<span class="secnum">§ 2 · OBSERVED</span>
+<h2>Findings</h2>
+
+<div class="grid g3">
+  <div class="stat stop">
+    <span class="k">F2 · Driver</span>
+    <div class="v">610.43.03</div>
+    <div class="n">Installed. Isaac Sim 5.1 validates <b>580.65.06</b> — four branches back.</div>
+  </div>
+  <div class="stat ok">
+    <span class="k">F3 · GPU 1 VRAM</span>
+    <div class="v">16311 MiB</div>
+    <div class="n">The 16&nbsp;GB RTX 5060 Ti variant. Qwen3-VL-8B AWQ is viable locally.</div>
+  </div>
+  <div class="stat">
+    <span class="k">F4 · CPU</span>
+    <div class="v">24 cores</div>
+    <div class="n">Ample for SITL lockstep; CPU starvation is unlikely to be the TIMEOUT cause here.</div>
+  </div>
+</div>
+
+<h3>F1 — The box is genuinely greenfield</h3>
+<p>Probed rather than assumed. As of 2026-07-28 the container has <strong>no ROS 2</strong> (<code>/opt/ros</code> absent), <strong>no PX4</strong>, <strong>no Gazebo</strong>, <strong>no colcon</strong>, and no <code>nvcc</code>. System Python is <strong>3.12.3</strong>. Phase 0 starts from zero, exactly as the plan assumes.</p>
+
+<h3>F3 — GPU 1 is the 16 GB variant, not the 8 GB one</h3>
+<p><code>nvidia-smi</code> reports <code>16311 MiB</code> on device 1. The hardware assessment left this open — <em>"If your RTX 5060 Ti is the 8 GB variant: serve only Qwen3-VL-2B/4B locally"</em> (<code>03_hardware_assessment.md:83</code>).</p>
+<p><strong>Implication:</strong> the VLM plan gets the better branch. <strong>Qwen3-VL-8B AWQ is viable</strong> with KV headroom, rather than being capped at 2B/4B. Qwen3-VL-30B-A3B still does not fit — roughly 17&nbsp;GB at INT4 before the vision tower and KV cache are allocated.</p>
+
+<h3>F4 — 24 cores / 62 GB RAM</h3>
+<p>PX4 SITL lockstep is single-thread-latency-sensitive, and CPU starvation is the documented cause of <code>Accel #0 fail: TIMEOUT!</code> / <code>MAG #0 failed: TIMEOUT!</code>. With 24 cores there is comfortable headroom, so if TIMEOUTs appear during <code>P0-07</code> the likelier causes are the Gazebo multicast issue (<code>PX4/PX4-Autopilot#24595</code>) or the wrong launch method — not raw CPU.</p>
+
+<h3>F5 — Minor drift in the bench briefing</h3>
+<p><code>docs/bench.md</code> states the internal NVMe has "~279 GB free"; observed <strong>312 GB</strong>. External drive confirmed at 5.5&nbsp;TB free. Recorded both numbers in <code>versions.lock</code> rather than silently editing the briefing. Driver version and GPU role assignments in bench.md all matched observation.</p>
+</section>
+
+<section id="driver">
+<span class="secnum">§ 3 · BLOCKER</span>
+<h2>F2 — The driver conflict</h2>
+
+<p>The most consequential finding. The machine's installed NVIDIA driver is <strong>610.43.03</strong>. Isaac Sim 5.1's validated Linux driver is <strong>580.65.06</strong>, and Isaac is documented to break on drivers that are <strong>too new</strong>, not merely too old.</p>
+
+<figure>
+<svg viewBox="0 0 1140 190" role="img" aria-label="Driver version number line from 570 to 620 showing Isaac Sim 5.1 validated at 580.65.06, a known-broken report at 595.79, and this machine's installed 610.43.03 far into the unvalidated region">
+  <!-- validated zone -->
+  <rect x="80" y="74" width="209" height="34" fill="var(--ok)" opacity="0.16"/>
+  <rect x="289" y="74" width="771" height="34" fill="var(--stop)" opacity="0.13"/>
+  <!-- axis -->
+  <line x1="80" y1="108" x2="1060" y2="108" class="e" stroke-width="2"/>
+  <!-- ticks every 10 -->
+  <line x1="80"   y1="108" x2="80"   y2="116" class="e"/><text x="80"   y="132" class="axl" text-anchor="middle">570</text>
+  <line x1="276"  y1="108" x2="276"  y2="116" class="e"/><text x="276"  y="132" class="axl" text-anchor="middle">580</text>
+  <line x1="472"  y1="108" x2="472"  y2="116" class="e"/><text x="472"  y="132" class="axl" text-anchor="middle">590</text>
+  <line x1="668"  y1="108" x2="668"  y2="116" class="e"/><text x="668"  y="132" class="axl" text-anchor="middle">600</text>
+  <line x1="864"  y1="108" x2="864"  y2="116" class="e"/><text x="864"  y="132" class="axl" text-anchor="middle">610</text>
+  <line x1="1060" y1="108" x2="1060" y2="116" class="e"/><text x="1060" y="132" class="axl" text-anchor="middle">620</text>
+
+  <!-- 580.65.06 validated -->
+  <line x1="289" y1="60" x2="289" y2="108" stroke="var(--ok)" stroke-width="2"/>
+  <circle cx="289" cy="108" r="5" fill="var(--ok)"/>
+  <text x="289" y="50" class="nid" text-anchor="middle" fill="var(--ok)">580.65.06</text>
+  <text x="289" y="34" class="nlb" text-anchor="middle">Isaac 5.1 validated</text>
+
+  <!-- 595.79 broken -->
+  <line x1="586" y1="60" x2="586" y2="108" stroke="var(--stop)" stroke-width="2"/>
+  <circle cx="586" cy="108" r="5" fill="var(--stop)"/>
+  <text x="586" y="50" class="nid" text-anchor="middle" fill="var(--stop)">595.79</text>
+  <text x="586" y="34" class="nlb" text-anchor="middle">IsaacSim#537 — no CUDA device</text>
+
+  <!-- 610.43.03 installed -->
+  <line x1="872" y1="60" x2="872" y2="108" stroke="var(--stop)" stroke-width="3"/>
+  <circle cx="872" cy="108" r="7" fill="var(--stop)"/>
+  <text x="872" y="50" class="nid" text-anchor="middle" fill="var(--stop)">610.43.03</text>
+  <text x="872" y="34" class="nlb" text-anchor="middle">INSTALLED ON THIS MACHINE</text>
+
+  <text x="184" y="96" class="axl" text-anchor="middle" fill="var(--ok)">validated</text>
+  <text x="674" y="96" class="axl" text-anchor="middle" fill="var(--stop)">unvalidated — reports of breakage past 580</text>
+  <text x="80" y="168" class="nlb">Positions are to scale on the driver-version axis. Only 580.65.06 is a validated pairing; 595.79 is a confirmed failure; 610.43.03 is untested against Isaac Sim 5.1.</text>
+</svg>
+<figcaption>Fig 1 — Driver version axis: installed vs. validated for Isaac Sim 5.1</figcaption>
+</figure>
+
+<h3>The evidence</h3>
+<ul>
+  <li><code>isaac-sim/IsaacSim#537</code> — <em>"Isaac Sim fails to detect CUDA device with NVIDIA driver 595.79 (works with 580)."</em></li>
+  <li><code>isaac-sim/IsaacSim#229</code> — a 5070 on 580.65.06 hitting <code>Warp CUDA error: Failed to get driver entry point 'cuDeviceGetUuid'</code>, diagnosed as <em>"my driver is too new for this version of Isaac Sim."</em></li>
+  <li>NVIDIA forum staff: <em>"there's been report of invalidated driver past 580 on 5.1.0."</em></li>
+</ul>
+<p>All three were already cited in <code>docs/reference/03_hardware_assessment.md:12</code>. This is not new research — it is the existing analysis colliding with the machine's actual state, which nobody had checked until now.</p>
+
+<div class="callout stop">
+  <span class="lbl">Why it is hard to fix here</span>
+  <p style="margin:0">The driver is injected from the <strong>ostree-immutable host</strong> via <code>--nvidia</code>. It cannot be changed with apt inside the container. A downgrade means rebasing the host image, which needs host <code>sudo</code> — an owner action, not an agent one.</p>
+</div>
+
+<div class="callout ok">
+  <span class="lbl">Why it is not a project-stopper</span>
+  <p style="margin:0">Blast radius is <strong>Lane B only</strong> (Isaac + Pegasus, Phase 3). Lane A — PX4 + Gazebo, Phases 0–2 — and the vLLM server never touch Isaac. Phase 0 was sequenced so this cannot stall the critical path.</p>
+</div>
+
+<h3>Ranked fallbacks, filed as <code>P0-09</code></h3>
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>Fallback</th><th>Cost / consequence</th></tr></thead>
+<tbody>
+<tr><th>1</th><td>NGC container <code>nvcr.io/nvidia/isaac-sim:5.1.0</code> (tag <span class="pill p-warn">TODO-verify</span>)</td><td>Cheapest to try. Bundles its own userspace and may tolerate the host driver; GPU-in-Docker already works on this box.</td></tr>
+<tr><th>2</th><td>Isaac Sim 6.0</td><td><strong>Not a free upgrade.</strong> 6.0 requires Python 3.12 — changing the entire ROS 2 integration path in <code>P0-10</code> — <em>and</em> breaks Pegasus v5.1.0, which pins to Isaac 5.1.0 exactly. Re-opens the Lane B architecture.</td></tr>
+<tr><th>3</th><td>Host image rebase to an R580 driver</td><td>Owner-only. Affects the whole workstation and needs checking against whatever else on <code>carbonite</code> wants a 610-era driver.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Recorded in <code>versions.lock</code> as <code>status: CONFLICT</code>, deliberately <strong>not</strong> as a pin. Pinning a version that may not run would be a fabricated lock.</p>
+</section>
+
+<section id="path">
+<span class="secnum">§ 4 · SEQUENCING</span>
+<h2>Phase 0 critical path</h2>
+
+<p>Sixteen tasks. The graph is shaped by one rule: <strong>a Lane B failure must not stall Lane A.</strong> <code>P0-09</code> sits on its own branch with everything Isaac-shaped behind it, and <code>P0-13</code> (vLLM) shares no dependency with PX4, so it can run in parallel with the entire Lane A chain.</p>
+
+<figure>
+<svg viewBox="0 0 1140 430" role="img" aria-label="Phase 0 dependency graph: P0-00 scaffold complete feeds P0-01 GPU check, which feeds the Lane A chain P0-02 through P0-08 and then P0-14 and P0-15, plus an independent vLLM task P0-13, plus a blocked Lane B branch P0-09 through P0-12">
+  <!-- edges first -->
+  <path class="e" d="M95,56 L95,86"/>
+  <path class="e" d="M150,104 L180,104"/>
+  <path class="e" d="M290,104 L320,104"/>
+  <path class="e" d="M290,104 L305,104 L305,164 L320,164"/>
+  <path class="e" d="M430,104 L460,104"/>
+  <path class="e" d="M430,164 L460,164"/>
+  <path class="e" d="M570,104 L585,104 L585,134 L600,134"/>
+  <path class="e" d="M570,164 L585,164 L585,134 L600,134"/>
+  <path class="e" d="M710,134 L740,134"/>
+  <path class="e" d="M850,134 L865,134 L865,193 L880,193"/>
+  <path class="e" d="M710,250 L865,250 L865,193"/>
+  <path class="e" d="M990,193 L1020,193"/>
+  <path class="e" d="M95,122 L95,250 L600,250"/>
+  <path class="e-b" d="M95,122 L95,348 L320,348"/>
+  <path class="e-b" d="M430,348 L445,348 L445,324 L460,324"/>
+  <path class="e-b" d="M430,348 L445,348 L445,384 L460,384"/>
+  <path class="e-b" d="M570,324 L585,324 L585,354 L600,354"/>
+  <path class="e-b" d="M570,384 L585,384 L585,354 L600,354"/>
+
+  <!-- P0-00 -->
+  <rect x="40" y="20" width="110" height="36" class="n-done"/>
+  <text x="95" y="38" class="nid" text-anchor="middle">P0-00 ✔</text>
+  <text x="95" y="50" class="nlb" text-anchor="middle">scaffold</text>
+
+  <!-- Lane A -->
+  <rect x="40"  y="86"  width="110" height="36" class="n-a"/>
+  <text x="95"  y="104" class="nid" text-anchor="middle">P0-01</text><text x="95" y="116" class="nlb" text-anchor="middle">GPU / Docker</text>
+  <rect x="180" y="86"  width="110" height="36" class="n-a"/>
+  <text x="235" y="104" class="nid" text-anchor="middle">P0-02</text><text x="235" y="116" class="nlb" text-anchor="middle">ROS 2 Jazzy</text>
+  <rect x="320" y="86"  width="110" height="36" class="n-a"/>
+  <text x="375" y="104" class="nid" text-anchor="middle">P0-03</text><text x="375" y="116" class="nlb" text-anchor="middle">PX4 v1.16 + gz</text>
+  <rect x="460" y="86"  width="110" height="36" class="n-a"/>
+  <text x="515" y="104" class="nid" text-anchor="middle">P0-04</text><text x="515" y="116" class="nlb" text-anchor="middle">enum targets</text>
+  <rect x="320" y="146" width="110" height="36" class="n-a"/>
+  <text x="375" y="164" class="nid" text-anchor="middle">P0-05</text><text x="375" y="176" class="nlb" text-anchor="middle">XRCE agent</text>
+  <rect x="460" y="146" width="110" height="36" class="n-a"/>
+  <text x="515" y="164" class="nid" text-anchor="middle">P0-06</text><text x="515" y="176" class="nlb" text-anchor="middle">px4_msgs 1.16</text>
+  <rect x="600" y="116" width="110" height="36" class="n-a"/>
+  <text x="655" y="134" class="nid" text-anchor="middle">P0-07</text><text x="655" y="146" class="nlb" text-anchor="middle">5-min SITL</text>
+  <rect x="740" y="116" width="110" height="36" class="n-a"/>
+  <text x="795" y="134" class="nid" text-anchor="middle">P0-08</text><text x="795" y="146" class="nlb" text-anchor="middle">QGC</text>
+
+  <!-- lock + CI -->
+  <rect x="880" y="175" width="110" height="36" class="n-v"/>
+  <text x="935" y="193" class="nid" text-anchor="middle">P0-14</text><text x="935" y="205" class="nlb" text-anchor="middle">resolve lock</text>
+  <rect x="1020" y="175" width="110" height="36" class="n-v"/>
+  <text x="1075" y="193" class="nid" text-anchor="middle">P0-15</text><text x="1075" y="205" class="nlb" text-anchor="middle">coupling CI</text>
+
+  <!-- vLLM -->
+  <rect x="600" y="232" width="110" height="36" class="n-v"/>
+  <text x="655" y="250" class="nid" text-anchor="middle">P0-13</text><text x="655" y="262" class="nlb" text-anchor="middle">vLLM · GPU 1</text>
+
+  <!-- Lane B -->
+  <rect x="320" y="330" width="110" height="36" class="n-b"/>
+  <text x="375" y="348" class="nid" text-anchor="middle">P0-09</text><text x="375" y="360" class="nlb" text-anchor="middle">Isaac launches?</text>
+  <rect x="460" y="306" width="110" height="36" class="n-b"/>
+  <text x="515" y="324" class="nid" text-anchor="middle">P0-10</text><text x="515" y="336" class="nlb" text-anchor="middle">Py-3.11 ws</text>
+  <rect x="460" y="366" width="110" height="36" class="n-b"/>
+  <text x="515" y="384" class="nid" text-anchor="middle">P0-11</text><text x="515" y="396" class="nlb" text-anchor="middle">PX4 v1.14.3</text>
+  <rect x="600" y="336" width="110" height="36" class="n-b"/>
+  <text x="655" y="354" class="nid" text-anchor="middle">P0-12</text><text x="655" y="366" class="nlb" text-anchor="middle">Pegasus 5.1.0</text>
+
+  <!-- legend -->
+  <rect x="790" y="330" width="14" height="14" class="n-a"/><text x="812" y="342" class="nlb">Lane A — unblocked</text>
+  <rect x="790" y="352" width="14" height="14" class="n-v"/><text x="812" y="364" class="nlb">Independent / lock</text>
+  <rect x="790" y="374" width="14" height="14" class="n-b"/><text x="812" y="386" class="nlb">Lane B — gated on P0-09</text>
+</svg>
+<figcaption>Fig 2 — Phase 0 task dependency graph, 16 tasks across three independent branches</figcaption>
+</figure>
+
+<div class="callout">
+  <span class="lbl">Phase 0 exit criteria — all five</span>
+  <p style="margin:0"><code>make px4_sitl gz_x500</code> flies headless with no Accel/Mag TIMEOUT over a 5-minute run · <code>ros2 topic list</code> shows <code>/fmu/out/*</code> · QGC connects · Isaac Sim 5.1 launches and its Python-3.11 ROS bridge publishes <code>/clock</code> · a "hello VLM" call hits a vLLM OpenAI-compatible endpoint.</p>
+</div>
+</section>
+
+<section id="decisions">
+<span class="secnum">§ 5 · CHOICES</span>
+<h2>Decisions</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th>#</th><th>Decision</th><th>Why</th></tr></thead>
+<tbody>
+<tr><th>D1</th><td><code>versions.lock</code> uses an explicit status vocabulary — <code>observed</code> / <code>pinned</code> / <code>TODO-verify</code> / <code>CONFLICT</code></td><td>A lockfile that cannot distinguish "measured today" from "copied out of a doc" is worse than none. Phase 0's whole job is converting the second into the first.</td></tr>
+<tr><th>D2</th><td>An entry is <strong>not locked</strong> until it has a version <em>and</em> a SHA <em>and</em> a passing smoke test</td><td>Tags move; SHAs do not. Prevents a nominal lock that is not reproducible.</td></tr>
+<tr><th>D3</th><td><code>.repos</code> is phase-gated — only Lane A active, Lane B/C commented out</td><td><code>vcs import</code> would otherwise pull tens of GB of Isaac and UE5 trees before those lanes are being built.</td></tr>
+<tr><th>D4</th><td>Task IDs are <code>P0-01</code>, never <code>#1</code></td><td>A bare <code>#N</code> auto-links to an unrelated same-repo issue on GitHub. <code>P0-01</code> structurally cannot mis-link.</td></tr>
+<tr><th>D5</th><td>The dependency graph isolates <code>P0-09</code></td><td>So a Lane B failure cannot stall Lane A. <code>P0-13</code> is likewise independent and parallelisable.</td></tr>
+<tr><th>D6</th><td>Added <code>.gitignore</code> and <code>.repos</code>, which were not explicitly requested</td><td>Both appear in the plan's monorepo layout, and scaffolding <code>vendor/</code> without ignore rules invites committing a multi-GB PX4 tree on the first <code>git add</code>.</td></tr>
+<tr><th>D7</th><td>This render drops the Google Fonts <code>&lt;link&gt;</code> that <code>docs/reference/*.html</code> uses</td><td>Worklog renders must be strictly self-contained — no external css, js, fonts or images. Identical variables, layout and three-theme toggle; local font stacks substituted. A deliberate divergence, not drift.</td></tr>
+<tr><th>D8</th><td>Area docs for Phases 1–4 not created</td><td>An empty backlog doc is noise. The master index names them and marks them "not yet created".</td></tr>
+<tr><th>D9</th><td><code>.gitignore</code> vendor rules keep component directories <strong>traversable</strong> before excluding their contents</td><td>See F6 below — the obvious form of the rule silently makes the vendoring notes uncommittable.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>F6 — the obvious <code>vendor/</code> ignore rule silently loses <code>LOCAL_PATCHES.md</code></h3>
+
+<p>Caught by testing the rule instead of trusting it. The natural first draft was:</p>
+
+<pre>vendor/*
+!vendor/README.md
+!vendor/*/LOCAL_PATCHES.md</pre>
+
+<p><strong>This does not work.</strong> Git cannot re-include a file whose parent <em>directory</em> is excluded, and <code>vendor/*</code> excludes <code>vendor/PX4-Autopilot-v1.16/</code> as a directory — so the negation is never evaluated. Proven against a simulated tree:</p>
+
+<pre>$ git status --porcelain --ignored=matching vendor/
+?? vendor/
+<b>!! vendor/PX4-Autopilot-v1.16/</b>          <span class="c">← whole tree ignored, notes included</span></pre>
+
+<div class="callout stop">
+  <span class="lbl">Why this mattered</span>
+  <p style="margin:0"><code>.ai/AGENTS.md:313</code> requires every deviation from upstream to be recorded in <code>vendor/&lt;component&gt;/LOCAL_PATCHES.md</code> <strong>so the divergence is auditable</strong> — which means committed. The rule as first written would have made the audit trail uncommittable, and nobody would have noticed until the first vendor patch.</p>
+</div>
+
+<p>The corrected form keeps component directories traversable, then excludes their contents:</p>
+
+<pre>vendor/*
+!vendor/README.md
+<b>!vendor/*/</b>
+<b>vendor/*/*</b>
+!vendor/*/LOCAL_PATCHES.md</pre>
+
+<p>Re-tested with the same simulated tree:</p>
+
+<pre>?? vendor/PX4-Autopilot-v1.16/LOCAL_PATCHES.md    <span class="c">← trackable</span>
+?? vendor/README.md                               <span class="c">← trackable</span>
+!! vendor/PX4-Autopilot-v1.16/Makefile            <span class="c">← ignored</span>
+!! vendor/PX4-Autopilot-v1.16/src/                <span class="c">← ignored</span></pre>
+</section>
+
+<section id="notdone">
+<span class="secnum">§ 6 · HONESTY</span>
+<h2>What was not done</h2>
+
+<div class="callout warn">
+  <span class="lbl">The scaffold is a plan, not evidence</span>
+  <p style="margin:0">No smoke test was run, so <strong>no Phase 0 exit criterion is met</strong>. Nothing here demonstrates that anything flies.</p>
+</div>
+
+<ul>
+  <li><strong>Nothing installed.</strong> No apt, no clone, no build — the task was explicitly planning and scaffolding.</li>
+  <li><strong>No SHAs resolved.</strong> Every <code>sha:</code> in <code>versions.lock</code> is <code>TODO-verify</code>, because resolving one honestly requires an actual checkout. Reading a SHA off a webpage and writing it into a lockfile would look like verification without being it.</li>
+  <li><strong>Nothing committed or pushed.</strong> Wall clock at scaffold time was <strong>Tue 2026-07-28 13:54 PDT</strong> — inside the Mon–Fri 08:00–18:00 Pacific no-commit window. Everything is left in the working tree, and no timestamp was back-dated to dodge the window.</li>
+</ul>
+</section>
+
+<section id="next">
+<span class="secnum">§ 7 · FORWARD</span>
+<h2>Next steps</h2>
+
+<p>Lane A first, in dependency order:</p>
+<p class="mono" style="font-size:13px"><code>P0-01</code> GPU/Docker → <code>P0-02</code> ROS 2 Jazzy → <code>P0-03</code> PX4 v1.16.0 + Harmonic → <code>P0-04</code> enumerate real model targets → <code>P0-05</code> XRCE agent → <code>P0-06</code> px4_msgs <code>release/1.16</code> → <code>P0-07</code> 5-min headless SITL with RTF recorded → <code>P0-08</code> QGC.</p>
+
+<p><code>P0-13</code> (vLLM on GPU 1) can run in parallel — it shares no dependency with PX4.</p>
+
+<p><code>P0-09</code> — <em>does Isaac Sim launch on driver 610.43.03?</em> — is the question to answer before <strong>any</strong> Lane B install, and its answer may re-open the Lane B architecture.</p>
+
+<div class="callout">
+  <span class="lbl">Gate</span>
+  <p style="margin:0">Awaiting owner approval of the Lane A install sequence before proceeding.</p>
+</div>
+</section>
+
+<section id="evidence">
+<span class="secnum">§ 8 · REPRODUCE</span>
+<h2>Evidence</h2>
+
+<p>Commands whose output backs every finding above, all run 2026-07-28 inside the <code>drone-sim</code> container:</p>
+
+<pre><span class="c"># wall clock — determines whether the commit window is open</span>
+date -u; TZ=America/Los_Angeles date
+
+<span class="c"># platform</span>
+. /etc/os-release; echo "$PRETTY_NAME"; uname -r
+
+<span class="c"># F2, F3 — driver version and per-GPU VRAM</span>
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+
+<span class="c"># F4 — CPU and RAM</span>
+nproc; free -g
+
+<span class="c"># F1 — is anything actually installed?</span>
+python3 --version
+ls /opt/ros; which gz ros2 MicroXRCEAgent colcon
+
+<span class="c"># F5 — storage</span>
+df -h / /var/mnt/*</pre>
+
+<div class="tw">
+<table>
+<thead><tr><th>Probe</th><th>Result</th></tr></thead>
+<tbody>
+<tr><th>OS / kernel</th><td class="mono">Ubuntu 24.04.4 LTS · 7.1.3-ogc5.1.fc44.x86_64</td></tr>
+<tr><th>Driver</th><td class="mono">610.43.03 · CUDA UMD 13.3</td></tr>
+<tr><th>GPU 0</th><td class="mono">RTX 3080 · 10240 MiB · render role</td></tr>
+<tr><th>GPU 1</th><td class="mono">RTX 5060 Ti · 16311 MiB · inference role</td></tr>
+<tr><th>CPU / RAM</th><td class="mono">24 cores · 62 GB</td></tr>
+<tr><th>Python</th><td class="mono">3.12.3</td></tr>
+<tr><th>ROS 2 / PX4 / gz / colcon</th><td class="mono">absent</td></tr>
+<tr><th>Storage</th><td class="mono">/ 312 G avail · external 5.5 T avail</td></tr>
+<tr><th>Wall clock</th><td class="mono">Tue 2026-07-28 13:54 PDT (20:54 UTC)</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<footer>
+  <span>Worklog · Phase 0 scaffold</span>
+  <span>Source: docs/worklog/2026-07-28-phase-0-scaffold.md</span>
+  <span>2026-07-28</span>
+</footer>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,
+      btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),
+      order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){
+    root.setAttribute('data-theme',t);
+    var next=order[(order.indexOf(t)+1)%order.length];
+    lbl.textContent=names[next];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[next]);
+    btn.setAttribute('aria-label','Colour theme: '+names[t]+'. Switch to '+names[next]+'.');
+  }
+  if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){set('dark');}
+  else{set('light');}
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);
+  });
+})();
+</script>
+</body>
+</html>

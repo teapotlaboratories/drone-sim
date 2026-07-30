@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>D-01 Container Parity &amp; the PX4 Prompt Spin — Worklog 2026-07-29</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">WORKLOG · 2026-07-29</span>
+  <nav>
+    <a href="#result">Result</a>
+    <a href="#rootcause">Root cause</a>
+    <a href="#metric">Wrong metric</a>
+    <a href="#host">Host test</a>
+    <a href="#mybugs">My bugs</a>
+    <a href="#state">State</a>
+  </nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+
+<div class="wrap">
+
+<header class="mast">
+  <span class="eyebrow">Worklog · D-01 · Reproducible-as-Docker</span>
+  <h1>Container Parity<br>&amp; the PX4 Prompt Spin</h1>
+  <p class="sub">Closing <code>D-01</code>: the Lane A image is native-equivalent on a normal container runtime. Nearly every anomaly chased across two sessions traced to <strong>one missing line in PX4 upstream</strong> plus three of my own instrumentation bugs.</p>
+  <div class="mastmeta">
+    <span>Date <b>2026-07-29</b></span>
+    <span>D-01 <b>closed</b></span>
+    <span>Host RTF <b>0.9967</b></span>
+    <span>Native RTF <b>1.0000</b></span>
+    <span>Spam reduced <b>46,000×</b></span>
+  </div>
+</header>
+
+<div class="toc">
+  <span class="lbl">On this page</span>
+  <ol>
+    <li><a href="#result">The result</a></li>
+    <li><a href="#rootcause">Root cause: PX4 busy-spins its prompt</a></li>
+    <li><a href="#metric">The metric was wrong</a></li>
+    <li><a href="#host">Host podman test</a></li>
+    <li><a href="#mybugs">My own instrumentation bugs</a></li>
+    <li><a href="#state">State &amp; next</a></li>
+  </ol>
+</div>
+
+<section id="result">
+<span class="secnum">§ 1 · OUTCOME</span>
+<h2>The result</h2>
+
+<div class="grid g3">
+  <div class="stat ok"><span class="k">Host podman</span><div class="v">0.9967</div><div class="n">aggregate RTF — 0.33% off bare metal</div></div>
+  <div class="stat"><span class="k">Native</span><div class="v">1.0000</div><div class="n">no container runtime</div></div>
+  <div class="stat warn"><span class="k">Nested Docker</span><div class="v">0.9767</div><div class="n">this dev box only — Docker in rootless podman</div></div>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>Configuration</th><th>Aggregate RTF</th><th>Topic rate</th><th>Sensor TIMEOUTs</th><th>Instantaneous dips &lt;0.95</th></tr></thead>
+<tbody>
+<tr><th>Native (no container runtime)</th><td class="mono">1.0000</td><td class="mono">100.02 Hz</td><td class="mono">1 in 3 runs</td><td class="mono">1 of 8,791</td></tr>
+<tr><th>Host podman (no nesting)</th><td class="mono"><strong>0.9967</strong></td><td class="mono">99.74 Hz</td><td class="mono">0</td><td class="mono"><strong>0 of 2,930</strong></td></tr>
+<tr><th>Nested Docker (this dev box)</th><td class="mono">0.9767</td><td class="mono">97.2 Hz</td><td class="mono">0 in 5 runs</td><td class="mono">655 of 2,907</td></tr>
+</tbody>
+</table>
+</div>
+
+<figure>
+<svg viewBox="0 0 1140 240" role="img" aria-label="Bar chart of aggregate real-time factor: native 1.0000, host podman 0.9967, nested Docker 0.9767, with bars scaled from 0.95 to 1.00">
+  <text x="20" y="26" class="nlb">Aggregate RTF — bars scaled 0.950 → 1.000 (widths to scale from measured values)</text>
+  <line x1="150" y1="46" x2="150" y2="200" class="e"/>
+  <text x="150" y="220" class="axl" text-anchor="middle">0.950</text>
+  <text x="1060" y="220" class="axl" text-anchor="middle">1.000</text>
+  <line x1="1060" y1="46" x2="1060" y2="200" class="e" stroke-dasharray="3 3"/>
+
+  <text x="140" y="76" class="nlb" text-anchor="end">Native</text>
+  <rect x="150" y="60" width="910" height="26" fill="var(--ok)" opacity="0.85"/>
+  <text x="1070" y="78" class="nid">1.0000</text>
+
+  <text x="140" y="126" class="nlb" text-anchor="end">Host podman</text>
+  <rect x="150" y="110" width="850" height="26" fill="var(--chrome)" opacity="0.85"/>
+  <text x="1070" y="128" class="nid">0.9967</text>
+
+  <text x="140" y="176" class="nlb" text-anchor="end">Nested Docker</text>
+  <rect x="150" y="160" width="486" height="26" fill="var(--ground)" opacity="0.85"/>
+  <text x="1070" y="178" class="nid">0.9767</text>
+
+  <text x="150" y="236" class="nlb">Host podman is within 0.33% of bare metal. The 2.3% gap belongs to nested Docker on this box, not to containerization.</text>
+</svg>
+<figcaption>Fig 1 — Aggregate real-time factor across the three configurations</figcaption>
+</figure>
+
+<div class="callout ok">
+  <span class="lbl">Conclusion</span>
+  <p style="margin:0"><strong>The containerized stack reproduces native behaviour.</strong> The 2.3% deficit belongs to <em>this dev box's</em> nested Docker-in-rootless-podman arrangement — not to containerization. For a reproducibility goal that distinction is the whole point: ship the image, run it on a normal host, get native performance.</p>
+</div>
+</section>
+
+<section id="rootcause">
+<span class="secnum">§ 2 · ROOT CAUSE</span>
+<h2>PX4 busy-spins its prompt</h2>
+
+<p><code>platforms/posix/src/px4/common/px4_daemon/pxh.cpp</code> enters non-canonical terminal mode without setting <code>VMIN</code>:</p>
+
+<pre>term.c_lflag &amp;= ~ICANON;        <span class="c">// non-canonical mode...</span>
+term.c_lflag &amp;= ~ECHO;
+tcsetattr(0, TCSANOW, &amp;term);   <span class="c">// ...but c_cc[VMIN] is never set</span>
+...
+int c = getchar();
+bool update_prompt = true;
+switch (c) { <b>case EOF: break;</b> }          <span class="c">// no exit, no sleep</span>
+if (update_prompt) { _clear_line(); _print_prompt(); }</pre>
+
+<p>POSIX requires setting <code>VMIN</code>/<code>VTIME</code> when clearing <code>ICANON</code>. PX4 does not, so whether <code>getchar()</code> blocks depends entirely on what stdin happens to be:</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>stdin</th><th><code>VMIN</code></th><th>Behaviour</th></tr></thead>
+<tbody>
+<tr><th>normal terminal</th><td class="mono">1</td><td><span class="pill p-ok">blocks</span> PX4 behaves — why humans never see this</td></tr>
+<tr><th>pipe / redirect</th><td class="mono">n/a</td><td><span class="pill p-stop">spin</span> <code>getchar()</code> returns <code>EOF</code> immediately</td></tr>
+<tr><th><code>screen</code> pty</th><td class="mono"><strong>0</strong></td><td><span class="pill p-stop">spin</span> <code>read()</code> returns 0 bytes immediately</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Measured: the 10-byte unit <code>pxh&gt; </code> + <code>ESC[2K</code> + <code>\r</code> emitted <strong>31,895,659 times in 22 seconds</strong> — ~1.45 M/s, ~14.5 MB/s, <strong>4.1 GB per 300 s run</strong>, plus one CPU core fully consumed.</p>
+
+<p>Verified that <code>screen</code>'s pty presents <code>min = 0; time = 0</code> while <code>script</code>'s presents <code>min = 1</code>, and that this is unconditional (identical with or without a parent tty). <strong>So the defect is PX4's</strong> — screen behaves legally and merely fails to mask it.</p>
+
+<h3>What one missing line caused</h3>
+
+<figure>
+<svg viewBox="0 0 1140 330" role="img" aria-label="Causal chain from the missing VMIN setting through prompt spin to filled tmpfs, lost measurements, broken tooling, and sensor timeouts">
+  <rect x="20" y="20" width="250" height="56" class="n-b"/>
+  <text x="145" y="43" class="nid" text-anchor="middle">missing VMIN=1</text>
+  <text x="145" y="60" class="nlb" text-anchor="middle">pxh.cpp, upstream</text>
+
+  <path class="e-b" d="M270,48 L320,48"/>
+  <rect x="320" y="20" width="250" height="56" class="n-b"/>
+  <text x="445" y="43" class="nid" text-anchor="middle">prompt busy-spin</text>
+  <text x="445" y="60" class="nlb" text-anchor="middle">1.45 M writes/sec</text>
+
+  <path class="e-b" d="M570,48 L620,48"/>
+  <rect x="620" y="20" width="250" height="56" class="n-b"/>
+  <text x="745" y="43" class="nid" text-anchor="middle">4.1 GB / 300 s</text>
+  <text x="745" y="60" class="nlb" text-anchor="middle">+ 1 CPU core burned</text>
+
+  <path class="e-b" d="M745,76 L745,110"/>
+  <path class="e-b" d="M745,110 L200,110 L200,150"/>
+  <path class="e-b" d="M745,110 L520,110 L520,150"/>
+  <path class="e-b" d="M745,110 L745,150"/>
+  <path class="e-b" d="M745,110 L1000,110 L1000,150"/>
+
+  <rect x="80" y="150" width="240" height="66" class="n-box"/>
+  <text x="200" y="176" class="nid" text-anchor="middle">tmpfs filled</text>
+  <text x="200" y="194" class="nlb" text-anchor="middle">32 GB consumed</text>
+  <text x="200" y="209" class="nlb" text-anchor="middle">3 runs of logs</text>
+
+  <rect x="400" y="150" width="240" height="66" class="n-box"/>
+  <text x="520" y="176" class="nid" text-anchor="middle">RTF data lost</text>
+  <text x="520" y="194" class="nlb" text-anchor="middle">native runs 3–5</text>
+  <text x="520" y="209" class="nlb" text-anchor="middle">scored FAIL wrongly</text>
+
+  <rect x="625" y="150" width="240" height="66" class="n-box"/>
+  <text x="745" y="176" class="nid" text-anchor="middle">tooling broke</text>
+  <text x="745" y="194" class="nlb" text-anchor="middle">ENOSPC, exit 1</text>
+  <text x="745" y="209" class="nlb" text-anchor="middle">jobs "killed" at 25 s</text>
+
+  <rect x="880" y="150" width="240" height="66" class="n-box"/>
+  <text x="1000" y="176" class="nid" text-anchor="middle">sensor TIMEOUTs</text>
+  <text x="1000" y="194" class="nlb" text-anchor="middle">fuse-overlayfs I/O</text>
+  <text x="1000" y="209" class="nlb" text-anchor="middle">blamed on Docker</text>
+
+  <rect x="320" y="252" width="500" height="56" class="n-done"/>
+  <text x="570" y="275" class="nid" text-anchor="middle">FIX: stty min 1 time 0</text>
+  <text x="570" y="292" class="nlb" text-anchor="middle">4.1 GB → 28 KB per 300 s · ~46,000× less · no wasted core</text>
+</svg>
+<figcaption>Fig 2 — One missing line, four downstream failures, all initially misdiagnosed</figcaption>
+</figure>
+
+<div class="callout">
+  <span class="lbl">Fix — launch layer, no source patch</span>
+  <pre style="margin:8px 0 0">screen -dmS px4sitl -L -Logfile &lt;log&gt; bash -c "stty min 1 time 0; make px4_sitl gz_x500"</pre>
+  <p style="margin:8px 0 0"><code>stty min 1</code> restores the blocking read PX4 assumes. <code>screen</code> additionally keeps the console attachable and interactive — <code>screen -r px4sitl</code>, and <code>screen -X stuff "commander status\r"</code> works.</p>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">Upstream-worthy</span>
+  <p style="margin:0">Two one-line fixes: set <code>VMIN=1</code> when clearing <code>ICANON</code>, and treat repeated <code>EOF</code> as "no interactive console" rather than spinning. <strong>Any non-interactive PX4 SITL launch hits this — i.e. every CI system.</strong></p>
+</div>
+</section>
+
+<section id="metric">
+<span class="secnum">§ 3 · MEASUREMENT</span>
+<h2>The metric was wrong</h2>
+
+<p>Gazebo's <code>real_time_factor</code> field is an <strong>instantaneous, short-window estimate</strong> and is extremely noisy. On the same run it swung <strong>0.14 → 1.01</strong> while the true ratio was <strong>0.977</strong>.</p>
+
+<p>I built the acceptance test on that field, then investigated its noise as though it were a defect — reporting "sustained multi-second stalls" that did not exist.</p>
+
+<div class="callout stop">
+  <span class="lbl">The cross-check that should have caught it immediately</span>
+  <p style="margin:0">The <code>/fmu/out</code> publish rate tracked the <em>aggregate</em> ratio exactly — 97.2 Hz ≈ 97.7% of 100 Hz — not the instantaneous minimum. A sim genuinely running at 0.25× for seconds would have collapsed the topic rate. It never did.</p>
+</div>
+
+<p>The correct metric was in the same message all along: <code>sim_time</code> and <code>real_time</code> are both published, and their ratio over the run is the aggregate RTF.</p>
+
+<pre>/^sim_time \{/{st=1; next}  st &amp;&amp; /sec:/{sim=$2; st=0}
+/^real_time \{/{rt=1; next} rt &amp;&amp; /sec:/{real=$2; rt=0}
+END{ printf "AGGREGATE RTF = %.4f\n", (simN-sim0)/(realN-real0) }</pre>
+
+<div class="callout warn">
+  <span class="lbl">CI consequence</span>
+  <p style="margin:0">Never assert on <strong>minimum instantaneous</strong> RTF. A healthy <em>native</em> run produced a single transient at <strong>0.503 out of 2,931 samples</strong> and would fail a <code>min &gt;= 0.95</code> gate. Assert on <strong>aggregate RTF</strong>, or a percentile / N-consecutive-samples rule.</p>
+</div>
+</section>
+
+<section id="host">
+<span class="secnum">§ 4 · HOST TEST</span>
+<h2>Host podman — the 2.3% is nesting</h2>
+
+<p>Getting host execution working took several attempts. Every obstacle is environment-specific and will recur, so all of them are recorded.</p>
+
+<div class="callout stop">
+  <span class="lbl">The blocker: host-spawn needs the HOST session bus</span>
+  <pre style="margin:8px 0 0"><span class="c"># WRONG — the container's own bus. host-spawn silently no-ops: rc=0, no output, nothing runs.</span>
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+
+<span class="c"># RIGHT</span>
+export DBUS_SESSION_BUS_ADDRESS=unix:path=<b>/run/host</b>/run/user/1000/bus
+host-spawn /usr/bin/podman --version   <span class="c"># -> podman version 5.8.4</span></pre>
+  <p style="margin:8px 0 0"><code>distrobox enter</code> sets this for interactive shells, which is why it works by hand and fails from a non-interactive agent shell. I concluded "the plumbing is dead" after seven failed variations; it was misconfiguration on my side.</p>
+</div>
+
+<div class="tw">
+<table>
+<thead><tr><th>Obstacle</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><th>Host has no <code>docker</code></th><td>Bazzite 44 (Kinoite) ships <strong>podman 5.8.4</strong> only</td></tr>
+<tr><th>Host binary unusable in-container</th><td><code>/run/host/usr/bin/podman</code> → <code>libsubid.so.5: cannot open shared object file</code> (Fedora binary, Ubuntu userspace) — and it would run in the <em>container's</em> namespaces anyway</td></tr>
+<tr><th><code>runroot</code> length limit</th><td>podman: <em>"the specified runroot is longer than 50 characters"</em> (Unix socket path limit) → store on the external drive, runroot at <code>/tmp/pmrr</code></td></tr>
+<tr><th>Nested rootless <code>podman load</code> fails</th><td><em>"insufficient UIDs or GIDs available in user namespace (requested 0:42 for /etc/gshadow)"</em> — already in a userns, so the <strong>host</strong> must do the load</td></tr>
+<tr><th>SELinux</th><td><code>bash: /smoke.sh: Permission denied</code> (rc=126) → bind mounts need <code>:z</code>. Staged the script on the external drive rather than relabel repo files</td></tr>
+<tr><th>Backgrounded host process dies</th><td><code>nohup … &amp;</code> via host-spawn is killed when host-spawn returns — run synchronously</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <span class="lbl">Deliberately avoided</span>
+  <p style="margin:0">The host's <em>live</em> podman store at <code>~/.local/share/containers/storage</code> is shared via <code>/home/deck</code> and is what runs this distrobox. Concurrent writes from a second podman risk corrupting it — which would break the container, not just the test. Used an isolated <code>--root</code> on the external drive instead.</p>
+</div>
+
+<p><strong>Result:</strong> host podman ran at aggregate RTF <strong>0.9967</strong>, 99.74 Hz, 0 TIMEOUTs, 0 errors, and <strong>0 instantaneous dips out of 2,930</strong> — versus 655 dips under nested Docker. I had argued this test "changes no decision"; that was wrong. It is the difference between <em>"our containerized stack costs 2.3%"</em> and <em>"our stack is native-equivalent; this box's nesting costs 2.3%."</em></p>
+</section>
+
+<section id="mybugs">
+<span class="secnum">§ 5 · HONESTY</span>
+<h2>My own instrumentation bugs</h2>
+
+<p>None broke the stack. All broke the ability to <em>observe</em> it — which is worse, because the output still looks like data.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th>Bug</th><th>Effect</th></tr></thead>
+<tbody>
+<tr><th><code>grep 'fail: TIMEOUT'</code></th><td>PX4 prints <code>fail:&nbsp;&nbsp;TIMEOUT!</code> with a <strong>double</strong> space, and <code>failed:</code> for MAG. The assertion silently reported <strong>0</strong> while TIMEOUTs were occurring</td></tr>
+<tr><th>Shell chain ending in <code>tail</code></th><td>A <strong>failed</strong> Docker build reported exit 0; <code>docker images</code> was empty. Caught only by <code>ldd</code> showing an unresolved library and a stale binary mtime</td></tr>
+<tr><th><code>pkill -f 'gz sim'</code></th><td>Matched the command line of the shell running it → cleanup killed its own parent. Symptom: inexplicable SIGTERM ~25 s after start. Fixed with the <code>[g]z sim</code> bracket trick</td></tr>
+<tr><th>Logs in a container <code>mktemp</code> dir</th><td><code>--rm</code> destroyed the evidence of every failing run. Now bind-mounted via <code>OUTDIR</code></td></tr>
+<tr><th>Sparse RTF sampling (1 / 20 s)</th><td>A 5 s event had ~25% detection odds. Native's "5/5 clean" was sampling luck — with dense sampling native shows 1 TIMEOUT in 3 runs</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout stop">
+  <span class="lbl">The pattern</span>
+  <p style="margin:0">I repeatedly changed the measurement on <em>one arm</em> of a comparison and forgot the other, then drew conclusions from the mismatch. The native/container comparison was invalid <strong>three separate times</strong> for this reason.</p>
+</div>
+</section>
+
+<section id="state">
+<span class="secnum">§ 6 · FORWARD</span>
+<h2>State &amp; next</h2>
+
+<ul>
+  <li><code>drone-sim/lane-a:v1.16.0</code>, 11.6 GB, all pins SHA-verified at build time and readable at <code>/etc/drone-sim-versions</code></li>
+  <li>Smoke harness launches PX4 under <code>screen</code> + <code>stty min 1</code>, logs survive <code>--rm</code> via <code>OUTDIR</code>, RTF sampled densely (~9.5 Hz) and asserted on the <strong>aggregate</strong> ratio</li>
+  <li>Isolated host podman store on the external drive (12 GB) with the image loaded — reusable without another transfer</li>
+</ul>
+
+<div class="callout warn">
+  <span class="lbl">Not committed</span>
+  <p style="margin:0">Two days of work sits in the working tree. The commit window (Mon–Fri 08:00–18:00 PT) has been closed for most of this session.</p>
+</div>
+
+<h3>Next</h3>
+<ol>
+  <li>Commit after 18:00 PT</li>
+  <li><code>P0-13</code> — serve a VLM model, hello-VLM call (closes the 5th Phase 0 exit criterion)</li>
+  <li><code>P0-14</code> / <code>P0-15</code> — finalize the lock, coupling-assertion script</li>
+  <li>Lane C <code>C-01</code> — pin a known-good Cosys-AirSim commit for UE5.5</li>
+  <li>Report the PX4 <code>VMIN</code> defect upstream</li>
+</ol>
+</section>
+
+<footer>
+  <span>Worklog · D-01 container parity</span>
+  <span>Source: docs/worklog/2026-07-29-d01-container-parity.md</span>
+  <span>2026-07-29</span>
+</footer>
+</div>
+
+
+<script>
+(function(){
+  var root=document.documentElement,
+      btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),
+      order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){
+    root.setAttribute('data-theme',t);
+    var next=order[(order.indexOf(t)+1)%order.length];
+    lbl.textContent=names[next];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[next]);
+    btn.setAttribute('aria-label','Colour theme: '+names[t]+'. Switch to '+names[next]+'.');
+  }
+  if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){set('dark');}
+  else{set('light');}
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);
+  });
+})();
+</script>
+</body>
+</html>
