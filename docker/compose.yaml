@@ -17,10 +17,10 @@
 
 x-lane-a: &lane-a
   image: drone-sim/lane-a:v1.16.0
-  # Docker defaults /dev/shm to 64 MB. Fast-DDS uses shared memory as its default
-  # transport and starves at that size — measured, not theoretical.
-  shm_size: 2gb
   restart: "no"
+  # NOTE: shm_size is deliberately NOT here. Only px4-sitl needs it — the other services
+  # join its IPC namespace and therefore use ITS /dev/shm, so declaring shm_size on them
+  # is inert and misleading.
 
 services:
 
@@ -31,20 +31,30 @@ services:
     <<: *lane-a
     container_name: lane-a-px4
     hostname: px4-sitl
+    # Docker defaults /dev/shm to 64 MB. Fast-DDS uses shared memory as its default
+    # transport and starves at that size — measured, not theoretical. Every other service
+    # shares this one via `ipc: service:px4-sitl`.
+    shm_size: 2gb
     # The DONOR of an IPC namespace must opt in, or joiners fail with
     # "non-shareable IPC (hint: use IpcMode:shareable for the donor container)".
     ipc: shareable
+    # Bound to LOOPBACK by default. Publishing on 0.0.0.0 would expose MAVLink GCS (14550),
+    # offboard control (14540) and the XRCE agent (8888) to the LAN — i.e. anyone routable
+    # could arm and command the vehicle. That matters doubly because this file is the
+    # template for the Phase 4 hardware bring-up, where the same mistake reaches a Pixhawk.
+    # For a remote QGC, set BIND_ADDR explicitly and understand what you are exposing:
+    #   BIND_ADDR=0.0.0.0 docker compose -f docker/compose.yaml up -d
     ports:
-      - "14550:14550/udp"   # QGroundControl / GCS
-      - "14540:14540/udp"   # offboard + programmatic control
-      - "8888:8888/udp"     # uXRCE-DDS agent
-      - "4560:4560/tcp"     # Gazebo <-> PX4
+      - "${BIND_ADDR:-127.0.0.1}:14550:14550/udp"   # QGroundControl / GCS
+      - "${BIND_ADDR:-127.0.0.1}:14540:14540/udp"   # offboard + programmatic control
+      - "${BIND_ADDR:-127.0.0.1}:8888:8888/udp"     # uXRCE-DDS agent
+      - "${BIND_ADDR:-127.0.0.1}:4560:4560/tcp"     # Gazebo <-> PX4
     environment:
       HEADLESS: "1"
       GZ_IP: "127.0.0.1"
     volumes:
       - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
-      - ./out:/out
+      - ../out:/out
       - ../scenarios:/scenarios:ro
       - rosbags:/rosbags
     # A killed run leaves orphaned fastrtps_* segments behind; sweep before starting so a
@@ -87,6 +97,16 @@ services:
     volumes:
       - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
     command: ["MicroXRCEAgent", "udp4", "-p", "8888"]
+    # The agent is the ENTIRE PX4<->ROS 2 bridge and it has crashed in this project's
+    # history (v2.4.2 segfaulted creating DDS entities). Without a restart policy a crash
+    # silently stops the topics while every other container still reports healthy.
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[M]icroXRCEAgent' >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   # ---------------------------------------------------------------------------------
   # ROS 2 side. Idles so you can exec into it; this is where ros2_ws nodes will run.
@@ -101,7 +121,7 @@ services:
         condition: service_healthy
     volumes:
       - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
-      - ./out:/out
+      - ../out:/out
       - ../ros2_ws:/ros2_ws_src:ro
       - rosbags:/rosbags
     command:
@@ -118,12 +138,16 @@ services:
   # ---------------------------------------------------------------------------------
   verify:
     <<: *lane-a
-    container_name: lane-a-verify
+    # No container_name: `compose run` ignores it and generates its own name.
     profiles: ["test"]
     network_mode: "service:px4-sitl"
     ipc: "service:px4-sitl"          # shared /dev/shm — see xrce-agent
     depends_on:
       px4-sitl:
+        condition: service_healthy
+      # Without this the gate can start before the bridge is up, see zero topics, and fail
+      # spuriously. It passed only because PX4's healthcheck happens to take longer.
+      xrce-agent:
         condition: service_healthy
     environment:
       SMOKE_ATTACH: "1"          # do not launch PX4/agent; the stack is already up
@@ -131,7 +155,7 @@ services:
       OUTDIR: /out
     volumes:
       - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
-      - ./out:/out
+      - ../out:/out
       - ../tests/lane-a-smoke.sh:/smoke.sh:ro
     command: ["bash", "/smoke.sh"]
 

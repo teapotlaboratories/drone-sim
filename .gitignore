@@ -55,5 +55,5 @@ secrets/
 .idea/
 *.swp
 .DS_Store
-docker/out/
-out/
+# compose + demo run artifacts (root-anchored so it cannot swallow e.g. ros2_ws/src/*/out)
+/out/

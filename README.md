@@ -144,12 +144,22 @@ Details and the seven gotchas that cost time: [`docker/demo/README.md`](docker/d
 
 ### Ports
 
+All four are published on **`127.0.0.1` only**.
+
 | Port | Use |
 |---|---|
 | 14550/udp | QGroundControl / GCS |
 | 14540/udp | offboard + programmatic control |
 | 8888/udp | uXRCE-DDS agent (→ ROS 2 topics) |
 | 4560/tcp | Gazebo ↔ PX4 |
+
+> **MAVLink has no authentication.** Published on `0.0.0.0`, port 14540 lets anyone routable
+> arm and command the vehicle. To reach the stack from another machine, opt in explicitly:
+> ```bash
+> BIND_ADDR=0.0.0.0 docker compose -f docker/compose.yaml up -d
+> ```
+> Do that on a trusted network only — and note that this compose file is the template for
+> Phase 4 hardware bring-up, where the same setting points at a real Pixhawk.
 
 ---
 
