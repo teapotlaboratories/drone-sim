@@ -63,7 +63,19 @@ branch-matched `px4_msgs`, then **verifies every pin against its recorded SHA** 
 build on a mismatch. Expect 20–40 minutes and ~11.6 GB; the pins land in
 `/etc/drone-sim-versions` inside the image.
 
-### 2. Prove it flies (the acceptance test)
+### 2. Bring the stack up and prove it flies
+
+```bash
+docker compose -f docker/compose.yaml up -d                          # PX4 + Gazebo + XRCE agent + ROS 2
+docker compose -f docker/compose.yaml --profile test run --rm verify # the acceptance gate
+docker compose -f docker/compose.yaml down -v
+```
+
+Compose declares the constraints that are otherwise easy to forget — `shm_size: 2gb`, shared
+network **and** IPC namespaces (Fast-DDS delivers over shared memory), loopback-pinned Gazebo
+transport, and a `/dev/shm` sweep so a killed run cannot poison the next one.
+
+Single-container equivalent, if you prefer no compose:
 
 ```bash
 docker run --rm --shm-size=2g -e DURATION=300 \
@@ -80,13 +92,16 @@ miss. Reference: **RTF 1.0000 native · 0.9967 host podman · 0.9767 nested Dock
 
 ### 3. Poke at it interactively
 
+With the stack up:
+
 ```bash
-docker run --rm -it --shm-size=2g drone-sim/lane-a:v1.16.0
-# inside:
-screen -dmS px4sitl bash -c "stty min 1 time 0; cd /opt/px4 && HEADLESS=1 GZ_IP=127.0.0.1 make px4_sitl gz_x500"
-screen -r px4sitl        # live PX4 shell:  commander status, param show, ...
-ros2 topic list | grep /fmu/out    # the 24 topics the ROS 2 graph attaches to
+docker compose -f docker/compose.yaml exec px4-sitl screen -r px4sitl   # live PX4 shell
+docker compose -f docker/compose.yaml exec ros2 bash -lc 'ros2 topic list | grep /fmu/out'
 ```
+
+> **Use `bash -lc`.** `docker compose exec` bypasses the image entrypoint, so a plain
+> `exec ros2 ros2 topic list` runs without a ROS environment and reports **0 topics on a
+> perfectly healthy stack**. The login shell picks up `/etc/profile.d/10-ros.sh`.
 
 > **`stty min 1` is required.** PX4's `pxh` shell clears `ICANON` without setting `VMIN`, so
 > with a pipe or a `screen` pty it busy-spins its prompt — ~1.45 M writes/s, **4.1 GB of
@@ -122,7 +137,7 @@ QGC mount.
 
 > **These are recordings, not live windows.** Everything renders to Xvfb inside the
 > container, so you get an `.mp4` rather than an interactive GUI. Attaching a live viewer
-> (x11vnc + noVNC on the same virtual display) is not wired up yet — see `D-02` in
+> (x11vnc + noVNC on the same virtual display) is not wired up yet — see `D-02b` in
 > [`docs/docker/todo.md`](docs/docker/todo.md).
 
 Details and the seven gotchas that cost time: [`docker/demo/README.md`](docker/demo/README.md).
@@ -158,7 +173,9 @@ factor **1.000**, **24 `/fmu/out/*` topics at 100 Hz**, and QGroundControl conne
 ```
 versions.lock          pinned SHAs + the couplings CI must assert — the authority
 .repos                 vcstool manifest for third-party trees (phase-gated)
-docker/                per-service Dockerfiles + compose
+docker/                compose.yaml + the Lane A Dockerfile + entrypoint
+docker/demo/           video/flight demos (not needed by CI)
+tests/                 lane-a-smoke.sh — the acceptance gate
 ros2_ws/src/           the original glue: interfaces, bringup, perception,
                        state_estimation, planning, control, vlm_client, evaluation
 sim/{gazebo,isaac,ue5} per-lane worlds and scenes
