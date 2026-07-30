@@ -30,7 +30,21 @@ cat /etc/drone-sim-versions 2>/dev/null | sed 's/^/  /'
 # the cleanup kills its own parent. Symptom is an inexplicable SIGTERM/exit 144 seconds
 # after start. Do not "simplify" the brackets away.
 cleanup(){ screen -S px4sitl -X quit 2>/dev/null; pkill -f '[b]in/px4' 2>/dev/null; pkill -f '[g]z sim' 2>/dev/null; pkill -f '[M]icroXRCEAgent' 2>/dev/null; sleep 2; }
-trap cleanup EXIT
+[ "${SMOKE_ATTACH:-0}" = "1" ] || trap cleanup EXIT   # never tear down a stack we only attached to
+
+# SMOKE_ATTACH=1 -> the stack is already running (docker compose); verify it rather than
+# starting a second PX4/agent, which would fight for ports 8888/14550 and prove nothing
+# about the deployment under test.
+if [ "${SMOKE_ATTACH:-0}" = "1" ]; then
+  echo "### ATTACH mode — verifying the already-running stack (not starting PX4/agent)"
+  for i in $(seq 1 60); do
+    grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log" 2>/dev/null && break
+    sleep 2
+  done
+  grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log" 2>/dev/null \
+    || { echo "FAIL: no running PX4 found (is the stack up?)"; exit 1; }
+  echo "  found a booted PX4 in $LOGDIR/px4.log"
+else
 
 echo "### starting XRCE agent"
 MicroXRCEAgent udp4 -p 8888 > "$LOGDIR/agent.log" 2>&1 &
@@ -63,6 +77,7 @@ if ! grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log"; then
   echo "FAIL: PX4 did not boot"; tail -20 "$LOGDIR/px4.log"; exit 1
 fi
 echo "  booted after ~$((i*2))s"
+fi
 sleep 10
 
 echo "### /fmu/out topics"
@@ -131,7 +146,14 @@ if [ -s "$LOGDIR/rtf.log" ]; then
 else
   echo "  RTF instantaneous : NO SAMPLES"
 fi
-echo "  alive at end      : px4=$(pgrep -cf 'bin/px4') gz=$(pgrep -cf 'gz sim') agent=$(pgrep -cf MicroXRCEAgent)"
+if [ "${SMOKE_ATTACH:-0}" = "1" ]; then
+  # In ATTACH mode the stack runs in OTHER containers, so this container's process table
+  # cannot see it. Reporting 0 here would look like a crash; the real liveness evidence is
+  # the topic count and moving data above.
+  echo "  alive at end      : n/a in ATTACH mode (stack runs in separate containers)"
+else
+  echo "  alive at end      : px4=$(pgrep -cf 'bin/px4') gz=$(pgrep -cf 'gz sim') agent=$(pgrep -cf MicroXRCEAgent)"
+fi
 
 # A count without the text is not actionable — always show what the errors actually were.
 if [ "$ERRORS" != "0" ]; then

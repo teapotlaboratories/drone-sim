@@ -1,0 +1,139 @@
+# Lane A stack — `docker compose up`
+#
+#   docker compose -f docker/compose.yaml up -d          # bring the stack up
+#   docker compose -f docker/compose.yaml --profile test run --rm verify
+#   docker compose -f docker/compose.yaml down -v
+#
+# WHY THE SERVICES SHARE ONE NETWORK NAMESPACE
+# --------------------------------------------
+# PX4 dials the uXRCE-DDS agent at *127.0.0.1*:8888, and Gazebo transport is pinned to
+# loopback (GZ_IP=127.0.0.1) because Gazebo multicast flooding the host network is a
+# documented cause of the Accel/Mag TIMEOUT failures (PX4/PX4-Autopilot#24595).
+# Putting these services on a normal bridge network would break BOTH: PX4 would dial a
+# loopback that no agent is listening on, and Gazebo discovery would leak.
+# `network_mode: "service:px4-sitl"` puts every service in px4-sitl's netns, so 127.0.0.1
+# means the same thing to all of them — exactly as in the single-container smoke test.
+# Consequence: only px4-sitl may declare `ports:`; the others inherit them.
+
+x-lane-a: &lane-a
+  image: drone-sim/lane-a:v1.16.0
+  # Docker defaults /dev/shm to 64 MB. Fast-DDS uses shared memory as its default
+  # transport and starves at that size — measured, not theoretical.
+  shm_size: 2gb
+  restart: "no"
+
+services:
+
+  # ---------------------------------------------------------------------------------
+  # PX4 SITL + Gazebo. Owns the network namespace the rest of the stack joins.
+  # ---------------------------------------------------------------------------------
+  px4-sitl:
+    <<: *lane-a
+    container_name: lane-a-px4
+    hostname: px4-sitl
+    # The DONOR of an IPC namespace must opt in, or joiners fail with
+    # "non-shareable IPC (hint: use IpcMode:shareable for the donor container)".
+    ipc: shareable
+    ports:
+      - "14550:14550/udp"   # QGroundControl / GCS
+      - "14540:14540/udp"   # offboard + programmatic control
+      - "8888:8888/udp"     # uXRCE-DDS agent
+      - "4560:4560/tcp"     # Gazebo <-> PX4
+    environment:
+      HEADLESS: "1"
+      GZ_IP: "127.0.0.1"
+    volumes:
+      - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
+      - ./out:/out
+      - ../scenarios:/scenarios:ro
+      - rosbags:/rosbags
+    # A killed run leaves orphaned fastrtps_* segments behind; sweep before starting so a
+    # cancelled job cannot poison the next one.
+    # `stty min 1` is MANDATORY: PX4's pxh shell clears ICANON without setting VMIN, so with
+    # a non-blocking stdin it busy-spins its prompt — ~1.45M writes/s, 4.1 GB per 300 s run
+    # and a fully consumed CPU core.
+    command:
+      - bash
+      - -lc
+      - |
+        rm -f /dev/shm/fastrtps_* 2>/dev/null || true
+        mkdir -p /out && : > /out/px4.log
+        screen -dmS px4sitl -L -Logfile /out/px4.log \
+          bash -c "stty min 1 time 0; cd /opt/px4 && make px4_sitl gz_x500"
+        echo "px4-sitl: launched under screen (attach with: docker compose exec px4-sitl screen -r px4sitl)"
+        exec tail -f /out/px4.log
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qa 'Startup script returned successfully' /out/px4.log"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------------
+  # uXRCE-DDS agent — the PX4 <-> ROS 2 bridge. Must share px4-sitl's loopback.
+  # ---------------------------------------------------------------------------------
+  xrce-agent:
+    <<: *lane-a
+    container_name: lane-a-xrce
+    network_mode: "service:px4-sitl"
+    # Sharing the netns is NOT enough. Fast-DDS discovers over UDP but delivers over SHARED
+    # MEMORY, and each container gets its own /dev/shm — so topics appear in `ros2 topic
+    # list` while `ros2 topic echo` returns nothing. Sharing the IPC namespace shares
+    # /dev/shm and makes data actually flow. Verified 2026-07-29.
+    ipc: "service:px4-sitl"
+    depends_on:
+      px4-sitl:
+        condition: service_started
+    volumes:
+      - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
+    command: ["MicroXRCEAgent", "udp4", "-p", "8888"]
+
+  # ---------------------------------------------------------------------------------
+  # ROS 2 side. Idles so you can exec into it; this is where ros2_ws nodes will run.
+  # ---------------------------------------------------------------------------------
+  ros2:
+    <<: *lane-a
+    container_name: lane-a-ros2
+    network_mode: "service:px4-sitl"
+    ipc: "service:px4-sitl"          # shared /dev/shm — see xrce-agent
+    depends_on:
+      px4-sitl:
+        condition: service_healthy
+    volumes:
+      - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
+      - ./out:/out
+      - ../ros2_ws:/ros2_ws_src:ro
+      - rosbags:/rosbags
+    command:
+      - bash
+      - -lc
+      - |
+        echo "ros2: ready — try  docker compose exec ros2 bash -lc 'ros2 topic list'"
+        exec sleep infinity
+
+  # ---------------------------------------------------------------------------------
+  # Acceptance gate. `--profile test` so it does not run as part of `up`.
+  # Attaches to the RUNNING stack instead of starting its own PX4, so it verifies the
+  # compose deployment rather than a private copy of it.
+  # ---------------------------------------------------------------------------------
+  verify:
+    <<: *lane-a
+    container_name: lane-a-verify
+    profiles: ["test"]
+    network_mode: "service:px4-sitl"
+    ipc: "service:px4-sitl"          # shared /dev/shm — see xrce-agent
+    depends_on:
+      px4-sitl:
+        condition: service_healthy
+    environment:
+      SMOKE_ATTACH: "1"          # do not launch PX4/agent; the stack is already up
+      DURATION: "${DURATION:-300}"
+      OUTDIR: /out
+    volumes:
+      - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
+      - ./out:/out
+      - ../tests/lane-a-smoke.sh:/smoke.sh:ro
+    command: ["bash", "/smoke.sh"]
+
+volumes:
+  rosbags:

@@ -114,7 +114,33 @@ on reaching the end of a script.
 
 ## D-02 — `docker compose` for the Lane A graph
 
-**Status:** `todo` · **Blocked by:** D-01
+**Status:** ✅ **`done` (2026-07-29)** — `docker compose up` reaches the `P0-07` result.
+
+```bash
+docker compose -f docker/compose.yaml up -d
+docker compose -f docker/compose.yaml --profile test run --rm verify   # the gate
+docker compose -f docker/compose.yaml down -v
+```
+
+**Verified:** full 300 s run against the composed stack — 24 `/fmu/out/*` topics, 0 sensor
+TIMEOUTs, 0 ERROR lines, aggregate RTF **0.9733**, publish rate 98.05 Hz, clean teardown.
+The `verify` service **attaches to the running stack** rather than starting its own PX4, so
+it tests the deployment rather than a private copy of it.
+
+### Three bugs found by running it — none visible to `compose config`
+
+| Bug | Symptom | Fix |
+|---|---|---|
+| Shared netns is not enough for DDS | `ros2 topic list` shows topics, `ros2 topic echo` returns **nothing** — Fast-DDS discovers over UDP but delivers over **shared memory**, and each container has its own `/dev/shm` | `ipc: "service:px4-sitl"` on every joining service |
+| IPC donor must opt in | `failed to join IPC namespace: non-shareable IPC` | `ipc: shareable` on `px4-sitl` |
+| `docker compose exec` bypasses the ENTRYPOINT | exec shells have no ROS env; `ros2 topic list` reports **0 topics on a healthy stack** — a false negative that looks exactly like a broken deployment | mount `docker/ros-env.sh` into `/etc/profile.d/`, and use `bash -lc` |
+
+**Design constraint worth keeping in mind:** every service shares `px4-sitl`'s network *and*
+IPC namespace, because PX4 dials the agent at **127.0.0.1**:8888 and Gazebo transport is
+pinned to loopback. A conventional bridge network would break both. Consequence: only
+`px4-sitl` may declare `ports:`.
+
+**Original definition:** ~~`todo` · Blocked by: D-01~~
 
 **What.** Compose file with the services the plan names
 (`02_development_plan.md:134`): `px4-sitl`, `xrce-agent`, `ros2-ws`, `qgc`, `recording`.
