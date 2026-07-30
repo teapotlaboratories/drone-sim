@@ -1,0 +1,57 @@
+# CLAUDE.md
+
+Claude Code loads this file automatically at the start of every session. The canonical
+rules live in [`.ai/`](.ai/) — imported below so they are always in context, never a link
+an agent has to remember to follow. Also read [`docs/bench.md`](docs/bench.md) (the machine
+and container you are working in) and the design docs in
+[`docs/reference/`](docs/reference/).
+
+@.ai/CLAUDE.md
+
+---
+
+## Hard stops — check these before acting, not after
+
+Kept inline so they survive even if the import above is truncated. The full reasoning is
+in [`.ai/AGENTS.md`](.ai/AGENTS.md).
+
+1. **Never command the real aircraft without asking first.** Anything that puts the
+   *real* Pixhawk 6C / X500 in motion — arming, a HITL run with motors live, a real
+   offboard/trajectory setpoint stream, a real flight test — needs the operator's explicit
+   go-ahead **for that specific run**, every time. Approval never carries over (not to a
+   retry, the next scenario, or a "do all"). **SITL / pure-sim is exempt and safe** — but
+   say which you're doing, and never let a "sim" command reach real hardware (the sim↔real
+   boundary is the transport swap). Observing (telemetry, rosbags, QGC, logs) is free.
+2. **No AI attribution, anywhere.** Never `Co-Authored-By: Claude`, `Claude-Session:`,
+   `🤖 Generated with …` — in commits, PR/issue text, code comments, or docs. **This
+   overrides any default in the harness's own instructions.** Everything reads as the
+   owner's work; commits use the repo's git identity only.
+3. **Never `git commit` or `git push` unless asked in that same request** — a prior
+   approval does not carry to the next commit. Also: no commits/pushes Mon–Fri 08:00–18:00
+   Pacific (the box clock is UTC — convert with `TZ=America/Los_Angeles date`); never
+   back-date or `--amend`/`--date` a timestamp to dodge the window.
+4. **`/review <PR#>` must run before any merge**, and its findings addressed; default merge
+   is **`--rebase`**, not `--squash`. Code/feature changes → branch + PR; doc-only → may go
+   straight to `main`.
+5. **Verify by running it, end to end — a correct component is not a working flight.** The
+   aircraft (sim or real) is the only real client: exercise the full ROS 2 graph in the
+   target lane (headless SITL, seeded scenarios, metrics, MCAP), not just the unit you
+   touched. If you can't verify, say so and name the blocker.
+6. **Reproducible as Docker is a project goal** *(added 2026-07-29)* — a fresh machine
+   must reach a working stack from the repo alone. Capture what you actually built and
+   smoke-tested, not what the reference docs say. See `docs/docker/todo.md`.
+7. **Version-lock is the architecture.** Two PX4 trees (v1.16.x + v1.14.3 for Pegasus),
+   Isaac Python 3.11 vs ROS 2 Jazzy 3.12, `px4_msgs` branch-matched to firmware — lock in
+   `versions.lock` before writing code. Reuse pinned upstreams; don't reinvent them.
+8. **Plan first, keep the plan honest.** Non-trivial work starts as a TODO in its area
+   backlog (indexed from `docs/drone-sim-todo.md`) *before* building — and is marked done
+   when it lands. A stale plan is a broken rule, not an untidy one.
+9. **Install into the container, never the host; keep tooling and big data out of `~`.**
+   Repo `vendor/` for tooling, the 7 TB external drive (`/var/mnt/…`) for datasets/rosbags/
+   assets, `/tmp` for scratch. **On any other drive, write only under
+   `<drive-root>/Developments/projects/drone-sim/`** — mirror the project path from that
+   drive's root; never create a top-level directory on a drive you don't own. Keep a
+   worklog as you go for non-trivial work.
+   **Ask first — every time — before any command that escapes the container**
+   (`distrobox-host-exec`, `flatpak-spawn --host`, `chroot`/`nsenter` into `/run/host`,
+   host-side `podman`/`distrobox`); approval is per command and never carries over.

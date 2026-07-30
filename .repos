@@ -1,0 +1,72 @@
+# vcstool manifest for third-party trees — preferred over git submodules
+# (.ai/AGENTS.md:316). Checked out into vendor/, which is git-ignored.
+#
+#   vcs import vendor < .repos
+#   vcs status vendor
+#
+# Versions here MUST agree with versions.lock. versions.lock is the authority and
+# carries the reasoning; this file is the mechanism. When a `sha: TODO-verify` in
+# versions.lock is resolved, pin the SHA here too — a tag can move, a SHA cannot.
+#
+# Phase-gated on purpose: only the Phase 0 (Lane A) set is active. The Lane B and Lane C
+# trees are left commented out so `vcs import` does not pull tens of GB of Isaac/UE5
+# dependencies before those lanes are actually being built. Uncomment per phase.
+
+repositories:
+
+  # --- Phase 0 / Lane A: PX4 v1.16.x + uXRCE-DDS + ROS 2 Jazzy -----------------
+  PX4-Autopilot-v1.16:
+    type: git
+    url: https://github.com/PX4/PX4-Autopilot.git
+    version: v1.16.0
+    # Recursive submodules required: git submodule update --init --recursive
+    # Also serves REAL hardware (Pixhawk 6C).
+
+  Micro-XRCE-DDS-Agent:
+    type: git
+    url: https://github.com/eProsima/Micro-XRCE-DDS-Agent.git
+    version: v2.4.2
+
+  px4_msgs:
+    type: git
+    url: https://github.com/PX4/px4_msgs.git
+    version: release/1.16
+    # MUST stay branch-matched to PX4-Autopilot-v1.16. A mismatch is silent.
+
+  px4_ros_com:
+    type: git
+    url: https://github.com/PX4/px4_ros_com.git
+    version: main   # TODO-verify: confirm the branch that matches release/1.16
+
+  # --- Phase 3 / Lane B: Isaac Sim 5.1 + Pegasus + PX4 v1.14.3 -----------------
+  # Blocked pending the Isaac-vs-driver-610.43.03 verification (versions.lock).
+  #
+  # PX4-Autopilot-v1.14.3:
+  #   type: git
+  #   url: https://github.com/PX4/PX4-Autopilot.git
+  #   version: v1.14.3
+  #   # A SECOND, separate checkout. MAVLink SITL (TCP 4560), not uXRCE-DDS.
+  #
+  # PegasusSimulator:
+  #   type: git
+  #   url: https://github.com/PegasusSimulator/PegasusSimulator.git
+  #   version: v5.1.0   # TODO-verify exact tag name upstream
+  #
+  # IsaacSim-ros_workspaces:
+  #   type: git
+  #   url: https://github.com/isaac-sim/IsaacSim-ros_workspaces.git
+  #   version: TODO-verify   # build jazzy_ws against Python 3.11
+
+  # --- Phase 2 / planning + perception ----------------------------------------
+  #
+  # ego-planner-swarm:
+  #   type: git
+  #   url: https://github.com/ZJU-FAST-Lab/ego-planner-swarm.git
+  #   version: TODO-verify   # ROS 2 branch, drone_id=0; port ships a code-map doc
+
+  # --- Phase 4 / Lane C: UE5.5 + Cosys-AirSim ---------------------------------
+  #
+  # Cosys-AirSim:
+  #   type: git
+  #   url: https://github.com/Cosys-Lab/Cosys-AirSim.git
+  #   version: TODO-verify   # pin a known-good UE5.5 commit, not a branch

@@ -1,0 +1,61 @@
+Agent rules — see AGENTS.md for the full version. Read docs/bench.md (the machine +
+container) and docs/reference/ (the design) before making changes.
+
+Never command the real aircraft without asking first:
+Phase 4 puts commands on a real drone (Pixhawk 6C / X500 — HITL, then real flight).
+Anything that can put the real aircraft in motion (arming the real Pixhawk, a HITL run
+with motors live, a real offboard/trajectory setpoint stream, or a real flight test)
+needs the operator's explicit go-ahead for that specific run, every time. Approval never
+carries over: not to a retry after a failed/timed-out run, not to the next scenario/seed,
+and not because the operator approved a plan or said "do all". Say what the aircraft will
+do — mission/profile, parameters, duration, altitude, geofence, what stops it — then
+wait. SITL and pure-sim runs are exempt and safe, but say which you are doing and never
+let a "sim" command reach real hardware (the sim<->real boundary is the transport swap:
+SITL MAVLink/uXRCE-DDS vs a real Pixhawk link, use_sim_time, HITL in QGC). Observing
+(telemetry, rosbags, QGC, logs, nvidia-smi) needs no permission.
+
+Reproducible as Docker:
+(project goal, added 2026-07-29) The whole setup must be easily reproducible as Docker — a
+fresh machine reaches a working stack from this repo alone, with no undocumented manual
+steps. Pin the versions you actually built and smoke-tested, and record deviations from the
+reference docs: a Dockerfile written from the docs rather than from evidence reproduces a
+broken stack. Backlog: docs/docker/todo.md.
+
+Reuse upstream, don't reinvent; version-lock is the architecture:
+The stack is assembled from pinned upstreams (PX4, Pegasus, Isaac ROS, EGO-Planner,
+Cosys-AirSim, vLLM) — the glue is the original work. Don't hand-roll what a component
+provides. The dominant risk is version coupling: two PX4 trees (v1.16.x for Lane A +
+real; v1.14.3 for Pegasus), Isaac Python 3.11 vs ROS 2 Jazzy 3.12, px4_msgs branch-matched
+to firmware. Lock every version in versions.lock before writing code.
+
+Verify by running it, end to end:
+A green colcon build or a node correct in isolation is not a working flight — the aircraft
+(sim or real) is the only real client. Exercise the full ROS 2 graph in the target lane
+(headless SITL, seeded scenarios, SR/collision/latency metrics, MCAP evidence). If you
+cannot verify, say so and name the blocker.
+
+No AI / agent attribution:
+Do not add any AI- or coding-agent attribution, branding, or metadata to any artifact —
+commit messages (no "Co-Authored-By:" an AI model/tool, no "Generated with ..." or
+session-link trailers), pull requests, code comments, docs, or any file. Write everything
+as a normal human contributor would; keep authorship as the configured git user only.
+
+No committing or pushing during Pacific work hours:
+Never git commit or git push Mon-Fri 08:00-18:00 America/Los_Angeles (check with
+TZ=America/Los_Angeles date). Keep changes in the working tree only (staging is fine);
+commit and push off-hours, when commit dates are naturally correct — never back-date or
+--amend/--date a timestamp to dodge the window. An explicit request to commit or push now
+overrides the window.
+
+Code changes go through a pull request:
+Feature/code changes branch off main and land through a PR; doc-only changes may go
+straight to main. Run /review <PR#> (Claude Code) or an equivalent full-diff review before
+any merge and resolve what it flags; default merge is --rebase to keep main linear. Never
+merge unreviewed. Install into the container, never the host; keep tooling and big data out
+of ~ (repo vendor/ for tooling, the 7 TB external drive for data, /tmp for scratch). On any
+other drive, write only under <drive-root>/Developments/projects/drone-sim/ — mirror the
+project path from that drive's root; never create a top-level directory on a drive you don't
+own. Ask the
+operator first — every time — before any command that escapes the container
+(distrobox-host-exec, flatpak-spawn --host, chroot/nsenter into /run/host, host-side
+podman/distrobox); approval is per command and never carries over.

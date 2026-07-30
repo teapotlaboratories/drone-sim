@@ -1,0 +1,507 @@
+# versions.lock — pinned toolchain for drone-sim
+#
+# Version coupling IS the architecture, not a detail (.ai/AGENTS.md:281). Two PX4 trees,
+# two Python runtimes, one branch-matched message set. Resolve every entry here BEFORE
+# writing code, and let CI assert the couplings in the `couplings:` block below.
+#
+# Drafted 2026-07-28 during Phase 0 scaffolding. NOTHING here has been installed yet —
+# this is the target lock, not a record of a working system.
+#
+# status vocabulary
+#   observed     — measured on this machine on the date given; trustworthy
+#   pinned       — version fixed by the design docs in docs/reference/; not yet installed
+#   TODO-verify  — unknown or unconfirmed; MUST be resolved before Phase 0 exit
+#   CONFLICT     — a known contradiction between two pins; needs a decision, not a guess
+#
+# Rule: an entry is not "locked" until it has a version AND (where applicable) a SHA AND
+# a passing smoke test. `sha: TODO-verify` means the pin is nominal, not reproducible.
+
+meta:
+  drafted: 2026-07-28
+  phase: 0
+  drafted_by_running: docs/phase-0/todo.md
+  note: >-
+    Every sha/tag below marked TODO-verify must be filled from an actual checkout, not
+    from documentation. Pin the SHA that was built and smoke-tested, not the branch tip.
+
+# ---------------------------------------------------------------------------
+# Host & container — observed 2026-07-28 (docs/bench.md is the narrative version)
+# ---------------------------------------------------------------------------
+platform:
+  host:
+    name: carbonite
+    os: Fedora 44-based ostree immutable (uBlue/Bazzite-family)
+    kernel: 7.1.3-ogc5.1.fc44.x86_64
+    status: observed
+    note: Immutable. Install into the container, never the host.
+  container:
+    name: drone-sim
+    runtime: distrobox on rootless podman 5.8.4
+    base_image: ubuntu:24.04
+    os_version: Ubuntu 24.04.4 LTS
+    status: observed
+  cpu:
+    cores: 24
+    class: Core i9
+    status: observed
+    note: >-
+      PX4 SITL lockstep is single-thread-latency-sensitive; CPU starvation produces the
+      documented Accel/Mag TIMEOUT failures. 24 cores is ample headroom for Lane A.
+  ram_gb: 62
+  storage:
+    internal_avail_gb: 312          # observed 2026-07-28; docs/bench.md says ~279 (drifted)
+    external_mount: /var/mnt/11d5da46-aef5-4b40-a085-40c23f52cc30
+    external_avail_tb: 5.5
+    status: observed
+    note: >-
+      Datasets, rosbags, Isaac assets, UE5 projects go on the external drive. RGB-D at
+      640x480@30Hz is ~tens of GB/hour; budget 50-100 GB per benchmark sweep.
+
+# ---------------------------------------------------------------------------
+# GPUs — the work split is a hard rule (docs/reference/03_hardware_assessment.md:80)
+# ---------------------------------------------------------------------------
+gpu:
+  driver:
+    installed: "610.43.03"
+    cuda_umd: "13.3"
+    status: observed
+    observed_on: 2026-07-28
+  isaac_validated_driver:
+    version: "580.65.06"
+    status: pinned
+    source: docs/reference/03_hardware_assessment.md:12
+  driver_conflict:
+    status: CONFLICT
+    summary: >-
+      Installed driver 610.43.03 is four branches newer than Isaac Sim 5.1's validated
+      580.65.06. Isaac Sim has documented startup failures on drivers that are TOO NEW:
+      isaac-sim/IsaacSim#537 (fails to detect CUDA device on 595.79, works on 580),
+      isaac-sim/IsaacSim#229 (Warp CUDA error 'Failed to get driver entry point
+      cuDeviceGetUuid' on 580.65.06 — "my driver is too new for this version of Isaac
+      Sim"), and NVIDIA forum staff noting "report of invalidated driver past 580 on
+      5.1.0".
+    why_hard: >-
+      The driver is injected from the ostree-immutable HOST (--nvidia), so it cannot be
+      changed with apt inside the container. Downgrading means rebuilding/rebasing the
+      host image, which needs host sudo (password not available to the agent).
+    blast_radius: >-
+      Lane B (Isaac Sim + Pegasus) and Phase 3 only. Lane A (PX4 + Gazebo, Phase 0-2) and
+      the vLLM server do NOT depend on this and are unblocked.
+    resolution: CONFIRMED BROKEN — Isaac Sim 5.1 does NOT run on driver 610.43.03
+    tested: 2026-07-28 (P0-09)
+    evidence: >-
+      nvcr.io/nvidia/isaac-sim:5.1.0 (14.0 GB, public, no NGC login needed), headless
+      SimulationApp probe, GPU 0 (RTX 3080) exposed alone via --device nvidia.com/gpu=0.
+      Result: docker rc=139 (SIGSEGV). Crash signature `rtx.scenedb.plugin` x5 —
+      "[Fatal] librtx.scenedb.plugin.so!carbOnPluginStartup", then "Segmentation fault
+      (core dumped)". SimulationApp never came up: PROBE_APP_UP never printed.
+      This is verbatim the failure 03_hardware_assessment.md:41 documents.
+    key_disambiguation: >-
+      The crash occurred on the AMPERE RTX 3080 with the Blackwell 5060 Ti excluded from
+      the container entirely. So this is NOT the documented Blackwell/Isaac instability —
+      it is purely the driver version. Swapping cards or reassigning roles cannot fix it.
+    isaac_gpu_table: >-
+      Isaac's own [gpu.foundation] enumeration did render before the crash and confirms
+      the container boundary works as a GPU pin:
+      "Driver Version: 610.43.03 | Graphics API: Vulkan | 0 | NVIDIA GeForce RTX 3080 |
+      Yes: 0 | 10240 MB | UUID a59afb24..". Exposing one GPU via --device
+      nvidia.com/gpu=0 makes it index 0 inside, which enforces render-on-the-3080 at the
+      container boundary rather than relying on --/renderer/activeGpu.
+    fallback_1_ngc_container: EXHAUSTED — the container bundles userspace but still uses the host KMD.
+    next_action: >-
+      (b) Test Isaac Sim 6.0.0 (nvcr.io/nvidia/isaac-sim:6.0.0, public) on 610.43.03. If
+      6.0 runs, the trade becomes: 6.0 needs Python 3.12 (rewrites the P0-10 ROS 2
+      integration path) and BREAKS Pegasus v5.1.0, which pins to Isaac 5.1.0 exactly — so
+      Lane B would need a Pegasus alternative or a Pegasus version that targets 6.0.
+      (c) Otherwise: host image rebase to an R580 driver. OWNER-ONLY — the driver comes
+      from the ostree-immutable host, and the same host also serves ~1.1 TB of Steam
+      libraries that may want a 610-era driver.
+  devices:
+    - index: 0
+      name: NVIDIA GeForce RTX 3080
+      arch: Ampere sm_86
+      vram_mib: 10240
+      role: RENDER — Isaac Sim, UE5, Isaac ROS perception, display
+      status: observed
+      note: >-
+        Below Isaac Sim 5.1's stated 16 GB minimum. It runs, but cap scene complexity,
+        RTX-sensor count and resolution. Pin with --/renderer/activeGpu=0
+        --/physics/cudaDevice=0; the index comes from the Omniverse .log
+        [gpu.foundation] table, NOT nvidia-smi ordering. CUDA_VISIBLE_DEVICES does not
+        control the Vulkan RTX renderer.
+    - index: 1
+      name: NVIDIA GeForce RTX 5060 Ti
+      arch: Blackwell sm_120
+      vram_mib: 16311
+      role: INFERENCE ONLY — vLLM / VLM serving
+      status: observed
+      note: >-
+        Confirmed the 16 GB variant (16311 MiB), which resolves an open question in
+        03_hardware_assessment.md:83 — Qwen3-VL-8B AWQ is viable locally with KV
+        headroom, not just 2B/4B. Never render on this card. vLLM honours
+        CUDA_VISIBLE_DEVICES=1.
+  rules:
+    - Never span a single Isaac Sim render across both dissimilar cards (documented corruption).
+    - Never run UE5 shader compilation concurrently with a heavy Isaac Sim scene.
+
+# ---------------------------------------------------------------------------
+# Lane A — PX4 v1.16.x + Gazebo Harmonic + ROS 2 Jazzy  (Phase 0-2, and REAL HARDWARE)
+# ---------------------------------------------------------------------------
+lane_a:
+  px4:
+    repo: https://github.com/PX4/PX4-Autopilot.git
+    tag: v1.16.0
+    sha: 6ea3539157ca358c70a515878b77077af7d4611d   # cloned + verified 2026-07-28
+    submodules: 35, all initialized (recursive)
+    disk: 2.6 GB
+    status: LOCKED   # smoke-tested 2026-07-28 (P0-07)
+    vendor_path: vendor/PX4-Autopilot-v1.16
+    build: bash Tools/setup/ubuntu.sh && make px4_sitl gz_x500
+    smoke: "make px4_sitl gz_x500 — do NOT append _default"
+    smoke_result: >-
+      P0-07, 300 s continuous headless: 0 Accel/Mag TIMEOUT, 0 ERROR lines, RTF
+      1.000/1.000/1.000 over 15 samples, 24 /fmu/out/* topics at 100.02 Hz
+      (std dev 0.002 s), px4+gz+agent all alive at end.
+    launch_env: "HEADLESS=1 GZ_IP=127.0.0.1"
+    launch_requirement: >-
+      MUST be launched with a BLOCKING stdin, e.g. under screen with `stty min 1 time 0`.
+      PX4's pxh shell (platforms/posix/src/px4/common/px4_daemon/pxh.cpp) clears ICANON
+      without setting c_cc[VMIN], which POSIX requires. With a pipe (EOF) or screen's pty
+      (VMIN=0) getchar() returns instantly and the prompt loop busy-spins, emitting
+      "pxh> " + ESC[2K + CR ~1.45 MILLION times/second: 4.1 GB per 300 s run and one CPU
+      core consumed. This filled a 32 GB tmpfs, destroyed RTF measurements mid-run, broke
+      tooling, and caused sensor TIMEOUTs via I/O saturation. With `stty min 1`: ~28 KB per
+      300 s. Upstream defect; report it. Recommended launcher:
+      screen -dmS px4sitl -L -Logfile <log> bash -c "stty min 1 time 0; make px4_sitl gz_x500"
+      (also gives an attachable, interactive console: screen -r px4sitl)
+    note: >-
+      This tree also serves REAL hardware (Pixhawk 6C). v1.16 introduced uORB message
+      versioning and a required ROS 2 Message Translation Node.
+  ros2:
+    distro: jazzy
+    package: ros-jazzy-desktop + ros-dev-tools
+    desktop_version: 0.11.0-1noble.20260616.084553   # installed + verified 2026-07-28
+    ros_base_version: 0.11.0-1noble.20260616.084325
+    apt_source: ros2-apt-source 1.2.0~noble
+    python: "3.12.3"
+    status: observed
+    smoke: "ros2 topic list -> /parameter_events /rosout; import rclpy on 3.12.3 — both PASS"
+    note: >-
+      The old apt-key method was retired 2025-06-01 — the ros2-apt-source .deb release is
+      what works. Pin the DESKTOP VERSION, not just "jazzy": the distro name is not a
+      reproducible pin, the dated sync stamp (20260616.084553) is. rclpy imports on
+      Python 3.12.3 — this is the system-Jazzy half of the Isaac 3.11/3.12 split, and it
+      must never be sourced into Isaac's interpreter.
+  gazebo:
+    version: Harmonic
+    exact_version: gz-harmonic 1.0.0-1~noble   # installed + verified 2026-07-28
+    gz_sim: gz-sim8 8.14.0-1~noble
+    gz_tools: gz-tools2 2.0.3-2~noble
+    status: observed
+    installed_by: PX4 Tools/setup/ubuntu.sh (exit 0, 0 errors)
+    note: >-
+      Constrain transport to LOOPBACK — Gazebo multicast flooding the host network is a
+      documented root cause of the Accel/Mag TIMEOUT failures (PX4/PX4-Autopilot#24595).
+      Runs here set GZ_IP=127.0.0.1 and HEADLESS=1. The container's isolated netns helps
+      but is not a substitute for the setting.
+  nuttx_toolchain:
+    arm_none_eabi_gcc: "20231009"
+    status: observed
+    note: >-
+      Installed by the same setup script. Not needed for SITL, but required to flash real
+      Pixhawk 6C firmware in Phase 4 — kept rather than skipped with --no-nuttx.
+  micro_xrce_dds_agent:
+    repo: https://github.com/eProsima/Micro-XRCE-DDS-Agent.git
+    tag: v2.4.3          # DEVIATION from the plan's v2.4.2 — see deviation: below
+    sha: 73622810d984349b80bbac0ef55fc0b694d62222   # built + smoke-tested 2026-07-28
+    status: LOCKED
+    build_flags: "-DUAGENT_USE_SYSTEM_FASTDDS=ON -DCMAKE_PREFIX_PATH=/opt/ros/jazzy"
+    fastdds_actual: 2.14.6 (ros-jazzy-fastrtps) — matches what v2.4.3 targets
+    smoke: "P0-07: 24 /fmu/out/* topics, 100.02 Hz, 300 s, 0 errors, agent alive at end"
+    deviation: >-
+      Upstream's superbuild pins Fast-DDS by BRANCH (CMakeLists.txt:99, `_fastdds_tag
+      2.12.x`) and eProsima has since DELETED that branch, so a stock build of the pinned
+      v2.4.2 tag fails: "fatal: invalid reference: 2.12.x". Live branches are now 2.6.x
+      and 3.0.x-3.6.x; tags v2.12.0-v2.12.2 still exist.
+      Fixed at the BUILD layer, not by editing the vendored source:
+      -DUAGENT_USE_SYSTEM_FASTDDS=ON takes upstream's own system path, which sets
+      `_fastdds_version 2` — i.e. upstream sanctions any 2.x. Side benefit: exactly one
+      Fast-DDS on the machine, shared with the ROS 2 graph the agent talks to.
+      This is why D2 exists — a pin expressed as a branch is not a pin.
+  px4_ros_workspace:
+    layout: >-
+      Third-party ROS packages live in vendor/ (per .repos) and are built with
+      `colcon build --base-paths ../vendor/px4_msgs ../vendor/px4_ros_com` from ros2_ws/,
+      so no symlinks or copies land in ros2_ws/src and build/install/log stay git-ignored.
+  px4_msgs:
+    repo: https://github.com/PX4/px4_msgs.git
+    branch: release/1.16
+    sha: 392e831c1f659429ca83902e66820d7094591410   # cloned 2026-07-28
+    msg_count: 226
+    status: LOCKED   # /fmu/out/* observed populating with moving data (P0-07)
+    smoke_result: >-
+      24 /fmu/out/* topics present; /fmu/out/vehicle_local_position timestamps advanced
+      1785275929412801 -> 1785275950356985 across a 20 s gap; rate 100.02 Hz, std dev
+      0.002 s. The branch match is therefore proven by behaviour, not by the build.
+    note: >-
+      MUST be branch-matched to the firmware. A mismatch does not error — it silently
+      breaks topics. A green colcon build does NOT close this; only observing populated
+      /fmu/out/* topics does. CI asserts that, and the assertion is the only detector.
+  px4_ros_com:
+    repo: https://github.com/PX4/px4_ros_com.git
+    branch: release/1.16
+    sha: 86e9aeb20e55a4673fa8a9f1c29ea06a6c5ad1af   # cloned 2026-07-28
+    status: pinned
+    note: >-
+      Example code only in the uXRCE-DDS era; not load-bearing. RESOLVED a TODO-verify:
+      upstream does publish a release/1.16 branch, and it is used here. Note the
+      development plan's setup snippet (02_development_plan.md:108) clones px4_ros_com
+      with NO branch — i.e. main — while branch-matching px4_msgs. That asymmetry is a
+      latent mismatch; both are branch-matched here.
+  qgroundcontrol:
+    distribution: AppImage (latest channel)
+    source_url: https://d176tv9ibo4jno.cloudfront.net/latest/QGroundControl-x86_64.AppImage
+    downloaded: 2026-07-28
+    size_bytes: 180816376
+    path: vendor/tools/QGroundControl.AppImage
+    version: TODO-verify   # binary prints no version string without a display; read it from the GUI About box
+    status: observed
+    smoke: >-
+      P0-08: connected to PX4 v1.16.0 SITL over UDP 14550 — "Ready To Fly", flight mode
+      Hold, battery 100%, PX4 Autopilot detected, map at SITL default home
+      (Irchelpark, Zurich 47.397N 8.545E). Screenshot evidence:
+      docs/worklog/assets/2026-07-28-p0-08-qgc-connected.png
+    headless_note: >-
+      The container has no usable DISPLAY (an X0 socket exists but X authorization
+      rejects us: "Authorization required, but no authorization protocol specified").
+      QGC runs fine on a VIRTUAL display instead:
+        Xvfb :99 -screen 0 1600x1000x24
+        DISPLAY=:99 QT_QUICK_BACKEND=software LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=xcb ./QGroundControl.AppImage
+        DISPLAY=:99 import -window root shot.png
+      Xvfb has no hardware GL, so QT_QUICK_BACKEND=software is REQUIRED for QtQuick.
+      This same recipe is the general answer for verifying any GUI in this container
+      (rviz, Foxglove) — capture a screenshot instead of claiming it works.
+    note: chmod +x; add user to dialout; remove modemmanager (both only matter for real serial hardware).
+
+# ---------------------------------------------------------------------------
+# Lane B — Isaac Sim 5.1 + Pegasus + a SEPARATE PX4 v1.14.3  (Phase 3)
+#
+# *** DEFERRED 2026-07-29 *** Isaac Sim 5.1 SIGSEGVs on this host's driver 610.43.03
+# (validated: 580.65.06), reproduced on the AMPERE card with Blackwell excluded — so it
+# is the driver, not the GPU. Isaac 6.0 avoids the crash but NO Pegasus release exists for
+# it, which would mean writing the PX4<->Isaac bridge ourselves. Lane C (UE5.5 +
+# Cosys-AirSim) is promoted in its place. Pins below are RETAINED, not deleted: a host
+# rebase to an R580 driver reopens this lane unchanged.
+# Full reasoning: docs/lane-b/isaac-driver-decision.md
+# ---------------------------------------------------------------------------
+lane_b:
+  lane_status: DEFERRED   # see header above; not abandoned, fully reversible
+  px4:
+    repo: https://github.com/PX4/PX4-Autopilot.git
+    tag: v1.14.3
+    sha: TODO-verify
+    status: pinned
+    vendor_path: vendor/PX4-Autopilot-v1.14.3
+    transport: MAVLink SITL API (TCP 4560), NOT uXRCE-DDS
+    note: >-
+      A SECOND, separate PX4 checkout. Pegasus v5.1.0 was developed and tested against
+      v1.14.3 verbatim. This is designed around from day one, not worked around later.
+  isaac_sim:
+    version: 5.1.0
+    python: "3.11"
+    ngc_container_tag: nvcr.io/nvidia/isaac-sim:5.1.0   # RESOLVED: public, no NGC login needed
+    local_image: DELETED 2026-07-30 to reclaim ~36 GB (Lane B deferred); re-pull is one command
+    status: pinned
+    blocked_by: gpu.driver_conflict
+    note: >-
+      Isaac Sim 5.1.0 is marked "no longer supported" in NVIDIA's docs (superseded by
+      6.0). Migrating to 6.0 is NOT a free upgrade: 6.0 requires Python 3.12 (changing the
+      ROS 2 integration path) and breaks Pegasus v5.1.0 compatibility.
+  isaac_ros_workspace:
+    repo: IsaacSim-ros_workspaces
+    sha: TODO-verify
+    status: TODO-verify
+    note: >-
+      Build jazzy_ws against PYTHON 3.11 via its Dockerfile/build_ros.sh. Isaac Sim
+      launches from that sourced terminal; application nodes run from a separate system
+      Jazzy (3.12) terminal. The two halves meet over DDS — rclpy is never shared.
+    smoke: publish /clock from Isaac; `ros2 topic echo /clock` from the 3.12 terminal.
+  pegasus:
+    repo: https://github.com/PegasusSimulator/PegasusSimulator.git
+    version: v5.1.0
+    sha: TODO-verify
+    status: pinned
+    install: ISAACSIM_PYTHON -m pip install --editable pegasus.simulator
+    note: >-
+      Explicitly NOT backward-compatible: v5.1.0 pairs with Isaac Sim 5.1.0 only. Launch
+      examples with `isaac_run`, not ISAACSIM_PYTHON (v5.1.0 changelog). Upstream tested
+      on Ubuntu 22.04 + driver 550.163.01 + PX4 v1.14.3; we are on 24.04 + 610.43.03.
+
+# ---------------------------------------------------------------------------
+# Lane C — UE5.5 + Cosys-AirSim
+#
+# *** PROMOTED 2026-07-29 *** Now the photorealistic-perception lane, replacing Lane B,
+# in addition to its original benchmark-reproduction role. Rationale: none of the three
+# target papers (SPF, Fly0, OnFly) uses Isaac — they all evaluate on Unreal/AirSim-family
+# simulators — and this lane is driver-agnostic, so the Isaac blocker does not apply.
+# Still rated High/Med for BUILD FRAGILITY; pin a SHA, never a branch.
+# Backlog: docs/lane-c/todo.md
+# ---------------------------------------------------------------------------
+lane_c:
+  lane_status: PROMOTED   # photoreal perception + benchmark reproduction
+  open_question: >-
+    Can Lane C use PX4 v1.16.0 (already built) instead of needing its own tree?
+    Cosys-AirSim uses the MAVLink SITL API, not uXRCE-DDS. If yes, the two-PX4-tree
+    architecture — the plan's dominant risk — collapses to a single tree. Verify in C-03.
+  unreal_engine:
+    version: "5.5"
+    docker_base: ghcr.io/epicgames/unreal-engine:dev-slim-5.5.4
+    status: pinned
+    note: Requires EpicGames GitHub org access (present on this account).
+  cosys_airsim:
+    repo: https://github.com/Cosys-Lab/Cosys-AirSim
+    target_engine: UE5.5
+    sha: TODO-verify
+    status: TODO-verify
+    note: >-
+      Pin a KNOWN-GOOD commit. The precompiled Linux plugin targets UE5.2.1 and the UE5.5
+      branch was a March-2025 pre-release — build from source. Fallback: Colosseum (UE5.6).
+  cesium:
+    role: rendering / data-gen ONLY — never with physics
+    status: pinned
+    note: >-
+      Cesium for Omniverse requires the Fabric Scene Delegate; FSD is mutually exclusive
+      with PhysX ("You cannot do Cesium and PhysX together"). Still open as of Isaac Sim
+      6.0.0 / Cesium for Omniverse 0.29.0. Fly physics on baked static meshes.
+
+# ---------------------------------------------------------------------------
+# Perception / planning / VLM upstreams  (Phase 2-4)
+# ---------------------------------------------------------------------------
+components:
+  isaac_ros_visual_slam:
+    role: VIO (cuVSLAM)
+    ros_distro: jazzy
+    version: TODO-verify
+    status: TODO-verify
+    note: Designed and tested for ROS 2 Jazzy on Jetson and x86_64 with an NVIDIA GPU.
+  isaac_ros_nvblox:
+    role: GPU mapping -> Nav2 costmap + 3D reconstruction
+    version: TODO-verify
+    status: TODO-verify
+    cpu_fallback: OctoMap
+    note: GPU-only; CI gates this path on a self-hosted GPU runner with OctoMap fallback.
+  ego_planner:
+    repo: EGO-Swarm (ROS 2 branch), drone_id=0
+    sha: TODO-verify
+    status: TODO-verify
+    note: >-
+      Canonical ZJU-FAST-Lab/ego-planner is ROS 1 / catkin / Ubuntu <=20.04. ROS 2 support
+      lives in the EGO-Swarm repo. A PX4-integrated fork exists (hyq123-cmd/px4_ego_planner).
+      This port MUST ship a code-map doc with grepped file:line citations in both trees.
+      Params from Fly0: 50 Hz control, ~0.5 Hz re-grounding, d_safe=0.5 m, v_max=4.0 m/s.
+  vllm:
+    role: dev-time VLM serving on GPU 1
+    version: 0.26.0                 # installed + imported 2026-07-28
+    torch: 2.11.0+cu130
+    cuda: "13.0"
+    torch_arch_list: [sm_75, sm_80, sm_86, sm_90, sm_100, sm_120]
+    blackwell_ok: true              # sm_120 present — no cu128-nightly workaround needed
+    venv: /var/mnt/<uuid>/Developments/projects/drone-sim/venvs/vllm
+    status: observed                # NOT locked — no model served yet, no hello-VLM call
+    model: Qwen3-VL-8B-AWQ    # 16 GB card confirmed; 4B also viable
+    CRITICAL_env: "CUDA_DEVICE_ORDER=PCI_BUS_ID"
+    critical_note: >-
+      vLLM emits this on every import here: "Detected different devices in the system:
+      NVIDIA GeForce RTX 3080, NVIDIA GeForce RTX 5060 Ti. Please make sure to set
+      CUDA_DEVICE_ORDER=PCI_BUS_ID to avoid unexpected behavior."
+      This matters more on this box than on a uniform one. CUDA's DEFAULT ordering is
+      FASTEST_FIRST, not PCI bus order — so with two DISSIMILAR cards,
+      CUDA_VISIBLE_DEVICES=1 is NOT guaranteed to select the 5060 Ti. The GPU work split
+      (render on 0 / infer on 1) is a hard project rule, and enforcing it with
+      CUDA_VISIBLE_DEVICES alone is unsafe without ALSO pinning
+      CUDA_DEVICE_ORDER=PCI_BUS_ID. Every vLLM launch must set both, and any run must be
+      confirmed against nvidia-smi rather than assumed.
+    note: >-
+      Use --quantization awq ("int4" is not a valid vLLM quantization value). Cap
+      max_pixels — VL KV cache is heavy. Qwen3-VL-30B-A3B does NOT fit (~17 GB at INT4
+      before vision tower + KV).
+  onboard_serving:
+    platform: Jetson Orin NX 16 GB
+    stack: jetson-containers + TensorRT-LLM, AWQ LLM + FP16 ViT, KV-cache reuse, CUDA graphs
+    model: Qwen3-VL-4B-AWQ
+    status: pinned
+    note: >-
+      NEVER Ollama onboard — Qwen3-VL 2B/4B loads entirely onto the CPU with zero GPU
+      offload on Jetson Orin / JetPack 6.2.1 (ollama/ollama#13247), while qwen2.5-vl:3b
+      offloads correctly. Onboard decision latency budget: <= 1 s.
+
+# ---------------------------------------------------------------------------
+# Real hardware  (Phase 4 — never commanded without explicit per-run approval)
+# ---------------------------------------------------------------------------
+hardware:
+  autopilot: Holybro Pixhawk 6C
+  firmware: PX4 v1.16.0    # same tree as lane_a
+  companion: Seeed reComputer J4012 (Jetson Orin NX 16 GB)
+  airframe: Holybro X500 V2 ARF
+  depth_camera: RealSense D435-class
+  lidar: Livox Mid-360 (optional)
+  jetpack: TODO-verify
+  status: TODO-verify
+  note: >-
+    Refer to hardware by stable labels, not volatile /dev/ttyACM* paths — record the
+    mapping and the Orin<->Pixhawk UART wiring in docs/hardware/. HITL must pass the
+    IDENTICAL SITL suite before any real flight. No exceptions.
+
+# ---------------------------------------------------------------------------
+# Couplings CI must assert — these are the failure modes that are SILENT
+# ---------------------------------------------------------------------------
+couplings:
+  - id: px4-msgs-branch-match
+    assert: px4_msgs branch == release/1.16 AND /fmu/out/* topics actually populate
+    why: A mismatch does not error; it silently produces empty topics.
+    severity: high
+  - id: two-px4-trees
+    assert: lane_a PX4 == v1.16.0 AND lane_b PX4 == v1.14.3, as separate checkouts
+    why: Pegasus v5.1.0 was tested against v1.14.3; Lane A and real hardware need v1.16.x.
+    severity: high
+  - id: python-split
+    assert: Isaac Sim runs Python 3.11; application ROS 2 nodes run Python 3.12; rclpy never shared
+    why: C-extension ABI mismatch -> ModuleNotFoundError rclpy._rclpy_pybind11.
+    severity: high
+  - id: pegasus-isaac-pair
+    assert: Pegasus v5.1.0 pairs with Isaac Sim 5.1.0 exactly
+    why: Explicitly not backward-compatible across releases.
+    severity: high
+  - id: isaac-driver
+    assert: the installed NVIDIA driver actually launches Isaac Sim (empirical, not version-compare)
+    why: Isaac breaks on drivers both too old AND too new; 610.43.03 is unvalidated.
+    severity: blocker-for-lane-b
+  - id: cesium-physx-exclusive
+    assert: no scene enables Cesium/FSD and PhysX simultaneously
+    why: Mutually exclusive; physics is silently disabled.
+    severity: medium
+  - id: rtf-floor
+    assert: SITL real-time factor stays above the floor for the whole run
+    why: Retries alone turn lockstep desync into an intermittent green build.
+    severity: high
+    measured_floor: 1.000
+    measured_on: 2026-07-28, P0-07, 15 samples over 300 s, min=mean=max=1.000
+    proposed_ci_floor: 0.95
+    assert_on: AGGREGATE RTF = (sim_time advanced)/(real_time advanced) over the whole run
+    do_not_assert_on: the instantaneous real_time_factor field, and NEVER its minimum
+    note: >-
+      CORRECTED 2026-07-29. The original 0.95-on-minimum rule was written against SPARSE
+      sampling (1 reading / 20 s). With dense sampling (~9.5 Hz, ~2930 samples per 300 s
+      run) a healthy NATIVE run produced a single transient at 0.503 out of 2931 samples —
+      which a min-based gate would fail. Assert on a percentile (e.g. p99 >= 0.95) or on N
+      consecutive sub-threshold samples, so isolated scheduler jitter does not flap CI
+      while a genuine sustained stall still trips it. Container runs show exactly such a
+      sustained stall: dozens of consecutive samples at 0.25-0.35 over 5+ seconds.
+      CORRECTED AGAIN 2026-07-29: those "sustained stalls" were an artifact of the
+      INSTANTANEOUS real_time_factor field, which is a short-window estimate swinging
+      0.14-1.01 while the true ratio was 0.977. Both sim_time and real_time are published in
+      the same message; their ratio over the run is the honest metric. Cross-check: the
+      /fmu/out publish rate tracks the AGGREGATE ratio (97.2 Hz = 97.7% of 100 Hz), not the
+      instantaneous minimum. Measured aggregates: native 1.0000, host podman 0.9967,
+      nested Docker 0.9767.
+      Do NOT let a retry alone turn a desync into a green build.

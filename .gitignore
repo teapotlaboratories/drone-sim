@@ -1,0 +1,57 @@
+# Third-party checkouts — reconstructed from .repos, never committed.
+# Keep the notes that record our deviations from upstream.
+#
+# vendor/ holds NESTED GIT CLONES. Do NOT un-ignore the component directories: git would
+# record each as a gitlink ("warning: adding embedded git repository"), producing broken
+# submodule references with no .gitmodules. Reconstruct them with `vcs import vendor < .repos`.
+#
+# Vendoring notes therefore live in docs/vendor/<component>.md, NOT inside the clones — a
+# file inside a nested repo is owned by that repo and can never be committed here.
+vendor/*
+!vendor/README.md
+
+# colcon
+build/
+install/
+log/
+
+# Recorded flight data — these belong on the 7 TB external drive, not in git.
+# RGB-D at 640x480@30Hz is tens of GB/hour.
+*.mcap
+*.db3
+rosbags/
+
+# Large simulator assets — external drive, referenced by path
+*.usd
+*.usda
+*.usdc
+sim/ue5/**/Binaries/
+sim/ue5/**/Intermediate/
+sim/ue5/**/DerivedDataCache/
+sim/ue5/**/Saved/
+
+# Model weights — /home/deck/Developments/models or the external drive
+*.gguf
+*.safetensors
+
+# Tooling
+*.AppImage
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets — never committed (.ai/AGENTS.md:465)
+*.env
+.env.*
+secrets/
+*.pem
+*.key
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
