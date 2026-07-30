@@ -125,7 +125,19 @@ docker compose -f docker/compose.yaml down -v
 **Verified:** full 300 s run against the composed stack — 24 `/fmu/out/*` topics, 0 sensor
 TIMEOUTs, 0 ERROR lines, aggregate RTF **0.9733**, publish rate 98.05 Hz, clean teardown.
 The `verify` service **attaches to the running stack** rather than starting its own PX4, so
-it tests the deployment rather than a private copy of it.
+it tests the deployment rather than a private copy of it. **Re-verified after the review
+fixes below** (2026-07-30): same 0.9733 aggregate RTF, 24 topics, 0 TIMEOUTs, 97.89 Hz.
+
+### Fixed by review before merge
+
+| Finding | Why it mattered |
+|---|---|
+| **Ports published on `0.0.0.0`** | MAVLink is unauthenticated. On this box the offboard port 14540 was reachable at the LAN address *and* over the netbird overlay — anyone routable could arm and command the vehicle. Now `127.0.0.1` by default, `BIND_ADDR` to opt out. Confirmed at the socket level (`ss -lunt`). |
+| `verify` waited only on `px4-sitl` | The gate could start before the bridge was up, see 0 topics and fail spuriously. It passed only because PX4's healthcheck happens to take longer. Now waits on `xrce-agent: service_healthy` too. |
+| `xrce-agent` had no supervision | It is the entire PX4↔ROS 2 bridge and **has** crashed here (v2.4.2 segfaulted). A crash stopped every topic while the rest of the stack still reported healthy. Now has a healthcheck and `restart: unless-stopped`. |
+| Two `out/` directories | Compose resolved `./out` → `docker/out/` while the README used the repo root. Both existed and diverged. Compose now writes `../out`; `.gitignore` anchors `/out/`. |
+| `docker/README.md` said compose was missing | Stale in the same PR that added it. |
+| Scope drift | `D-02` was marked done against a five-service definition; only three shipped. The two others are now explicit deferrals — see below. |
 
 ### Three bugs found by running it — none visible to `compose config`
 
@@ -139,6 +151,27 @@ it tests the deployment rather than a private copy of it.
 IPC namespace, because PX4 dials the agent at **127.0.0.1**:8888 and Gazebo transport is
 pinned to loopback. A conventional bridge network would break both. Consequence: only
 `px4-sitl` may declare `ports:`.
+
+### Delivered vs. defined — the two services deliberately left out
+
+The original definition (below) named five services. **Three shipped**, plus the gate:
+
+| Service | Status |
+|---|---|
+| `px4-sitl` | ✅ shipped |
+| `xrce-agent` | ✅ shipped |
+| `ros2-ws` → `ros2` | ✅ shipped (renamed; idles for `exec`, will host Phase 1 nodes) |
+| `verify` | ✅ added — not in the original definition; it is the acceptance gate under `--profile test` |
+| `qgc` | ⏭️ **deferred to `D-02b`.** QGC needs a display, and the container has none. It works today only as a recording via `docker/demo/`; a compose service is only meaningful once x11vnc/noVNC gives it somewhere to draw. |
+| `recording` | ⏭️ **deferred to `D-02c`.** Exists and works as `docker/demo/lane-a-record-quad.sh`, but it starts its *own* PX4 rather than attaching to the composed stack — folding it in means teaching it `SMOKE_ATTACH`-style attach behaviour. Not a one-line service. |
+
+**Ports:** all four are published (14550, 14540, 8888, 4560) but **bound to `127.0.0.1`**, not
+`0.0.0.0` — MAVLink has no authentication, so a LAN-published 14540 lets anyone routable arm
+and command the vehicle. Override with `BIND_ADDR=0.0.0.0` when a remote QGC is genuinely
+wanted. This file is the template for Phase 4 hardware bring-up, where the same default
+would point at a real Pixhawk.
+
+**Volumes:** `/rosbags` (named volume) and `/scenarios` (read-only bind) both wired.
 
 **Original definition:** ~~`todo` · Blocked by: D-01~~
 
@@ -162,7 +195,9 @@ networking makes it easy to accidentally expose it.
 **Status:** `todo` · **Blocked by:** D-02
 
 **What.** Expose the container's virtual display over the browser: `x11vnc` on the Xvfb
-display plus `noVNC` on an HTTP port, as a compose service.
+display plus `noVNC` on an HTTP port, as a compose service. **This also carries the `qgc`
+service deferred from `D-02`** — a QGC compose service is only meaningful once there is a
+display it can draw on and a human can reach.
 
 **Why.** Today the GUIs (Gazebo, QGroundControl) render to Xvfb and are only obtainable as
 an `.mp4` — you cannot click anything. That is fine for CI evidence and useless for actually
@@ -182,6 +217,32 @@ them (orbit the camera, click Takeoff in QGC) while the smoke test's flight runs
   mid-session.
 - Software GL (`llvmpipe`) is the renderer; expect a slow but usable GUI, and do not confuse
   its frame rate with simulator real-time factor.
+
+---
+
+## D-02c — Fold the recording demo into compose as a `recording` service
+
+**Status:** `todo` · **Blocked by:** D-02 · **Deferred from:** D-02
+
+**What.** The fifth service from the D-02 definition. The recorder already exists and works
+(`docker/demo/lane-a-record-quad.sh` → a four-pane `.mp4`), but it starts **its own** PX4,
+Gazebo and agent. As a compose service it must instead attach to the running stack — the same
+change `verify` needed (`SMOKE_ATTACH=1`).
+
+**Why.** Evidence capture should be one flag on the stack you are already running, not a
+second stack with its own PX4 that only *resembles* the one under test. It is also what CI
+would attach to for artifacts.
+
+**Acceptance.** `docker compose --profile record up recording` writes an `.mp4` of the
+**already-running** stack's flight, with no second `bin/px4` process anywhere.
+
+**Traps.**
+- The demo currently owns the display, the flight *and* the simulator; only the first two
+  survive the split. `lane-a-fly.py` binds **14540**, which is already published — fine.
+- Two recorders (or a recorder plus `verify`) both driving the same vehicle will fight over
+  the offboard link. Make the profiles mutually exclusive, or document it.
+- QGC's pane needs the same display work as `D-02b`; a recording service without it is just
+  three panes.
 
 ---
 

@@ -32,52 +32,53 @@ cat /etc/drone-sim-versions 2>/dev/null | sed 's/^/  /'
 cleanup(){ screen -S px4sitl -X quit 2>/dev/null; pkill -f '[b]in/px4' 2>/dev/null; pkill -f '[g]z sim' 2>/dev/null; pkill -f '[M]icroXRCEAgent' 2>/dev/null; sleep 2; }
 [ "${SMOKE_ATTACH:-0}" = "1" ] || trap cleanup EXIT   # never tear down a stack we only attached to
 
-# SMOKE_ATTACH=1 -> the stack is already running (docker compose); verify it rather than
-# starting a second PX4/agent, which would fight for ports 8888/14550 and prove nothing
-# about the deployment under test.
-if [ "${SMOKE_ATTACH:-0}" = "1" ]; then
-  echo "### ATTACH mode — verifying the already-running stack (not starting PX4/agent)"
-  for i in $(seq 1 60); do
-    grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log" 2>/dev/null && break
+# Two modes, kept as functions so neither branch is a long unindented block:
+#   default      — start our own PX4 + agent (single-container use)
+#   SMOKE_ATTACH — a stack is already running (docker compose); verify THAT, rather than
+#                  starting a second PX4/agent which would fight for ports 8888/14550 and
+#                  prove nothing about the deployment under test.
+
+# Sets BOOT_WAIT_S so callers can report it without depending on a leaked loop variable.
+wait_for_boot() {
+  local tries=$1 i
+  for i in $(seq 1 "$tries"); do
+    if grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log" 2>/dev/null; then
+      BOOT_WAIT_S=$((i * 2)); return 0
+    fi
     sleep 2
   done
-  grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log" 2>/dev/null \
-    || { echo "FAIL: no running PX4 found (is the stack up?)"; exit 1; }
+  return 1
+}
+
+start_stack() {
+  echo "### starting XRCE agent"
+  MicroXRCEAgent udp4 -p 8888 > "$LOGDIR/agent.log" 2>&1 &
+
+  echo "### starting PX4 SITL headless (HEADLESS=$HEADLESS GZ_IP=$GZ_IP)"
+  # --- Why this is launched under `screen` with `stty min 1` ----------------------------
+  # PX4's pxh shell (platforms/posix/src/px4/common/px4_daemon/pxh.cpp) clears ICANON to
+  # enter non-canonical mode but NEVER sets c_cc[VMIN]. POSIX requires setting VMIN/VTIME
+  # when doing that. Most terminals happen to leave VMIN=1, so reads block and PX4 behaves.
+  # But a piped stdin returns EOF immediately and screen's pty presents VMIN=0, so
+  # `case EOF: break;` falls through to _clear_line() + _print_prompt() and the shell
+  # BUSY-SPINS: ~1.45 MILLION writes/second, 4.1 GB per 300 s run, one CPU core consumed.
+  # `stty min 1` restores the blocking read PX4 assumes: ~28 KB per 300 s.
+  # `screen` additionally keeps the console attachable:  screen -r px4sitl
+  screen -dmS px4sitl -L -Logfile "$LOGDIR/px4.log" \
+    bash -c "stty min 1 time 0; cd $PX4 && HEADLESS=${HEADLESS:-1} GZ_IP=${GZ_IP:-127.0.0.1} make px4_sitl gz_x500"
+
+  wait_for_boot 90 || { echo "FAIL: PX4 did not boot"; tail -20 "$LOGDIR/px4.log"; exit 1; }
+  echo "  booted after ~${BOOT_WAIT_S}s"
+}
+
+attach_stack() {
+  echo "### ATTACH mode — verifying the already-running stack (not starting PX4/agent)"
+  wait_for_boot 60 || { echo "FAIL: no running PX4 found (is the stack up?)"; exit 1; }
   echo "  found a booted PX4 in $LOGDIR/px4.log"
-else
+}
 
-echo "### starting XRCE agent"
-MicroXRCEAgent udp4 -p 8888 > "$LOGDIR/agent.log" 2>&1 &
+if [ "${SMOKE_ATTACH:-0}" = "1" ]; then attach_stack; else start_stack; fi
 
-echo "### starting PX4 SITL headless (HEADLESS=$HEADLESS GZ_IP=$GZ_IP)"
-# --- Why this is launched under `screen` with `stty min 1` ------------------------------
-# PX4's pxh shell (platforms/posix/src/px4/common/px4_daemon/pxh.cpp) clears ICANON to
-# enter non-canonical mode but NEVER sets c_cc[VMIN]. POSIX requires setting VMIN/VTIME
-# when doing that. Most terminals happen to leave VMIN=1, so reads block and PX4 behaves.
-# But:
-#   * piped / redirected stdin -> getchar() returns EOF immediately
-#   * screen's pty             -> presents VMIN=0, so read() returns 0 immediately
-# Either way `case EOF: break;` falls through to _clear_line() + _print_prompt(), so the
-# shell BUSY-SPINS emitting "pxh> " + ESC[2K + CR ~1.45 MILLION times per second.
-# Measured 2026-07-29: 4.1 GB of escape codes per 300 s run, plus a fully burned CPU core.
-# It filled a 32 GB tmpfs, destroyed RTF measurements mid-run, and broke the tooling.
-#
-# `stty min 1` restores the blocking read PX4 assumes: ~28 KB per 300 s (~46,000x less),
-# no wasted core. `screen` additionally keeps the console attachable and interactive:
-#     screen -r px4sitl
-# This is an upstream PX4 defect; the stty call is the launch-layer workaround.
-screen -dmS px4sitl -L -Logfile "$LOGDIR/px4.log" \
-  bash -c "stty min 1 time 0; cd $PX4 && HEADLESS=${HEADLESS:-1} GZ_IP=${GZ_IP:-127.0.0.1} make px4_sitl gz_x500"
-
-for i in $(seq 1 90); do
-  grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log" 2>/dev/null && break
-  sleep 2
-done
-if ! grep -qa 'Startup script returned successfully' "$LOGDIR/px4.log"; then
-  echo "FAIL: PX4 did not boot"; tail -20 "$LOGDIR/px4.log"; exit 1
-fi
-echo "  booted after ~$((i*2))s"
-fi
 sleep 10
 
 echo "### /fmu/out topics"
