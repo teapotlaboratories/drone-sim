@@ -123,6 +123,7 @@ def main() -> int:
     for i, seed in enumerate(seeds, 1):
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
+        vdir = ""
         if not a.reuse:
             # Build the per-seed physics overlay and hand it to the stack. Calling
             # restart_stack(variant) alone would run with NO WIND while the report happily
@@ -141,7 +142,15 @@ def main() -> int:
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
             "spawn_pose_applied": not a.reuse,
-            "wind_applied": (not a.reuse) and variant.get("wind_speed_ms", 0) > 0,
+            # Ground truth: did an overlay actually get built for this run? The earlier
+            # version reported `wind_speed_ms > 0` instead — a field named for the physics
+            # that actually echoed a sampled number, and which therefore misreported the
+            # exact case the scenario-declares fix exists for (a seed drawing ~0 wind on a
+            # scenario that DOES declare wind still gets the overlay). It was also the
+            # field used to verify that fix, so the check could not have caught its own
+            # failure.
+            "overlay_applied": bool(vdir),
+            "overlay_dir": vdir,
             "variant": variant,
             "mcap": f"out/{name}-seed{seed}",
             "seconds": round(time.time() - t0, 1),

@@ -162,3 +162,22 @@ def test_overlay_is_decided_by_the_scenario_not_the_drawn_value():
     src = (REPO / "scripts" / "run_scenario.py").read_text()
     body = src.split("def build_variant_overlay")[1].split("\ndef ")[0]
     assert "wind_speed_max_ms" in body and "mass_jitter_pct" in body
+
+
+def test_gate_reports_the_overlay_it_built_not_the_value_it_drew():
+    """Finding from the second review pass, pinned.
+
+    The gate previously recorded `wind_applied: wind_speed_ms > 0` — a field named for the
+    physics that echoed a sampled number. It misreported precisely the case the
+    scenario-declares fix exists for: a seed drawing ~0 wind on a scenario that DOES
+    declare wind still gets an overlay. It was also the field used to verify that fix, so
+    the check could not have caught its own failure.
+    """
+    src = (REPO / "scripts" / "run_gate.py").read_text()
+    body = src.split("runs, started = [], time.time()")[1].split("passed = sum")[0]
+    assert '"overlay_applied": bool(vdir)' in body, \
+        "the gate must record whether an overlay was BUILT"
+    assert '"wind_applied"' not in body, \
+        "wind_applied echoed a drawn value and read as ground truth"
+    assert '"overlay_dir": vdir' in body, \
+        "record which overlay a run used, so the report is traceable on its own"
