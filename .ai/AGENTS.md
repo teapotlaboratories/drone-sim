@@ -444,11 +444,16 @@ so the claim can be checked — don't report a bare conclusion.
 
 ## Simulation & hardware notes
 
-- **This runs in the `drone-sim` container on `carbonite`; the host is immutable.**
+- **On the original contributor path, this runs in the `drone-sim` container on `carbonite`; the host is immutable.**
   Install software **inside the container**, never on the host (its OS is
   ostree-immutable and host `sudo` needs a password you don't have). See
   `docs/bench.md`.
 - **Ask before running anything that escapes the container.** `distrobox-host-exec`,
+- **This is a multiple-contributor repository.** The original contributor retains
+  `carbonite`; never assume another contributor can access it or generalize its capacity.
+- **Fern/Runpod is an option, not a replacement.** Contributors without suitable local
+  capacity can use the immutable single-container profiles through Fern. Identify the
+  execution environment used for every result. See `docs/execution.md`.
   `flatpak-spawn --host`, `chroot`/`nsenter` into `/run/host`, host-side
   `podman`/`distrobox`, or any other command that executes on `carbonite` itself rather
   than inside `drone-sim` — **ask the operator first and wait**, saying what the command
@@ -472,14 +477,12 @@ so the claim can be checked — don't report a bare conclusion.
   6C's `/dev/ttyACM*` / `/dev/ttyUSB*` and the Orin NX's interfaces change across
   replugs; identify each by a documented label/role and record the mapping and the
   Orin↔Pixhawk UART wiring in a `docs/hardware/` doc.
-- **Capture the command you actually ran** (launch target, lane, seed, ports) as
-  evidence in the worklog so a result can be reproduced.
-- **Never use `~/` for tooling, caches, big data, or scratch without approval.** Large
-  artifacts — Isaac assets, UE5 projects, rosbags, model weights, datasets — go on the
-  **7 TB external drive** (`/var/mnt/…`), **not** the ~279 GB internal NVMe. Project
-  tooling stays inside the repo (`vendor/`); throwaway scratch goes to `/tmp`.
+- **Capture the command, execution environment, and image digest used** as evidence.
+- **On `carbonite`, never use `~/` for tooling, caches, big data, or scratch without
+  approval.** Use its documented external drive; on Runpod use `/workspace`; on another
+  contributor machine, document the durable storage. Project tooling stays in the repo.
   RGB-D at 640×480@30 Hz is ~tens of GB/hour — budget storage before a benchmark sweep.
-- **On any other drive, write only under `<drive-root>/Developments/projects/drone-sim/`.**
+- **On any `carbonite`-attached drive, write only under `<drive-root>/Developments/projects/drone-sim/`.**
   Mirror the project path from the root of that drive — e.g.
   `/var/mnt/<uuid>/Developments/projects/drone-sim/`. **Never create a top-level directory
   on a drive you do not own**; these volumes are shared with the host, other containers,

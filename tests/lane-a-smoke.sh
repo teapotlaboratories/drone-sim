@@ -19,8 +19,14 @@ PX4=${PX4_DIR:-/opt/px4}
 # OUTDIR can be bind-mounted so logs SURVIVE --rm. Without this, a failing run destroys
 # its own evidence — which is exactly what happened on 2026-07-29: failures were counted
 # but could never be located in time.
-LOGDIR=${OUTDIR:-$(mktemp -d)}
-mkdir -p "$LOGDIR"
+LOGDIR=${SMOKE_LOG_DIR:-${OUTDIR:-$(mktemp -d)}}
+ARTIFACT_DIR=${SMOKE_ARTIFACT_DIR:-$LOGDIR}
+METRICS_PATH=${SMOKE_METRICS_PATH:-$LOGDIR/metrics.json}
+READY_FILE=${READY_FILE:-}
+RECORD_MCAP=${RECORD_MCAP:-0}
+MCAP_TOPICS=${MCAP_TOPICS:-"/fmu/out/vehicle_local_position /fmu/out/vehicle_odometry /fmu/out/vehicle_status_v1"}
+mkdir -p "$LOGDIR" "$ARTIFACT_DIR"
+BAG_PID=""
 
 echo "### pins baked into this image"
 cat /etc/drone-sim-versions 2>/dev/null | sed 's/^/  /'
@@ -29,7 +35,14 @@ cat /etc/drone-sim-versions 2>/dev/null | sed 's/^/  /'
 # command line of the shell running this script (which contains that literal string), so
 # the cleanup kills its own parent. Symptom is an inexplicable SIGTERM/exit 144 seconds
 # after start. Do not "simplify" the brackets away.
-cleanup(){ screen -S px4sitl -X quit 2>/dev/null; pkill -f '[b]in/px4' 2>/dev/null; pkill -f '[g]z sim' 2>/dev/null; pkill -f '[M]icroXRCEAgent' 2>/dev/null; sleep 2; }
+stop_recorder(){
+  if [ -n "$BAG_PID" ] && kill -0 "$BAG_PID" 2>/dev/null; then
+    kill -INT "$BAG_PID" 2>/dev/null || true
+    wait "$BAG_PID" 2>/dev/null || true
+  fi
+  BAG_PID=""
+}
+cleanup(){ stop_recorder; screen -S px4sitl -X quit 2>/dev/null; pkill -f '[b]in/px4' 2>/dev/null; pkill -f '[g]z sim' 2>/dev/null; pkill -f '[M]icroXRCEAgent' 2>/dev/null; sleep 2; }
 [ "${SMOKE_ATTACH:-0}" = "1" ] || trap cleanup EXIT   # never tear down a stack we only attached to
 
 # Two modes, kept as functions so neither branch is a long unindented block:
@@ -79,11 +92,30 @@ attach_stack() {
 
 if [ "${SMOKE_ATTACH:-0}" = "1" ]; then attach_stack; else start_stack; fi
 
-sleep 10
+# Daemonless discovery avoids a stale ROS daemon cache in short-lived cloud runners.
+echo "### waiting for ROS 2 graph discovery"
+N_TOPICS=0
+for _ in $(seq 1 30); do
+  N_TOPICS=$(ros2 topic list --no-daemon --spin-time 2 2>/dev/null | grep -c '^/fmu/out/')
+  [ "$N_TOPICS" -ge 24 ] && break
+  sleep 2
+done
 
 echo "### /fmu/out topics"
-N_TOPICS=$(ros2 topic list 2>/dev/null | grep -c '^/fmu/out/')
+N_TOPICS=$(ros2 topic list --no-daemon --spin-time 2 2>/dev/null | grep -c '^/fmu/out/')
 echo "  count: $N_TOPICS"
+
+if [ "$RECORD_MCAP" = "1" ]; then
+  echo "### starting declared-topic MCAP recording"
+  # Topic names come from trusted image/profile configuration and are split into argv,
+  # never evaluated as shell code.
+  read -r -a RECORD_TOPICS <<< "$MCAP_TOPICS"
+  rm -rf "$ARTIFACT_DIR/lane-a-mcap"
+  ros2 bag record -s mcap -o "$ARTIFACT_DIR/lane-a-mcap" "${RECORD_TOPICS[@]}" \
+    > "$LOGDIR/rosbag.log" 2>&1 &
+  BAG_PID=$!
+  sleep 2
+fi
 
 echo "### is the data MOVING? (two samples ~20 s apart)"
 S1=$(timeout 15 ros2 topic echo --once /fmu/out/vehicle_local_position 2>/dev/null | grep -E '^timestamp:' | head -1)
@@ -91,6 +123,9 @@ sleep 20
 S2=$(timeout 15 ros2 topic echo --once /fmu/out/vehicle_local_position 2>/dev/null | grep -E '^timestamp:' | head -1)
 echo "  sample1: ${S1:-<none>}"
 echo "  sample2: ${S2:-<none>}"
+if [ -n "$READY_FILE" ] && [ "$N_TOPICS" -ge 24 ] && [ -n "$S1" ] && [ -n "$S2" ] && [ "$S1" != "$S2" ]; then
+  : > "$READY_FILE"
+fi
 
 echo "### publish rate"
 timeout 15 ros2 topic hz /fmu/out/vehicle_local_position 2>/dev/null | head -2 | sed 's/^/  /'
@@ -110,6 +145,7 @@ echo "### sampling real-time factor for ${DURATION}s"
 # also cheap: ~16 KB per 10 s, i.e. <500 KB for a 300 s run, and ~9.5 samples/second
 # instead of one every 20 s.
 timeout "$DURATION" gz topic -e -t /world/default/stats > "$LOGDIR/stats.raw" 2>/dev/null
+stop_recorder
 
 # Each message carries its own real_time, so use that as the timestamp rather than
 # wall-clock sampling. `inrt` guards against matching sim_time's sec field.
@@ -171,6 +207,36 @@ PASS=1
 [ "$ERRORS" = "0" ]    || { echo "  ✗ ERROR lines present"; PASS=0; }
 [ -n "$S1" ] && [ -n "$S2" ] && [ "$S1" != "$S2" ] || { echo "  ✗ data not moving"; PASS=0; }
 awk -v m="$RTF_AGG" 'BEGIN{exit !(m>=0.95)}' || { echo "  ✗ AGGREGATE RTF $RTF_AGG below the 0.95 floor"; PASS=0; }
+MCAP_PATH=""
+if [ "$RECORD_MCAP" = "1" ]; then
+  MCAP_PATH=$(find "$ARTIFACT_DIR/lane-a-mcap" -maxdepth 1 -type f -name '*.mcap' -print -quit 2>/dev/null)
+  [ -n "$MCAP_PATH" ] || { echo "  ✗ MCAP artifact missing"; PASS=0; }
+fi
+
+# Atomic, machine-readable result for Fern and CI. The raw logs remain the diagnostic
+# authority; this file is the compact gate output.
+python3 - "$METRICS_PATH" "$PASS" "$N_TOPICS" "$TIMEOUTS" "$ERRORS" "$RTF_AGG" "$S1" "$S2" "$MCAP_PATH" <<'PYEOF'
+import json, os, sys, tempfile
+path, passed, topics, timeouts, errors, rtf, sample1, sample2, mcap = sys.argv[1:]
+value = {
+    "schema_version": 1,
+    "passed": passed == "1",
+    "fmu_out_topic_count": int(topics),
+    "sensor_timeout_count": int(timeouts),
+    "px4_error_count": int(errors),
+    "aggregate_real_time_factor": float(rtf),
+    "telemetry_moving": bool(sample1 and sample2 and sample1 != sample2),
+    "mcap_path": mcap,
+}
+os.makedirs(os.path.dirname(path), exist_ok=True)
+fd, temporary = tempfile.mkstemp(prefix=".metrics.", dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as stream:
+    json.dump(value, stream, indent=2, sort_keys=True)
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+os.replace(temporary, path)
+PYEOF
 
 [ "$PASS" = "1" ] && echo "### PASS — container reproduces the native P0-07 result" \
                   || { echo "### FAIL"; exit 1; }

@@ -48,7 +48,7 @@ ARG ROS_DISTRO=jazzy
 # it is a no-op passthrough, but the binary must exist.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git sudo gnupg lsb-release locales \
-        build-essential cmake ninja-build python3 python3-pip python3-venv \
+        build-essential cmake ninja-build python3 python3-pip python3-venv tini \
     && rm -rf /var/lib/apt/lists/*
 
 # --- ROS 2 Jazzy via the ros2-apt-source .deb ----------------------------------------
@@ -64,12 +64,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends software-proper
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-desktop ros-dev-tools \
+        ros-${ROS_DISTRO}-ros-gz-bridge \
+        ros-${ROS_DISTRO}-rosbag2-storage-mcap \
     && rm -f /tmp/ros2-apt-source.deb \
     && rm -rf /var/lib/apt/lists/* \
     && test -f /opt/ros/${ROS_DISTRO}/setup.bash
 
 # Record what apt actually resolved, so the image can be compared against the native run.
 RUN dpkg -s ros-${ROS_DISTRO}-desktop | awk '/^Version:/{print "ros-desktop " $2}' > /etc/drone-sim-versions \
+    && dpkg -s ros-${ROS_DISTRO}-ros-gz-bridge | awk '/^Version:/{print "ros-gz-bridge " $2}' >> /etc/drone-sim-versions \
+    && dpkg -s ros-${ROS_DISTRO}-rosbag2-storage-mcap | awk '/^Version:/{print "rosbag2-storage-mcap " $2}' >> /etc/drone-sim-versions \
     && source /opt/ros/${ROS_DISTRO}/setup.bash \
     && python3 -c "import rclpy" \
     && echo "rclpy import OK on $(python3 --version)"
@@ -134,6 +138,17 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
     && test -f install/setup.bash \
     && rm -rf build log
 
+# --- repository-owned ROS 2 graph ----------------------------------------------------
+# Build the application packages into the image so Runpod never depends on bind mounts.
+COPY ros2_ws/src/control src/control
+COPY ros2_ws/src/bringup src/bringup
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && source /ros2_ws/install/setup.bash \
+    && colcon build --packages-select control bringup --cmake-args -DCMAKE_BUILD_TYPE=Release \
+    && test -f install/bringup/share/bringup/launch/sim.launch.py \
+    && test -x install/control/lib/control/offboard_control \
+    && rm -rf build log
+
 # --- runtime -------------------------------------------------------------------------
 # GZ_IP pins Gazebo transport to loopback — multicast flooding the host network is a
 # documented root cause of the Accel/Mag TIMEOUT failures (PX4/PX4-Autopilot#24595).
@@ -142,9 +157,8 @@ ENV HEADLESS=1 \
     PX4_DIR=/opt/px4 \
     ROS_DISTRO=${ROS_DISTRO}
 
-# 14550 QGC · 14540 offboard · 4560 Gazebo<->PX4 · 8888 uXRCE-DDS
-EXPOSE 14550/udp 14540/udp 4560/tcp 8888/udp
-
+# No simulation port is declared for automatic publication. Compose maps loopback ports
+# explicitly; the Runpod image maps none, so MAVLink, XRCE-DDS, and Gazebo remain local.
 COPY docker/lane-a-entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

@@ -1,0 +1,98 @@
+name: Lane A image
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: lane-a-image-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out Drone Sim
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish immutable Lane A images
+        id: image
+        shell: bash
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/drone-sim"
+          base_ref="${image}:lane-a-base-${REVISION}"
+          runner_ref="${image}:lane-a-${REVISION}"
+          channel_ref="${image}:lane-a-v1.16.0"
+
+          if ! docker pull "${base_ref}"; then
+            docker build \
+              --file docker/lane-a.Dockerfile \
+              --tag "${base_ref}" \
+              .
+            docker push "${base_ref}"
+          fi
+
+          docker build \
+            --file docker/runpod/lane-a.Dockerfile \
+            --build-arg "BASE_IMAGE=${base_ref}" \
+            --build-arg "VCS_REF=${REVISION}" \
+            --build-arg "IMAGE_VERSION=lane-a-v1.16.0" \
+            --build-arg "IMAGE_REFERENCE=${runner_ref}" \
+            --tag "${runner_ref}" \
+            --tag "${channel_ref}" \
+            .
+
+          docker push "${runner_ref}"
+          docker push "${channel_ref}"
+          docker pull "${runner_ref}"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${runner_ref}")"
+          digest_ref="${image}@${digest#*@}"
+
+          jq -n \
+            --arg image "${runner_ref}" \
+            --arg digest_ref "${digest_ref}" \
+            --arg revision "${REVISION}" \
+            '{schema_version: 1, image: $image, digest_reference: $digest_ref, revision: $revision}' \
+            > image-manifest.json
+
+          echo "reference=${runner_ref}" >> "${GITHUB_OUTPUT}"
+          echo "digest_reference=${digest_ref}" >> "${GITHUB_OUTPUT}"
+          echo "Published ${digest_ref}"
+
+      - name: Upload image manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: lane-a-image-${{ github.sha }}
+          path: image-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          {
+            echo "## Lane A image"
+            echo
+            echo 'Pull this immutable reference from Fern:'
+            echo
+            echo '```text'
+            echo '${{ steps.image.outputs.digest_reference }}'
+            echo '```'
+            echo
+            echo 'The `lane-a-v1.16.0` tag is a human-facing channel; Fern must use the digest above.'
+          } >> "${GITHUB_STEP_SUMMARY}"

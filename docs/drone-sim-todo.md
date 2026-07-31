@@ -48,7 +48,7 @@ before rendering complexity is added.
 | Phase | Area doc | Goal | Unlocks | Status |
 |---|---|---|---|---|
 | **0** | [`phase-0/todo.md`](phase-0/todo.md) | Reproducible pinned toolchain; every component passes its smoke test; `versions.lock` committed | — | **in progress** — 4/5 exit criteria met |
-| — | [`docker/todo.md`](docker/todo.md) | **Cross-cutting:** the stack reproducible as Docker | **reproducibility** | in progress — `D-01` ✅ container is native-equivalent |
+| — | [`docker/todo.md`](docker/todo.md) | **Cross-cutting:** reproducible Docker plus optional Fern/Runpod execution | **reproducibility** | in progress — `D-07` GHCR/Runpod runner in PR |
 | 1 | [`lane-a/todo.md`](lane-a/todo.md) | Deterministic headless PX4+Gazebo SITL; ROS 2 offboard controller flying GPS waypoints in lockstep; MCAP; CI <10 min | **GPS navigation** | **in progress** — exit criterion **MET** (SR 10/10); `P1-03`, `P1-07` open |
 | 2 | `planning/todo.md`, `perception/todo.md` *(not yet created)* | Depth/LiDAR mapping + EGO-Planner collision-free flight through clutter | **obstacle & collision avoidance** | not started |
 | 3 | `vlm/todo.md`, `perception/todo.md` *(not yet created)* | Slow VLM target-generator + fast tracker; depth back-projection; cuVSLAM VIO → EKF2; GPS-denied | **vision-based navigation, VLM experimentation** | not started |
@@ -131,6 +131,7 @@ planned.
 | Doc | What it is |
 |---|---|
 | [`../versions.lock`](../versions.lock) | The pinned toolchain and the couplings CI must assert |
+| [`execution.md`](execution.md) | Contributor-specific workstation and optional Fern/Runpod execution paths |
 | [`bench.md`](bench.md) | The machine and container being worked in |
 | [`reference/01_sim_stack_report.md`](reference/01_sim_stack_report.md) | Simulator landscape, why dual-sim, the three target papers |
 | [`reference/02_development_plan.md`](reference/02_development_plan.md) | Phased build plan, version-coupling landmines, CI, repo layout |

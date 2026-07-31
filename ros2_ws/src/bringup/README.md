@@ -1,13 +1,25 @@
-# `bringup` — top-level launch composition
+# `bringup` — shared ROS 2 launch composition
 
-**Status:** placeholder. Created in **Phase 1**.
+The package owns the application-side launch boundary shared by simulation and real
+flight. Topic names, QoS, frames, and nodes remain the same; only simulation time and the
+transport-facing bridge change.
 
-`sim.launch.py` and `real.launch.py` plus shared includes, parameterized by
-`use_sim_time` and namespace.
+Lane A simulation:
 
-**The invariant this package exists to protect:** the ROS 2 graph must be *identical*
-across sim and real — same topic names (`/fmu/*`, `/vlm/target`,
-`/planner/trajectory`), same launch composition. **Only the transport is swapped.**
-`use_sim_time:=true` is set in sim only. Topic and namespace conventions freeze in
-Phase 1 and must reach the aircraft unchanged
-(`docs/reference/02_development_plan.md:252`, Standing Order 2).
+```bash
+ros2 launch bringup sim.launch.py
+```
+
+The launch starts the Gazebo clock bridge and the offboard controller with
+`use_sim_time:=true`. The Gazebo transport topic defaults to
+`/world/default/clock` and is remapped to the ROS-standard `/clock` topic.
+
+Real-hardware composition:
+
+```bash
+ros2 launch bringup real.launch.py
+```
+
+The real launch starts the same controller with `use_sim_time:=false` and does not start
+a simulator clock bridge. Running it against real hardware still requires explicit
+per-run operator approval under the repository safety rules.

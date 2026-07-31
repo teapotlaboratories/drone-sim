@@ -9,6 +9,7 @@
 | `docker/lane-a-entrypoint.sh` | the only `COPY`'d script — sources ROS 2 + workspace | the image |
 | `docker/ros-env.sh` | mounted to `/etc/profile.d/` so `compose exec` shells get a ROS env | `compose exec` |
 | `docker/qgc.Dockerfile` + `qgc-entrypoint.sh` | QGroundControl headless — the datalink PX4 requires before it will arm | `qgc` |
+| `docker/runpod/` | single-container Fern/Runpod batch runtime, preflight, local health, durable artifacts | Runpod CPU Pods |
 | [`../tests/`](../tests/) | `lane-a-smoke.sh` — the acceptance gate | CI |
 | [`demo/`](demo/) | video/flight demos + the Xvfb-enabled derived image | humans |
 
@@ -54,6 +55,22 @@ routable arm the vehicle. Opt in with `BIND_ADDR=0.0.0.0` if you really want tha
 Volumes: `../out` → `/out` (run artifacts, at the repo root), `/scenarios` read-only,
 `/rosbags` as a named volume.
 
+## Fern/Runpod single-container image
+
+`.github/workflows/lane-a-image.yml` builds the base and Runpod wrapper on every push to
+`main`, pushes them to GHCR, and emits an immutable digest manifest. The wrapper forces
+Fast DDS to loopback UDP, publishes no simulator/control ports, checks Pod capacity before
+PX4 starts, and writes each run under `/workspace/runs/<run-id>/`.
+
+```bash
+IMAGE='ghcr.io/teapotlaboratories/drone-sim@sha256:<workflow-digest>'
+fern deploy --profile drone-sim-lane-a --image "$IMAGE" --duration 300 --dry-run
+fern deploy --profile drone-sim-lane-a --image "$IMAGE" --duration 300 --yes
+```
+
+See [`../docs/execution.md`](../docs/execution.md) for status/artifact layout, registry
+visibility, cleanup, and the source-checkout form of Fern commands.
+
 ### Services still planned (`docs/reference/02_development_plan.md:134`)
 
 | Service | Purpose | Backlog |
@@ -64,7 +81,5 @@ Volumes: `../out` → `/out` (run artifacts, at the repo root), `/scenarios` rea
 | `px4-sitl-mavlink` | PX4 v1.14.3 for Pegasus, Lane B | — |
 | `foxglove`/`rviz` | tooling | `D-02b` |
 
-**This box runs Docker nested inside a rootless-podman distrobox.** The
-`fuse-overlayfs` storage driver and the `/etc/cdi-local` CDI spec are load-bearing
-workarounds — do not change them unless GPU-in-Docker is already broken
-(`docs/bench.md:123`).
+The original contributor's nested-Docker measurements and workstation-specific workarounds
+remain in [`../docs/bench.md`](../docs/bench.md); they are not universal requirements.

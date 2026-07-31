@@ -151,7 +151,8 @@ merely logged by the node itself.
 
 ## P1-03 — `sim.launch.py` and bringup composition
 
-**Status:** `todo` · **Blocked by:** P1-02
+**Status:** 🟡 **implemented on `feat/docker-runner`; target validation pending** ·
+**Issue:** #9
 
 **What.** `ros2_ws/src/bringup/` — launch files composing the controller, `use_sim_time`,
 parameter files from `configs/`, and later the recorder. One entry point per lane, sharing
@@ -166,7 +167,8 @@ project goal this repo already committed to.
 
 ## P1-03a — `/clock` bridge, so `use_sim_time` actually works
 
-**Status:** `todo` · **Blocked by:** P1-03 · **Found:** 2026-07-30, while writing `P1-02`
+**Status:** 🟡 **bridge and image dependency implemented; live `/clock` evidence pending** ·
+**Issue:** #9 · **Found:** 2026-07-30, while writing `P1-02`
 
 **What.** Publish Gazebo's clock onto ROS 2 `/clock` — `ros_gz_bridge`'s `parameter_bridge`
 on `/world/default/clock`, or an equivalent — and add the package to the Lane A image.
@@ -381,13 +383,13 @@ seeds visibly differ.
 
 ## P1-05 — MCAP recording
 
-**Status:** 🟡 **mostly done (2026-07-31)** — the runner records one MCAP per run, named
-`<scenario>-seed<n>`, written to `/out` so it survives `--rm`. 1.36 MB for a ~45 s flight;
+**Status:** 🟡 **mostly done (2026-07-31)** — the scenario runner records one MCAP per run,
+named `<scenario>-seed<n>`, written to `/out` so it survives `--rm`. 1.36 MB for a ~45 s flight;
 replays and contains the full trajectory (verified by reading 5,360 position samples back
-out of one). `rosbag2-storage-mcap` was already in the image.
+out of one). The Fern/Runpod runtime adds a declared topic set and durable workspace path
+(#12, #13). `rosbag2-storage-mcap` is built into the image.
 
-**Left to do:** a declared topic set rather than the two hard-coded in the runner, and
-attaching the artifact in CI (`P1-07`).
+**Left to do:** live replay/persistence evidence and CI artifact attachment (`P1-07`).
 
 **Original definition:** ~~`todo` · Blocked by: P1-03~~
 
@@ -474,8 +476,9 @@ floor must be **aggregate**, never the instantaneous field.
 
 ## P1-07 — CI
 
-**Status:** 🟡 **tier 1 done (2026-07-31)** — `.github/workflows/checks.yml`. Tier 2, the
-SITL flight gate, **cannot run on a hosted runner** and needs a self-hosted one.
+**Status:** 🟡 **tier 1 done (2026-07-31)** — `.github/workflows/checks.yml`. The optional
+Fern path has a main-only GHCR publisher on `feat/docker-runner` (#10), but the Tier 2 PR
+flight gate still needs Fern wait/download/destroy and cancellation cleanup (#13, #14).
 **Related:** `../docker/todo.md` `D-05`
 
 ### Why this is two tiers, not one

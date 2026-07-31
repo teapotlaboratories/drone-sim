@@ -23,11 +23,16 @@ meta:
   note: >-
     Every sha/tag below marked TODO-verify must be filled from an actual checkout, not
     from documentation. Pin the SHA that was built and smoke-tested, not the branch tip.
+  current_execution: >-
+    The platform and GPU observations below describe the original contributor's workstation.
+    They remain valid for that contributor but are not universal repo prerequisites. Other
+    contributors can run simulation on Runpod Pods through Fern; see docs/execution.md.
 
 # ---------------------------------------------------------------------------
-# Host & container — observed 2026-07-28 (docs/bench.md is the narrative version)
+# Original contributor host & container — observed 2026-07-28; contributor-specific
 # ---------------------------------------------------------------------------
 platform:
+  scope: original_contributor_workstation_snapshot
   host:
     name: carbonite
     os: Fedora 44-based ostree immutable (uBlue/Bazzite-family)

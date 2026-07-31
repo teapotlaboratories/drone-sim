@@ -111,6 +111,24 @@ miss. Reference: **RTF 1.0000 native · 0.9967 host podman · 0.9767 nested Dock
 > **`--shm-size=2g` is required, not optional.** Docker defaults `/dev/shm` to 64 MB and
 > Fast-DDS uses shared memory as its default transport; at the default it starves.
 
+### Cloud Lane A through Fern
+
+Contributors who do not have access to the original contributor's workstation can run
+cloud simulation on Runpod through Fern. This is an option, not a replacement for that
+contributor's local path. After a push to `main`, the `Lane A image` workflow publishes an
+immutable GHCR digest; inspect the billable request before creating the CPU Pod:
+
+```bash
+IMAGE='ghcr.io/teapotlaboratories/drone-sim@sha256:<workflow-digest>'
+fern deploy --profile drone-sim-lane-a --image "$IMAGE" --duration 300 --dry-run
+fern deploy --profile drone-sim-lane-a --image "$IMAGE" --duration 300 --yes
+```
+
+The single-container runner exposes no public simulator/control ports and writes durable
+status, logs, metrics, preflight evidence, and MCAP under `/workspace/runs/<run-id>/`.
+Stop the Pod through Fern after inspecting it. Full contract and source-checkout commands:
+[`docs/execution.md`](docs/execution.md).
+
 ### 4. Poke at it interactively
 
 With the stack up:
@@ -217,7 +235,7 @@ All four are published on **`127.0.0.1` only**.
 | Lane | Stack | Role | Status |
 |---|---|---|---|
 | **A** | PX4 v1.16.0 + Gazebo Harmonic + ROS 2 Jazzy | CI/iteration backbone | ✅ **working, smoke-tested** |
-| **B** | Isaac Sim 5.1 + Pegasus | photoreal perception | ⛔ **deferred** — [why](docs/lane-b/isaac-driver-decision.md) |
+| **B** | Isaac Sim 5.1 + Pegasus | photoreal perception | cloud validation planned; local-workstation result is [historical](docs/lane-b/isaac-driver-decision.md) |
 | **C** | UE5.5 + Cosys-AirSim | photoreal perception + benchmark reproduction | **promoted**, next up |
 
 Lane A verified end to end: headless SITL for 300 s with **0 sensor TIMEOUTs**, real-time
@@ -247,9 +265,10 @@ docs/                  bench briefing, reference designs, backlogs, worklogs
 | Doc | What it is |
 |---|---|
 | [`docs/drone-sim-todo.md`](docs/drone-sim-todo.md) | Master backlog index — start here |
+| [`docs/execution.md`](docs/execution.md) | Current local/GitHub/Runpod execution contract and Fern commands |
 | [`versions.lock`](versions.lock) | Every pin, its status, and how it was verified |
 | [`docs/lane-a/architecture.html`](docs/lane-a/architecture.html) | **What runs where and how it is wired** — container topology, ports, the traps |
-| [`docs/bench.md`](docs/bench.md) | The machine and container this runs on |
+| [`docs/bench.md`](docs/bench.md) | Original contributor's workstation snapshot; access is contributor-specific |
 | [`docs/reference/`](docs/reference/) | Simulator landscape, development plan, hardware assessment |
 | [`docs/worklog/`](docs/worklog/) | Running record of each investigation, with evidence |
 

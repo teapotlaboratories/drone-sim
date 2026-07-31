@@ -1,7 +1,12 @@
 # Lane B — Isaac Sim: investigation, blocker, and decision to defer
 
-**Status:** Lane B is **deferred**. Lane C (UE5.5 + Cosys-AirSim) is promoted to the
-photorealistic-perception lane in its place.
+> **Scope:** contributor-specific workstation decision. The original contributor retains
+> the tested workstation; the result below remains valid for that environment. It does not
+> block a separate Fern/Runpod Lane B validation by another contributor; see
+> [`../execution.md`](../execution.md).
+
+**Status:** the original workstation's Lane B path was **deferred** on 2026-07-29. Lane C
+(UE5.5 + Cosys-AirSim) was promoted to the photorealistic-perception lane in its place.
 **Decided:** 2026-07-29 · **Decided by:** owner, on the evidence below.
 **Evidence:** [`../worklog/2026-07-28-phase-0-lane-a-install.md`](../worklog/2026-07-28-phase-0-lane-a-install.md) (`P0-09` section).
 

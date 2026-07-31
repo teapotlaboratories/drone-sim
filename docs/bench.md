@@ -1,4 +1,9 @@
-# Workbench Briefing — `drone-sim` Container
+# Original Contributor Workbench Snapshot — `drone-sim` Container
+
+> **Contributor-specific environment (captured 2026-07-28).** The original contributor
+> retains this workstation, but other contributors must not assume they can access it.
+> Fern/Runpod is the supported alternative for contributors without access; see
+> [`execution.md`](execution.md).
 
 > **Read this first.** You are an AI agent working inside (or against) the `drone-sim`
 > container on the `carbonite` workstation. This document describes the machine, the
@@ -8,8 +13,8 @@
 _Network coordinates (hostname, LAN IP, NetBird management URL and overlay IP) are
 redacted as `<placeholders>` because this repository is public; substitute your own._
 
-_Last verified: 2026-07-28. If a version or IP below disagrees with what you observe, trust
-what you observe and update this file._
+_Last observed: 2026-07-28. Update these facts only from that workstation; record a
+different contributor or provider environment in its own worklog._
 
 ---
 

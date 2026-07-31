@@ -415,3 +415,39 @@ single-container path for the CI smoke gate; do not make it the deployment shape
 - **Do not split and re-measure in one step.** Change the topology, re-run the gate, and
   compare against the recorded numbers — this area has produced several
   looks-fine-but-is-broken states already.
+
+---
+
+## D-07 — Optional Fern/Runpod Lane A runner and main-branch GHCR publisher
+
+**Status:** 🟡 **in progress on `feat/docker-runner` (2026-08-01)** · **Issues:** #5,
+#8–#14 · **Related:** `D-05`, `P1-03`, `P1-03a`, `P1-05`, `P1-07`
+
+**What.** Add a contributor-portable Lane A path: an immutable single-container batch
+runtime for Fern/Runpod, a durable `/workspace/runs/<run-id>/` evidence contract, capacity
+preflight, loopback-only services, and a main-branch GitHub workflow that publishes a GHCR
+digest Fern can select with `--image`.
+
+**Why.** The original contributor's workstation remains a valid contributor-specific path,
+but a multiple-contributor repository cannot require access to it. Fern is an additional
+option with explicit billing, persistence, network, and lifecycle boundaries.
+
+**Acceptance.** Before merge:
+
+- off-target tests cover atomic artifacts, secret exclusion, healthy/broken preflight,
+  occupied ports, loopback-only runtime configuration, and shared sim-time launch;
+- shell, Python, YAML, package, workflow, and Dockerfile checks pass;
+- review findings are resolved and the PR identifies anything not live-tested.
+
+After merge to `main`:
+
+- the workflow publishes `lane-a-<main-sha>` and an immutable digest manifest to GHCR;
+- Fern deploys that digest to a fresh CPU Pod after `--dry-run`;
+- the five-minute smoke writes terminal status, metrics, logs, preflight, versions, and a
+  replayable MCAP under `/workspace/runs/<run-id>/`;
+- the final provider state confirms that billing stopped.
+
+**Boundary.** A PR cannot honestly contain the new main-branch digest or a fresh Pod run of
+that digest before merge. Static checks are not cloud-flight evidence; record the live
+result after the digest exists. The requested main publisher intentionally does not claim
+to implement Fern's still-missing wait/download/destroy lifecycle or the full PR gate in
