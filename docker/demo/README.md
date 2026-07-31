@@ -65,9 +65,17 @@ needed.
   is to seed QGC's own `[MainWindowState]` so it *starts* at the right geometry and is never
   resized. The recorder still maps/raises it — its window comes up `IsUnMapped` — but does
   not move or size it.
-- **Suppressing QGC's first-run dialog by seeding `firstRunPromptIdsShown` does NOT work** —
-  tried and reverted rather than left in pretending to. A synthetic Return keypress does not
-  dismiss it either; the dialog is a separate window.
+- **QGC's first-run dialogs ARE suppressible — but the key is `firstRunPromptIdsShown`
+  under `[General]`, not `[AppSettings]`.** An earlier attempt put it in the wrong section
+  and silently did nothing. Found by dismissing the prompt with a synthetic click and
+  diffing the ini, rather than guessing twice. It is a QUOTED, COMMA-SEPARATED LIST: there
+  are at least two prompts (1 = Measurement Units, 2 = Vehicle Information), so suppressing
+  only the first just reveals the second.
+- **The Gazebo camera must be told to follow the vehicle**, or the GUI opens on a wide
+  default view and the drone is a dot. `/gui/follow` + `/gui/follow/offset` — the same
+  services PX4 itself uses (`px4-rc.gzsim:147`). **Both return `data: true` at any offset,
+  including useless ones**, so the reply proves the call worked, not that the framing did.
+  `-6,-6,3` still left a speck; `-3,-3,1.5` renders a recognisable aircraft.
 
 ## Not a substitute for the acceptance test
 

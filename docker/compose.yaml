@@ -291,7 +291,15 @@ services:
       DISPLAY: ":99"
       OUTDIR: /out
       RES: "${RES:-1920x1080}"
+      FPS: "${FPS:-15}"
       ALT: "${ALT:-10}"
+      # Gazebo camera offset from the drone, in metres. Every one of these must be listed
+      # here or it never reaches the container: record-attached.sh reads them, but a knob
+      # that is only in the script is a knob the documented command cannot set.
+      MODEL_NAME: "${MODEL_NAME:-x500_0}"
+      FOLLOW_X: "${FOLLOW_X:--3.0}"
+      FOLLOW_Y: "${FOLLOW_Y:--3.0}"
+      FOLLOW_Z: "${FOLLOW_Z:-1.5}"
     volumes:
       - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
       - ../out:/out
