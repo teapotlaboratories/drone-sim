@@ -472,12 +472,49 @@ floor must be **aggregate**, never the instantaneous field.
 
 ---
 
-## P1-07 — GitHub Actions headless SITL job
+## P1-07 — CI
 
-**Status:** `todo` · **Blocked by:** P1-06 · **Related:** `../docker/todo.md` `D-05`
+**Status:** 🟡 **tier 1 done (2026-07-31)** — `.github/workflows/checks.yml`. Tier 2, the
+SITL flight gate, **cannot run on a hosted runner** and needs a self-hosted one.
+**Related:** `../docker/todo.md` `D-05`
 
-**What.** CI that builds the Lane A image and runs the gate headless, under 10 minutes.
-Overlaps `D-05` (CI builds the images) — coordinate rather than duplicating.
+### Why this is two tiers, not one
+
+The original plan was "CI builds the Lane A image and runs the gate, under 10 minutes".
+That is not achievable on GitHub-hosted runners, and the arithmetic is worth writing down
+so it is not re-attempted:
+
+| | Hosted runner | What Lane A needs |
+|---|---|---|
+| Disk | ~14 GB free | image is **11.6 GB** |
+| Build time | — | **20–40 min** measured |
+| CPU | 2 vCPU | gate asserts **aggregate RTF ≥ 0.95** |
+| Gate itself | — | **~19 min** for 10 seeds |
+
+Even with a prebuilt image, 2 vCPU would miss the RTF floor on *hardware*, turning a
+physics gate into a runner-capacity gate — a red build that says nothing about the code.
+
+**Tier 1 — hosted, every push, ~1 min.** Everything checkable without a simulator: the 25
+off-target tests, `bash -n` and `py_compile` over every tracked script, `compose config`
+(which is how the inert `FOLLOW_*` knobs were caught), an AI-attribution check, and an
+assertion that every `versions.lock` `CONFLICT` carries a summary.
+
+Two of those checks were **wrong on the first attempt and fixed before pushing**, which is
+the argument for running a workflow's steps locally before trusting it:
+
+- the attribution check failed on `.ai/AGENTS.md` and `CLAUDE.md` — the files that *define*
+  the rule and quote the forbidden strings in order to forbid them;
+- the conflict check asserted *no* `CONFLICT` in `versions.lock`, but there is a real,
+  accepted one (the NVIDIA driver against Isaac's validated version, which is why Lane B is
+  deferred). Failing on a known deliberate state makes a job people learn to ignore. It now
+  asserts every conflict is *documented* instead.
+
+**Tier 2 — the SITL gate, still to do.** Needs a self-hosted runner (this box qualifies:
+the image is local and there are enough cores). Until it exists, `scripts/run_gate.py` is
+run by hand, and the workflow says so rather than implying coverage it does not have.
+
+**What.** ~~CI that builds the Lane A image and runs the gate headless, under 10 minutes.~~
+Superseded by the two tiers above.
 
 **Why.** A gate no one runs is documentation.
 

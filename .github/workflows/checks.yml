@@ -1,0 +1,101 @@
+# Fast checks that run on a GitHub-hosted runner (P1-07, tier 1).
+#
+# WHAT THIS DELIBERATELY DOES NOT DO: run the SITL flight gate.
+#
+# That is not an oversight, it is arithmetic. A hosted runner gives 2 vCPU, 7 GB RAM and
+# about 14 GB of free disk. The Lane A image is 11.6 GB and takes 20-40 minutes to build,
+# so it neither fits comfortably nor builds inside the 10-minute budget the plan sets. And
+# the gate asserts an aggregate real-time factor of 0.95 or better — on 2 vCPU, PX4 and
+# Gazebo would miss that on the hardware, not on the code, turning a physics gate into a
+# runner-capacity gate.
+#
+# So this job protects everything that can be checked WITHOUT a simulator, in about a
+# minute, on every push. The flight gate needs a self-hosted runner and is tier 2 —
+# see P1-07 in docs/lane-a/todo.md. Until that exists, `scripts/run_gate.py` is run by
+# hand and CI does not pretend otherwise.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  off-target-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'   # matches ROS 2 Jazzy, per versions.lock
+
+      - name: Install test dependencies
+        # PyYAML only: the suite deliberately has no simulator, ROS or container
+        # dependency, which is what lets it run here at all.
+        run: pip install --quiet pytest pyyaml
+
+      - name: Off-target tests
+        run: python3 -m pytest tests/ -v
+
+      - name: Shell scripts parse
+        # Catches the class of error that has actually bitten this repo — an unbalanced
+        # quote or a stray delimiter in a script nobody runs until a flight depends on it.
+        run: |
+          fail=0
+          for f in $(git ls-files '*.sh'); do
+            bash -n "$f" || { echo "::error file=$f::bash -n failed"; fail=1; }
+          done
+          exit $fail
+
+      - name: Python scripts parse
+        run: |
+          fail=0
+          for f in $(git ls-files '*.py'); do
+            python3 -m py_compile "$f" || { echo "::error file=$f::py_compile failed"; fail=1; }
+          done
+          exit $fail
+
+      - name: Compose file is valid
+        # `compose config` resolves interpolation, which is how the inert FOLLOW_* knobs
+        # were caught before they shipped.
+        run: docker compose -f docker/compose.yaml config --quiet
+
+      - name: No AI attribution
+        # The project rule is that everything reads as the owner's work — enforced rather
+        # than remembered.
+        #
+        # .ai/AGENTS.md and CLAUDE.md are excluded because they DEFINE the rule and quote
+        # the forbidden strings in order to forbid them. Without the exclusion this check
+        # fails on the very files that establish it.
+        run: |
+          hits=$(git ls-files \
+                 | grep -vE '^(\.ai/AGENTS\.md|CLAUDE\.md)$' \
+                 | xargs grep -lniE 'co-authored-by:.*claude|generated with .*claude|🤖' 2>/dev/null || true)
+          if [ -n "$hits" ]; then
+            echo "::error::AI attribution found in: $hits"
+            exit 1
+          fi
+
+      - name: Every versions.lock CONFLICT is documented
+        # NOT "there are no conflicts". There is a real, accepted one — the NVIDIA driver
+        # against Isaac Sim's validated version, which is why Lane B is deferred. Failing
+        # on a known, deliberate state would make this job noise, and a CI job people learn
+        # to ignore is worse than none.
+        #
+        # What is worth enforcing is that a CONFLICT never sits there unexplained.
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+          text = open("versions.lock").read()
+          # Entries look like:  status: CONFLICT  followed by a summary: within the block.
+          bad = []
+          for m in re.finditer(r"^(\s*)status:\s*CONFLICT\s*$", text, re.M):
+              tail = text[m.end():m.end() + 800]
+              if "summary:" not in tail.split("\n\n")[0]:
+                  bad.append(text[:m.start()].count("\n") + 1)
+          if bad:
+              print(f"::error file=versions.lock::CONFLICT without a summary at line(s) {bad}")
+              sys.exit(1)
+          print("all CONFLICT entries carry a summary")
+          EOF
