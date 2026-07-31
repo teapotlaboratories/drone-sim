@@ -243,8 +243,9 @@ run fewer seeds in CI than locally. Decide with evidence rather than by trimming
 
 ## P1-04a — Seed the CONDITIONS, not the RNG
 
-**Status:** `todo` — **redesigned 2026-07-31 after the original approach was measured and
-failed.** Evidence: [`../worklog/2026-07-31-gz-seed-negative-result.md`](../worklog/2026-07-31-gz-seed-negative-result.md)
+**Status:** 🟡 **wind implemented and verified (2026-07-31); the 10-seed gate has NOT been
+re-run with diversity on.** Redesigned after the original approach was measured and
+failed. Evidence: [`../worklog/2026-07-31-gz-seed-negative-result.md`](../worklog/2026-07-31-gz-seed-negative-result.md)
 
 ### The original plan does not work — measured, not assumed
 
@@ -266,6 +267,47 @@ sample matches. **Do not retry this** without new evidence that `--seed` reaches
 
 The plumbing was reverted — it added a branch to the PX4 startup and bought nothing, and
 leaving it in would imply control the stack does not have.
+
+### Wind — built and measured
+
+`scripts/make_variant.py` generates a per-seed world + model overlay; the runner samples
+speed and heading from the scenario's `wind_speed_max_ms` and points the stack at it. The
+vendored PX4 tree is untouched — everything is copied.
+
+| Configuration | Waypoint errors (m) | Mean |
+|---|---|---|
+| Stock, no overlay | 0.21, 0.08, 0.16, 0.19 | 0.16 |
+| Overlay, wind 0 | 0.297, 0.399, 0.342, 0.393 | 0.358 |
+| Overlay, **wind 3 m/s** | **0.634, 0.541**, 0.06, 0.298 | 0.383 |
+| Overlay, wind 8 m/s | **vehicle blown 416 m — cannot arm** | — |
+
+At 3 m/s the upwind legs cost an order of magnitude more than the downwind leg — a
+**direction-dependent signature**, which is what wind should produce and what the spawn-pose
+seed never gave. End-to-end: seed 2 derives 2.868 m/s at 2.81 rad and flies 4/4.
+
+**Three findings worth keeping:**
+
+1. **A `<plugin>` in the world SDF makes Gazebo load ONLY those plugins**, dropping the core
+   systems from PX4's server config. The world came up with 6 topics, no `scene/info`
+   service, the vehicle never spawned, and PX4 sat in "Waiting for Gazebo world..." until it
+   timed out — with a world file that `gz sdf -k` calls **Valid**. The plugin goes in a copy
+   of PX4's `server.config` instead; only `<wind>` goes in the world.
+2. **`enable_wind` must be set on the vehicle link.** Upstream `x500_base` does not set it,
+   so without the model overlay the wind applies to nothing and the flight looks normal.
+3. **The overlay changes the physics even at zero wind** (0.16 → 0.358 mean error), because
+   `enable_wind` + `WindEffects` introduces air-relative drag the stock model has none of.
+   So "overlay, wind 0" is the correct baseline — not the stock stack.
+
+**The bound is load-bearing.** At 8 m/s the *disarmed* vehicle slides 416 m downwind before
+it can arm and the EKF gives up (`xy_valid: false`, position 5214 m); the run fails in
+`wait_for_fcu` — a harness failure, not a controller failure. `wind_speed_max_ms: 3.0`.
+
+### Still to do
+
+- **Re-run the 10-seed gate with wind on** and compare against `SR 10/10 / 972 s /
+  0.207–0.231 m`. Errors will be higher and the run is slower (113.7 s vs 97 s per run, so
+  ~19 min); decide whether the accept radius still discriminates or needs restating.
+- Mass and sensor-noise `stddev` — the overlay mechanism now exists for both.
 
 ### What to build instead
 
