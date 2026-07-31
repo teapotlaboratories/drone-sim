@@ -345,3 +345,73 @@ must fail, since it is genuinely unbuildable.
   is what caught it. Dockerfiles must assert on artifacts (`RUN … && test -x …`,
   `ldd | grep -c 'not found'`), not on reaching the end of a script.
 - ROS 2's `setup.bash` is **not `set -u` clean** — entrypoint scripts must not use `set -u`.
+
+---
+
+## D-06 — Redraw the container boundaries to mirror the Phase 4 machines
+
+**Status:** `todo` · **Raised:** 2026-07-31 · **Do it with:** `P1-04a` (which already forces
+Gazebo into its own service) · **Related:** `D-03`
+
+**What.** Regroup the services so each container corresponds to a machine that will actually
+exist in Phase 4, and make the links between them swappable for their real transports.
+
+| Phase 4 machine | Should be | Is today |
+|---|---|---|
+| Pixhawk 6C — PX4 firmware | `px4` | `px4-sitl`, which also runs the Gazebo server |
+| — the simulator, no hardware analogue | `gazebo` (needed for `gz sim --seed`, `P1-04a`) | inside `px4-sitl` |
+| Jetson Orin NX — companion: **XRCE agent + ROS 2 nodes** | one `companion` service | **split across `xrce-agent` and `ros2`** |
+| Ground laptop — QGroundControl | `qgc` | `qgc` ✅ |
+
+**Why.** The current split does **not** buy isolation, and it is worth being honest that it
+never did: `px4-sitl`, `xrce-agent` and `ros2` share one network namespace *and* one
+`/dev/shm`. That is one machine wearing three hats — they can see each other's loopback and
+each other's shared memory, and the only real boundary left is the filesystem.
+
+If the split is not buying isolation, the thing it *should* buy is **sim↔real rehearsal**:
+the container boundary standing in for the machine boundary, so an accidental dependency on
+co-location fails in sim rather than on the aircraft. Measured against that goal the current
+map is drawn wrong in two places:
+
+- **The XRCE agent runs on the companion computer on real hardware**, not on the flight
+  controller — PX4 reaches it over a serial link. So the agent and the ROS 2 nodes are the
+  *same* machine, and we have split them.
+- **PX4 and the agent are different machines**, and we have given them a shared namespace.
+
+**What it has cost so far** — all real, all from this week:
+
+| Symptom | Cause |
+|---|---|
+| Every container `healthy`, `ros2 topic list` returns **0 topics** | recreating the netns donor alone; joiners left on a dead namespace |
+| `shm_size` on three services doing nothing | joiners use the donor's `/dev/shm`; the declaration is inert |
+| `non-shareable IPC` on startup | the donor must opt in with `ipc: shareable`, which is not discoverable |
+
+**Explicitly REJECTED: collapsing everything into one container.** It is tempting — the
+one-container mode already exists and works (`tests/lane-a-smoke.sh` runs PX4 and the agent
+together, and it is the configuration that proved `D-01` parity). But it erases the sim↔real
+rehearsal completely, and it cannot generalise: Lane B needs Isaac's Python 3.11 against
+ROS 2 Jazzy's 3.12, which is an architectural split, not a packaging preference. Keep the
+single-container path for the CI smoke gate; do not make it the deployment shape.
+
+**Acceptance.**
+- Containers map 1:1 onto Phase 4 machines, and `docs/lane-a/architecture.html` is redrawn
+  to match.
+- The PX4↔agent link is **configurable, not co-located** — i.e. the address is a parameter,
+  so swapping UDP for a serial link in Phase 4 touches configuration and not the ROS graph.
+- The `verify` gate still passes with unchanged numbers: 24 `/fmu/out/*` topics, 0 sensor
+  TIMEOUTs, aggregate RTF within noise of 0.9733.
+- A flight still succeeds end to end.
+
+**Traps.**
+- **PX4 dials `127.0.0.1:8888` today.** Moving the agent out of the shared namespace means
+  that address must become a real one — PX4's `uxrce_dds_client` takes host/port parameters,
+  so this is configuration, but it is *load-bearing* configuration.
+- **Gazebo transport must stay on loopback** (`PX4/PX4-Autopilot#24595`) or the Accel/Mag
+  TIMEOUTs come back. Splitting Gazebo out without keeping its transport pinned is how that
+  regression returns.
+- **Fast-DDS delivers over shared memory.** Any two services that must exchange ROS 2 topics
+  at rate still need a shared `/dev/shm`, or they fall back to UDP with different
+  performance. Measure the RTF and publish rate after the split rather than assuming.
+- **Do not split and re-measure in one step.** Change the topology, re-run the gate, and
+  compare against the recorded numbers — this area has produced several
+  looks-fine-but-is-broken states already.

@@ -78,6 +78,11 @@ class OffboardControl(Node):
         self.declare_parameter("setpoint_rate_hz", 20.0, num)  # PX4 needs >2 Hz; 20 is margin
         self.declare_parameter("state_timeout_s", 60.0, num)
         self.declare_parameter("result_path", "")              # JSON summary for the runner
+        # Scenario-supplied mission: a FLAT list of ENU triples, x,y,z,x,y,z,... relative
+        # to the home position. Empty (the default) keeps the built-in square, so the node
+        # stays runnable by hand with no scenario file. Flat rather than nested because
+        # ROS 2 parameters have no nested-array type.
+        self.declare_parameter("waypoints_enu", [0.0])
 
         ns = self.get_parameter("px4_ns").value.rstrip("/")
         self.alt = float(self.get_parameter("takeoff_altitude").value)
@@ -87,6 +92,14 @@ class OffboardControl(Node):
         rate = float(self.get_parameter("setpoint_rate_hz").value)
         self.state_timeout_s = float(self.get_parameter("state_timeout_s").value)
         self.result_path = self.get_parameter("result_path").value
+        raw_wps = list(self.get_parameter("waypoints_enu").value or [])
+        # A single 0.0 is the "unset" sentinel — ROS 2 rejects a genuinely empty double
+        # array as an ambiguous type, so it cannot be the default.
+        self.scenario_wps = raw_wps if len(raw_wps) >= 3 else []
+        if self.scenario_wps and len(self.scenario_wps) % 3 != 0:
+            raise ValueError(
+                f"waypoints_enu has {len(self.scenario_wps)} values; must be a multiple "
+                "of 3 (x,y,z triples)")
 
         # --- QoS --------------------------------------------------------------------
         # PX4's /fmu/out publishers are BEST_EFFORT + TRANSIENT_LOCAL (verified with
@@ -270,8 +283,18 @@ class OffboardControl(Node):
         self._enter(State.STREAM_SETPOINTS)
 
     def _build_square(self, x0: float, y0: float) -> list[tuple[float, float, float]]:
-        """Four corners of a square at takeoff altitude, starting East. Returns to the
-        start corner so the landing point is the takeoff point."""
+        """The mission, in ENU, offset from home.
+
+        A scenario's `waypoints_enu` wins when supplied; otherwise the built-in square,
+        so the node remains runnable by hand. Both are expressed relative to HOME rather
+        than the world origin, because PX4's local frame origin is wherever the EKF
+        initialised — a mission in absolute local coordinates would silently shift with
+        the spawn point.
+        """
+        if self.scenario_wps:
+            triples = [tuple(self.scenario_wps[i:i + 3])
+                       for i in range(0, len(self.scenario_wps), 3)]
+            return [(x0 + x, y0 + y, z) for x, y, z in triples]
         s = self.side
         return [
             (x0 + s, y0, self.alt),

@@ -1,0 +1,63 @@
+# Phase 1 baseline scenario: take off, fly a 10 m square, land.
+#
+# This is the mission the Phase 1 exit criterion names — "takes off, flies a 4-waypoint
+# square, lands, SR=100% over 10 seeded runs" (02_development_plan.md:38).
+#
+# Shape follows the plan's scenario format, `{world, seed, spawn, goal, instruction}`
+# (02_development_plan.md:173), adapted for Phase 1: `goal` is a waypoint list rather than
+# a single point, and `instruction` is absent because natural-language goals arrive in
+# Phase 3 with the VLM.
+name: square-10m
+description: >-
+  GPS-waypoint baseline in an empty world. No obstacles by design — Phase 1 proves the
+  offboard controller and the harness; clutter arrives in Phase 2.
+
+world: default          # PX4's Tools/simulation/gz/worlds/default.sdf
+
+mission:
+  takeoff_altitude_m: 10.0
+  # ENU, relative to HOME (where the EKF initialised), NOT world coordinates. See
+  # docs/lane-a/conventions.md §3. A square starting East, returning to the start corner
+  # so the landing point is the takeoff point.
+  waypoints_enu:
+    - [10.0,  0.0, 10.0]
+    - [10.0, 10.0, 10.0]
+    - [ 0.0, 10.0, 10.0]
+    - [ 0.0,  0.0, 10.0]
+
+tolerances:
+  accept_radius_m: 1.0    # a waypoint counts as reached inside this radius...
+  hold_seconds: 2.0       # ...and only after settling there, so a fly-through does not score
+  state_timeout_s: 60.0
+
+# WHAT THE SEED ACTUALLY CONTROLS — read this before trusting a success rate.
+#
+# The seed selects a scenario VARIANT. It does NOT give a deterministic replay: this stack
+# is not bit-reproducible, measured directly — two back-to-back runs with identical
+# configuration against the same simulator produced waypoint errors of
+# [0.225, 0.104, 0.154, 0.204] and [0.118, 0.076, 0.158, 0.187]. Anything claiming
+# seed-exact trajectory reproduction here would be wrong.
+#
+# So a seeded run answers "does it work under these conditions", and a success RATE over
+# many seeds answers "does it work reliably" — which is what the exit criterion is for.
+seeded:
+  # Spawn pose in the Gazebo world, via PX4_GZ_MODEL_POSE.
+  #
+  # HONEST LIMITATION: in an EMPTY world this varies almost nothing the controller can
+  # see. PX4's local frame origin is set wherever the EKF initialises, so the mission —
+  # which is relative to home — is unchanged; only the EKF initialisation transient and
+  # ground contact differ. Verified: spawning at (7, -4) put the model there in Gazebo
+  # while the controller still reported home ENU (-0.03, -0.02).
+  #
+  # It is wired now because it becomes load-bearing in Phase 2, when obstacles sit at
+  # fixed world coordinates and the spawn point decides the problem the planner faces.
+  spawn_xy_jitter_m: 5.0
+  spawn_yaw_jitter_rad: 3.14159
+
+# NOT YET SEEDED — the honest gap, tracked in docs/lane-a/todo.md.
+#
+# Sensor noise is the genuinely stochastic element, and `gz sim --seed` is the knob for
+# it. Reaching it means running Gazebo standalone (PX4_GZ_STANDALONE=1) as its own compose
+# service so we own the server command line, rather than letting PX4's gz_bridge start it.
+# Until then the noise stream is whatever it is, and the variation between runs is real
+# but not controlled.
