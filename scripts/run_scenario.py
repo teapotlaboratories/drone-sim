@@ -42,13 +42,28 @@ def sh(cmd: list[str], *, env: dict | None = None, timeout: int = 900,
                           capture_output=capture, text=True)
 
 
+# A scenario `name` becomes part of container paths and of an `rm -rf`, so it is
+# validated rather than trusted. Today scenarios are repo-local and this is latent; it
+# stops being latent in Phase 4, which ingests AerialVLN/OpenFly scenario sets — external
+# files driving a delete. A name like "sq; touch /out/PWNED; echo" or "../../opt/px4/build"
+# would otherwise be interpolated straight into a shell command.
+SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
 def load_scenario(path: Path) -> dict:
     try:
         import yaml
     except ImportError:
         sys.exit("PyYAML is required on the host: pip install --user pyyaml")
     with open(path) as fh:
-        return yaml.safe_load(fh)
+        scenario = yaml.safe_load(fh)
+    if not isinstance(scenario, dict):
+        sys.exit(f"{path}: scenario must be a mapping")
+    name = scenario.get("name", "")
+    if not SAFE_NAME.match(str(name)):
+        sys.exit(f"{path}: scenario name {name!r} must match {SAFE_NAME.pattern} — it is "
+                 "used in filesystem paths and shell commands")
+    return scenario
 
 
 def derive_variant(scenario: dict, seed: int) -> dict:
@@ -120,23 +135,35 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
     # MCAP alongside the result (P1-05 in embryo): named by scenario AND seed, so an
     # artifact can always be traced back to the run that produced it.
     bag = f"/out/{tag}"
-    sh(COMPOSE + ["exec", "-T", "ros2", "bash", "-lc", f"rm -rf {bag}"], timeout=60)
+    # `rm` as argv, with no shell involved at all.
+    sh(COMPOSE + ["exec", "-T", "ros2", "rm", "-rf", bag], timeout=60)
+
+    # The recorder needs the ROS environment, so it needs a shell — but the tag goes in
+    # through -e and is referenced as "$TAG". The shell then expands a VALUE; it never
+    # parses the scenario's text as code.
     recorder = subprocess.Popen(
-        COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
-                   f". /opt/ros/jazzy/setup.bash && cd /out && "
-                   f"ros2 bag record -s mcap -o {tag} "
-                   f"/fmu/out/vehicle_local_position /fmu/out/vehicle_status_v1"],
+        COMPOSE + ["exec", "-T", "-e", f"TAG={tag}", "ros2", "bash", "-lc",
+                   '. /opt/ros/jazzy/setup.bash && cd /out && '
+                   'ros2 bag record -s mcap -o "$TAG" '
+                   '/fmu/out/vehicle_local_position /fmu/out/vehicle_status_v1'],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(5)
 
-    cmd = COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
-                     "cd /ros2_ws && . install/setup.bash && "
-                     "ros2 run control offboard_control --ros-args " + " ".join(args)]
-    proc = sh(cmd, timeout=600)
-
-    sh(COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
-                  "pkill -INT -f '[r]os2 bag record' || true"], timeout=60)
-    recorder.wait(timeout=60)
+    # try/finally so a controller timeout cannot leak the recorder into the NEXT run.
+    # Without it, `sh()` raising TimeoutExpired skipped the pkill entirely and left an
+    # orphaned `ros2 bag record` running — precisely when clean evidence matters most.
+    try:
+        cmd = COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
+                         "cd /ros2_ws && . install/setup.bash && "
+                         "ros2 run control offboard_control --ros-args " + " ".join(args)]
+        proc = sh(cmd, timeout=600)
+    finally:
+        sh(COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
+                      "pkill -INT -f '[r]os2 bag record' || true"], timeout=60)
+        try:
+            recorder.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
     time.sleep(2)
 
     host_result = REPO / "out" / f"{tag}.json"

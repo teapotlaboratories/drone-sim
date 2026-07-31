@@ -90,6 +90,11 @@ class OffboardControl(Node):
         self.accept_radius = float(self.get_parameter("accept_radius").value)
         self.hold_seconds = float(self.get_parameter("hold_seconds").value)
         rate = float(self.get_parameter("setpoint_rate_hz").value)
+        # PX4 drops offboard below 2 Hz, and int(rate) is used as a modulus for command
+        # re-sends — a rate under 1 would make that ZeroDivisionError mid-flight instead
+        # of failing clearly here.
+        if rate < 2.0:
+            raise ValueError(f"setpoint_rate_hz must be >= 2.0 (PX4 offboard minimum); got {rate}")
         self.state_timeout_s = float(self.get_parameter("state_timeout_s").value)
         self.result_path = self.get_parameter("result_path").value
         raw_wps = list(self.get_parameter("waypoints_enu").value or [])
@@ -144,6 +149,7 @@ class OffboardControl(Node):
         self.ticks_in_state = 0
         self.hold_ticks = 0
         self.errors: list[float] = []
+        self.last_distance_m = 0.0
         self.failure_reason = ""
 
         self.rate_hz = rate
@@ -338,8 +344,13 @@ class OffboardControl(Node):
     def _do_waypoints(self) -> None:
         if not self._reached(self.target_enu):
             return
-        d = self._distance_to(self.target_enu)
-        self.errors.append(d if d is not None else float("nan"))
+        # Reuse the distance _reached() already measured rather than sampling again.
+        # The old code re-measured and stored NaN when the second sample happened to be
+        # invalid — and a NaN error silently PASSED the gate, because every comparison
+        # against NaN is False. The one case where the error is unknown must not be the
+        # one that looks clean.
+        d = self.last_distance_m
+        self.errors.append(d)
         self.get_logger().info(
             f"waypoint {self.wp_index + 1}/{len(self.waypoints)} reached "
             f"(error {d:.2f} m)")
@@ -361,7 +372,12 @@ class OffboardControl(Node):
             self.hold_ticks = 0
             return False
         self.hold_ticks += 1
-        return self.hold_ticks >= self.hold_seconds * self.rate_hz
+        if self.hold_ticks >= self.hold_seconds * self.rate_hz:
+            # Remembered so the caller records the distance that actually satisfied the
+            # check, instead of taking a fresh sample that might be invalid.
+            self.last_distance_m = d
+            return True
+        return False
 
     def _do_land(self) -> None:
         if self.ticks_in_state % int(self.rate_hz) == 1:
@@ -385,15 +401,28 @@ class OffboardControl(Node):
             "waypoints_total": len(self.waypoints),
             "waypoint_errors_m": [round(e, 3) for e in self.errors],
             "takeoff_altitude_m": self.alt,
-            "square_side_m": self.side,
+            # Only meaningful for the built-in square; a scenario supplies its own path,
+            # and reporting a square side for an arbitrary route reads as fact later.
+            "square_side_m": None if self.scenario_wps else self.side,
+            "mission_source": "scenario" if self.scenario_wps else "built-in-square",
             "accept_radius_m": self.accept_radius,
         }
-        self.get_logger().info(f"result: {json.dumps(result)}")
+        # allow_nan=False on purpose. Python happily writes a bare `NaN`, which is NOT
+        # valid JSON — Python reads it back, jq and most CI consumers do not. Failing here
+        # turns a silent bad artifact into an visible error.
+        try:
+            rendered = json.dumps(result, allow_nan=False)
+        except ValueError as exc:
+            self.get_logger().error(f"result contains a non-finite value: {exc}")
+            rendered = json.dumps({"outcome": "failure",
+                                   "failure_reason": f"non-finite value in result: {exc}"})
+            result = json.loads(rendered)
+        self.get_logger().info(f"result: {rendered}")
         if self.result_path:
             try:
                 with open(self.result_path, "w") as fh:
-                    json.dump(result, fh, indent=2)
-            except OSError as exc:
+                    fh.write(json.dumps(result, indent=2, allow_nan=False))
+            except (OSError, ValueError) as exc:
                 self.get_logger().error(f"could not write {self.result_path}: {exc}")
 
 

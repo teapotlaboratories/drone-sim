@@ -330,8 +330,17 @@ written**, ~1.4 MB each, named by scenario and seed. Wall clock **974 s**.
 
 **The gate re-derives pass/fail from the numbers** rather than trusting the controller's own
 `outcome` field: waypoints reached must equal waypoints total, the error list must have one
-entry per waypoint, and the worst error must be inside the accept radius. A controller bug
-that mislabelled a flyaway as success would still fail the gate.
+entry per waypoint, every error must be **finite**, and the worst must be inside the accept
+radius. A controller bug that mislabelled a flyaway as success would still fail the gate.
+
+**The finite check was missing in the first version, and review caught it.** The controller
+recorded `NaN` when a position sample was invalid at the moment of arrival, and because
+every comparison against NaN is False, `worst > radius` **passed it** — while `max()`
+dropped it, so the reported worst error was wrong too. The one case where the error is
+*unknown* was the one that looked clean. Fixed at both ends: the controller reuses the
+distance that actually satisfied the check so no NaN is produced, and the gate rejects
+non-finite values explicitly. `tests/test_gate_checks.py` pins it — 13 off-target tests
+that need no simulator.
 
 ### What this SR does and does not mean
 
