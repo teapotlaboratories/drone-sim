@@ -243,9 +243,9 @@ run fewer seeds in CI than locally. Decide with evidence rather than by trimming
 
 ## P1-04a — Seed the CONDITIONS, not the RNG
 
-**Status:** 🟡 **wind implemented and verified (2026-07-31); the 10-seed gate has NOT been
-re-run with diversity on.** Redesigned after the original approach was measured and
-failed. Evidence: [`../worklog/2026-07-31-gz-seed-negative-result.md`](../worklog/2026-07-31-gz-seed-negative-result.md)
+**Status:** ✅ **`done` (2026-07-31)** — wind seeded, and the 10-seed gate re-run with it on:
+**SR 10/10**, with waypoint error correlating with wind speed at **Pearson r = 0.957**.
+Redesigned after the original approach was measured and failed. Evidence: [`../worklog/2026-07-31-gz-seed-negative-result.md`](../worklog/2026-07-31-gz-seed-negative-result.md)
 
 ### The original plan does not work — measured, not assumed
 
@@ -302,12 +302,33 @@ seed never gave. End-to-end: seed 2 derives 2.868 m/s at 2.81 rad and flies 4/4.
 it can arm and the EKF gives up (`xy_valid: false`, position 5214 m); the run fails in
 `wait_for_fcu` — a harness failure, not a controller failure. `wind_speed_max_ms: 3.0`.
 
+### The gate, re-run with wind on — the acceptance evidence
+
+**SR 10/10 · 1132 s · wind sampled 0.40–2.87 m/s of the 3.0 cap.**
+
+| Wind (m/s) | 0.40 | 0.68 | 0.71 | 0.71 | 0.97 | 1.39 | 1.71 | 1.87 | 2.38 | 2.87 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Worst error (m) | 0.377 | 0.380 | 0.384 | 0.398 | 0.395 | 0.395 | 0.437 | 0.477 | 0.490 | 0.555 |
+
+**Pearson r = 0.957, slope 0.070 m of error per m/s of wind.** This is the acceptance
+criterion met with numbers rather than assertion: a measurable property of the flight now
+varies *systematically* with the seed. Before, the seed moved a spawn point and the ten
+runs were indistinguishable.
+
+**The margin narrowed, and that is worth watching.** Worst error went from 0.235 m to
+0.555 m against the 1.0 m accept radius — from a **4.3x** margin to **1.8x**. The radius
+still discriminates, but a gate at 1.8x will start catching things, which is the point of
+adding diversity. If the cap is raised toward 3 m/s the slope predicts ~0.58 m, still
+inside. Raising it much further needs the accept radius restated deliberately, not
+discovered by a red gate.
+
+**Cost:** 113 s per run against 97 s without the overlay, so the gate is now ~19 min —
+further over the 10-minute CI budget, which stays `P1-07`'s problem.
+
 ### Still to do
 
-- **Re-run the 10-seed gate with wind on** and compare against `SR 10/10 / 972 s /
-  0.207–0.231 m`. Errors will be higher and the run is slower (113.7 s vs 97 s per run, so
-  ~19 min); decide whether the accept radius still discriminates or needs restating.
-- Mass and sensor-noise `stddev` — the overlay mechanism now exists for both.
+- Mass and sensor-noise `stddev` — the overlay mechanism now exists for both, and the same
+  correlation test applies.
 
 ### What to build instead
 
