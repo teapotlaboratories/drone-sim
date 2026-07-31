@@ -85,12 +85,20 @@ def derive_variant(scenario: dict, seed: int) -> dict:
     wind_max = float(cfg.get("wind_speed_max_ms", 0.0))
     wind_speed = rng.uniform(0.0, wind_max)
     wind_heading = rng.uniform(-math.pi, math.pi)
+    spawn = (round(rng.uniform(-xy, xy), 3),
+             round(rng.uniform(-xy, xy), 3),
+             round(rng.uniform(-yaw, yaw), 4))
+    # Drawn LAST on purpose: appending a draw keeps every earlier seed's wind and spawn
+    # unchanged, so adding this knob does not silently invalidate recorded gate results.
+    mass_pct = float(cfg.get("mass_jitter_pct", 0.0))
+    mass_scale = rng.uniform(1.0 - mass_pct / 100.0, 1.0 + mass_pct / 100.0)
     return {
-        "spawn_x": round(rng.uniform(-xy, xy), 3),
-        "spawn_y": round(rng.uniform(-xy, xy), 3),
-        "spawn_yaw": round(rng.uniform(-yaw, yaw), 4),
+        "spawn_x": spawn[0],
+        "spawn_y": spawn[1],
+        "spawn_yaw": spawn[2],
         "wind_speed_ms": round(wind_speed, 3),
         "wind_heading_rad": round(wind_heading, 4),
+        "mass_scale": round(mass_scale, 4),
     }
 
 
@@ -112,7 +120,16 @@ def build_variant_overlay(scenario: dict, variant: dict, tag: str) -> str:
     Returns the container-side path, or "" when the scenario asks for no wind — in which
     case the stack runs stock and nothing is overlaid.
     """
-    if variant.get("wind_speed_ms", 0.0) <= 0.0:
+    # Decide on what the SCENARIO DECLARES, never on the value this seed happened to draw.
+    #
+    # Keying off the drawn value meant a seed that sampled ~0 wind ran on the stock world
+    # with no air drag while every other seed ran on the overlay — two different aircraft
+    # inside one success rate. Not a small difference either: 0.16 m mean error stock
+    # against 0.358 m on the overlay at zero wind.
+    seeded = scenario.get("seeded") or {}
+    declares = (float(seeded.get("wind_speed_max_ms", 0.0)) > 0.0
+                or float(seeded.get("mass_jitter_pct", 0.0)) > 0.0)
+    if not declares:
         return ""
     out = f"/out/variants/{tag}"
     r = sh(["docker", "run", "--rm",
@@ -120,7 +137,8 @@ def build_variant_overlay(scenario: dict, variant: dict, tag: str) -> str:
             "--entrypoint", "bash", "drone-sim/lane-a:v1.16.0", "-lc",
             f"python3 /s/make_variant.py --world {scenario.get('world', 'default')} "
             f"--wind-speed {variant['wind_speed_ms']} "
-            f"--wind-heading {variant['wind_heading_rad']} --outdir {out}"], timeout=300)
+            f"--wind-heading {variant['wind_heading_rad']} "
+            f"--mass-scale {variant.get('mass_scale', 1.0)} --outdir {out}"], timeout=300)
     if r.returncode != 0:
         raise RuntimeError(f"variant overlay failed: {r.stderr[-400:]}")
     return out

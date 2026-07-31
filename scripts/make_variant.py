@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import random
 import re
 import shutil
@@ -80,27 +81,25 @@ filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects">
 PX4_SERVER_CONFIG = Path("/opt/px4/src/modules/simulation/gz_bridge/server.config")
 
 
-def derive(scenario: dict, seed: int) -> dict:
-    """Everything the seed controls, in one auditable place."""
-    rng = random.Random(seed)
-    cfg = (scenario.get("seeded") or {})
-    wind_max = float(cfg.get("wind_speed_max_ms", 0.0))
-    speed = rng.uniform(0.0, wind_max)
-    heading = rng.uniform(-math.pi, math.pi)
-    mass_pct = float(cfg.get("mass_jitter_pct", 0.0))
-    return {
-        "wind_speed_ms": round(speed, 3),
-        "wind_heading_rad": round(heading, 4),
-        "wind_vx": round(speed * math.cos(heading), 4),
-        "wind_vy": round(speed * math.sin(heading), 4),
-        "mass_scale": round(rng.uniform(1.0 - mass_pct / 100.0, 1.0 + mass_pct / 100.0), 4),
-    }
+# NOTE: there is deliberately NO derive() here.
+#
+# An earlier version had one, duplicating run_scenario.derive_variant(). The two agreed
+# only because wind happened to be drawn first in both; reordering either one's draws
+# would have made "seed 3" mean two different things depending on which was asked, with
+# nothing to catch it. `scripts/run_scenario.py` is the single source of seed derivation
+# and passes the values in explicitly.
 
 
-def build(scenario: dict, seed: int, outdir: Path, variant: dict | None = None) -> dict:
-    v = variant or derive(scenario, seed)
+def build(scenario: dict, outdir: Path, variant: dict) -> dict:
+    v = variant
     worlds = outdir / "worlds"
     models = outdir / "models"
+    # Guarded: build() recursively deletes outdir, and through the CLI that path is
+    # whatever --outdir says. Confine it to the run-output tree so a typo cannot become
+    # `rmtree("/")`.
+    allowed = Path(os.environ.get("VARIANT_ROOT", "/out"))
+    if not str(outdir.resolve()).startswith(str(allowed.resolve()) + "/"):
+        sys.exit(f"refusing to build in {outdir}: must be under {allowed}")
     if outdir.exists():
         shutil.rmtree(outdir)
     worlds.mkdir(parents=True)
@@ -163,7 +162,7 @@ def main() -> int:
         "wind_vy": round(a.wind_speed * math.sin(a.wind_heading), 4),
         "mass_scale": a.mass_scale,
     }
-    build({"world": a.world}, 0, a.outdir, variant=v)
+    build({"world": a.world}, a.outdir, v)
     print(f"variant written to {a.outdir}: wind {v['wind_speed_ms']} m/s "
           f"({v['wind_vx']}, {v['wind_vy']})  mass x{v['mass_scale']}")
     return 0
