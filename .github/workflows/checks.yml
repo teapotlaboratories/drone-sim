@@ -65,12 +65,18 @@ jobs:
         # The project rule is that everything reads as the owner's work — enforced rather
         # than remembered.
         #
-        # .ai/AGENTS.md and CLAUDE.md are excluded because they DEFINE the rule and quote
-        # the forbidden strings in order to forbid them. Without the exclusion this check
-        # fails on the very files that establish it.
+        # Three files are excluded because they DEFINE the rule and necessarily quote the
+        # forbidden strings in order to forbid them: the two rule documents, and THIS
+        # WORKFLOW, which contains the very pattern it searches for.
+        #
+        # That last one was found by CI, not locally — and the reason is worth keeping.
+        # `git ls-files` lists TRACKED files only, so while the workflow was still
+        # untracked the check could not see itself and passed. It failed on the first push,
+        # once the file was committed. Running a workflow's steps locally is worth doing,
+        # but it does not reproduce what `git ls-files` returns after `git add`.
         run: |
           hits=$(git ls-files \
-                 | grep -vE '^(\.ai/AGENTS\.md|CLAUDE\.md)$' \
+                 | grep -vE '^(\.ai/AGENTS\.md|CLAUDE\.md|\.github/workflows/checks\.yml)$' \
                  | xargs grep -lniE 'co-authored-by:.*claude|generated with .*claude|🤖' 2>/dev/null || true)
           if [ -n "$hits" ]; then
             echo "::error::AI attribution found in: $hits"
