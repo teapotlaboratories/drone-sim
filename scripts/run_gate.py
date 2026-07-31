@@ -114,8 +114,9 @@ def main() -> int:
     print()
 
     if a.reuse:
-        # Bring one stack up, at seed-independent defaults, and leave it up.
-        print("bringing up a single stack for all runs...")
+        # One stack, seed-independent defaults, left up. No wind either: a single stack
+        # cannot carry per-seed wind, which is another reason --reuse is not a gate run.
+        print("bringing up a single stack for all runs (no per-seed wind)...")
         rs.restart_stack({"spawn_x": 0.0, "spawn_y": 0.0, "spawn_yaw": 0.0})
 
     runs, started = [], time.time()
@@ -123,7 +124,12 @@ def main() -> int:
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
         if not a.reuse:
-            rs.restart_stack(variant)
+            # Build the per-seed physics overlay and hand it to the stack. Calling
+            # restart_stack(variant) alone would run with NO WIND while the report happily
+            # printed the seed's wind speed — a gate quietly measuring something other
+            # than what it claims.
+            vdir = rs.build_variant_overlay(scenario, variant, f"{name}-seed{seed}")
+            rs.restart_stack(variant, vdir)
         try:
             result = rs.run_flight(scenario, seed, a.outdir)
         except Exception as exc:                      # a crashed run is a failed run,
@@ -135,12 +141,14 @@ def main() -> int:
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
             "spawn_pose_applied": not a.reuse,
+            "wind_applied": (not a.reuse) and variant.get("wind_speed_ms", 0) > 0,
             "variant": variant,
             "mcap": f"out/{name}-seed{seed}",
             "seconds": round(time.time() - t0, 1),
         })
         print(f"  [{i:>2}/{len(seeds)}] seed {seed:<3} "
               f"{'PASS' if ok else 'FAIL':4}  worst {runs[-1]['worst_error_m']:.3f} m  "
+              f"wind {variant.get('wind_speed_ms', 0):.2f} m/s  "
               f"{runs[-1]['seconds']:.0f}s"
               + (f"  — {why}" if not ok else ""))
 
