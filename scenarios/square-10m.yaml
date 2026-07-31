@@ -41,6 +41,20 @@ tolerances:
 # So a seeded run answers "does it work under these conditions", and a success RATE over
 # many seeds answers "does it work reliably" — which is what the exit criterion is for.
 seeded:
+  # WIND — the knob that actually changes the physics (P1-04a).
+  #
+  # Sampled per seed as speed in [0, wind_speed_max_ms] with a uniformly random heading,
+  # applied via a generated world + model overlay (scripts/make_variant.py). Measured
+  # effect at 3 m/s: waypoint errors 0.634, 0.541, 0.06, 0.298 — the upwind legs cost an
+  # order of magnitude more than the downwind one, which is the signature you want.
+  #
+  # THE BOUND IS LOAD-BEARING. At 8 m/s the DISARMED vehicle is blown 416 m across the
+  # world before it can arm, the EKF gives up (xy_valid false) and the run fails in
+  # wait_for_fcu — a harness failure, not a controller failure. 3 m/s is a disturbance the
+  # aircraft should handle; raise it only with evidence and a way to hold the vehicle
+  # until takeoff.
+  wind_speed_max_ms: 3.0
+
   # Spawn pose in the Gazebo world, via PX4_GZ_MODEL_POSE.
   #
   # HONEST LIMITATION: in an EMPTY world this varies almost nothing the controller can

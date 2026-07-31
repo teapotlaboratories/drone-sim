@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import re
@@ -72,15 +73,24 @@ def derive_variant(scenario: dict, seed: int) -> dict:
     Uses random.Random(seed) rather than the global RNG: the global one is process-wide
     state that anything else could disturb, which would make "seed 3" mean different things
     in different runs of this script.
+
+    WIND is the knob that actually changes the physics. The spawn pose is kept because it
+    becomes load-bearing in Phase 2, where obstacles sit at fixed world coordinates — but
+    in an empty world it changes almost nothing the controller sees.
     """
     rng = random.Random(seed)
     cfg = scenario.get("seeded", {}) or {}
     xy = float(cfg.get("spawn_xy_jitter_m", 0.0))
     yaw = float(cfg.get("spawn_yaw_jitter_rad", 0.0))
+    wind_max = float(cfg.get("wind_speed_max_ms", 0.0))
+    wind_speed = rng.uniform(0.0, wind_max)
+    wind_heading = rng.uniform(-math.pi, math.pi)
     return {
         "spawn_x": round(rng.uniform(-xy, xy), 3),
         "spawn_y": round(rng.uniform(-xy, xy), 3),
         "spawn_yaw": round(rng.uniform(-yaw, yaw), 4),
+        "wind_speed_ms": round(wind_speed, 3),
+        "wind_heading_rad": round(wind_heading, 4),
     }
 
 
@@ -95,7 +105,28 @@ def wait_healthy(container: str, timeout_s: int = 240) -> bool:
     return False
 
 
-def restart_stack(variant: dict) -> None:
+def build_variant_overlay(scenario: dict, variant: dict, tag: str) -> str:
+    """Generate the per-seed world/model overlay INSIDE a container.
+
+    It has to run in the container because it reads PX4's world and model out of the image.
+    Returns the container-side path, or "" when the scenario asks for no wind — in which
+    case the stack runs stock and nothing is overlaid.
+    """
+    if variant.get("wind_speed_ms", 0.0) <= 0.0:
+        return ""
+    out = f"/out/variants/{tag}"
+    r = sh(["docker", "run", "--rm",
+            "-v", f"{REPO}/scripts:/s:ro", "-v", f"{REPO}/out:/out",
+            "--entrypoint", "bash", "drone-sim/lane-a:v1.16.0", "-lc",
+            f"python3 /s/make_variant.py --world {scenario.get('world', 'default')} "
+            f"--wind-speed {variant['wind_speed_ms']} "
+            f"--wind-heading {variant['wind_heading_rad']} --outdir {out}"], timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError(f"variant overlay failed: {r.stderr[-400:]}")
+    return out
+
+
+def restart_stack(variant: dict, variant_dir: str = "") -> None:
     """Recreate the WHOLE stack, never just px4-sitl.
 
     Every other service joins px4-sitl's network namespace, so recreating it alone leaves
@@ -104,7 +135,7 @@ def restart_stack(variant: dict) -> None:
     recreating px4-sitl alone, 24 after recreating everything.
     """
     pose = f"{variant['spawn_x']},{variant['spawn_y']},0,0,0,{variant['spawn_yaw']}"
-    env = {"PX4_GZ_MODEL_POSE": pose}
+    env = {"PX4_GZ_MODEL_POSE": pose, "VARIANT_DIR": variant_dir}
     sh(COMPOSE + ["down"], timeout=300)
     sh(COMPOSE + ["up", "-d", "--force-recreate"], env=env, timeout=600)
     for svc in ("lane-a-px4", "lane-a-qgc"):
@@ -200,8 +231,11 @@ def main() -> int:
     if a.no_restart:
         print("stack    : reusing (spawn pose NOT applied)")
     else:
-        print("stack    : restarting with seed-derived spawn pose")
-        restart_stack(variant)
+        vdir = build_variant_overlay(scenario, variant, f"{scenario.get('name')}-seed{a.seed}")
+        print(f"stack    : restarting  wind {variant['wind_speed_ms']} m/s "
+              f"heading {variant['wind_heading_rad']}"
+              + ("" if vdir else "  (no wind declared — stock world)"))
+        restart_stack(variant, vdir)
 
     result = run_flight(scenario, a.seed, a.outdir)
     result.update({
