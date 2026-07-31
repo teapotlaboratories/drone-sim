@@ -56,7 +56,12 @@ CPU-bound and runs fully headless.
 ```bash
 git clone <this repo> && cd drone-sim
 docker build -f docker/lane-a.Dockerfile -t drone-sim/lane-a:v1.16.0 .
+docker build -f docker/qgc.Dockerfile   -t drone-sim/qgc:v1.16.0 .      # thin, ~1 min
 ```
+
+**Both images are required.** The second is not optional tooling: PX4 refuses to arm
+without a ground-station datalink, and QGroundControl is what provides it — so without
+`drone-sim/qgc` the stack comes up and nothing can fly.
 
 Pulls PX4 v1.16.0 + submodules, Gazebo Harmonic, ROS 2 Jazzy, the uXRCE-DDS agent and
 branch-matched `px4_msgs`, then **verifies every pin against its recorded SHA** and fails the
@@ -123,39 +128,60 @@ docker compose -f docker/compose.yaml exec ros2 bash -lc 'ros2 topic list | grep
 > with a pipe or a `screen` pty it busy-spins its prompt — ~1.45 M writes/s, **4.1 GB of
 > escape codes per 300 s run** and a fully consumed CPU core.
 
-### 5. Watch it fly (optional)
+### 5. Watch it fly — record a video
 
-**What steps 3–4 do and do not show you.** Lane A runs headless by design: the smoke test
-starts the Gazebo *server* only, and the interactive path gives you the **PX4 CLI** but no
-Gazebo window and no QGroundControl. To see the simulator, use the demo image — it renders
-the GUIs onto a **virtual display** and records them to video:
+Lane A runs headless by design: the smoke test starts the Gazebo *server* only, and the
+interactive path gives you the PX4 shell but no windows. The `recording` profile renders
+all four interfaces onto a virtual display and captures them.
+
+**This is fully repeatable — it is a compose profile, not a one-off.**
 
 ```bash
-# one-time, ~1 min (base layers are cached)
+# one-time: the demo image adds ffmpeg, xterm, xdotool and openbox (~1 min, layers cached)
 docker build -f docker/demo/lane-a-video.Dockerfile -t drone-sim/lane-a-video:v1.16.0 .
 
-# with the stack already up, record it flying — four panes side by side
+# with the stack already up (step 3), record a flight
 docker compose -f docker/compose.yaml --profile record run --rm recording
-# -> out/quad-flight.mp4   (Gazebo GUI · QGroundControl · PX4 console · ROS 2 controller)
 ```
 
-The recorder **attaches to the running stack** rather than starting its own PX4: it runs
-only the Gazebo GUI client against the live server, tails the real PX4 console, and flies
-with the same ROS 2 node the acceptance gate uses. It exits non-zero if the flight did not
-succeed, so a video of an idle simulator cannot be mistaken for evidence.
+You get **`out/quad-flight.mp4`** — 1920x1080, ~37 s, four panes:
 
-> **Known cosmetic issue:** QGC's first-run "Measurement Units" dialog overlays its pane.
-> All four panes otherwise render correctly. Tracked in `D-02b`.
+| Pane | Shows |
+|---|---|
+| top-left | **Gazebo**, camera locked onto the drone for the whole flight |
+| top-right | **QGroundControl** — *Flying*, altitude, battery, live telemetry |
+| bottom-left | the real **PX4 console** |
+| bottom-right | the **ROS 2 controller** stepping arm → takeoff → waypoints → land |
 
-**QGroundControl is not baked into any image** (180 MB) — `./scripts/fetch-qgc.sh` puts it
-at `vendor/tools/QGroundControl.AppImage`, which the `qgc` service bind-mounts.
+Knobs, all optional:
 
-> **These are recordings, not live windows.** Everything renders to Xvfb inside the
-> container, so you get an `.mp4` rather than an interactive GUI. Attaching a live viewer
-> (x11vnc + noVNC on the same virtual display) is not wired up yet — see `D-02b` in
+```bash
+RES=1280x720 ALT=5 FOLLOW_X=-2 FOLLOW_Y=-2 FOLLOW_Z=1 \
+  docker compose -f docker/compose.yaml --profile record run --rm recording
+```
+
+`RES` capture size · `ALT` takeoff altitude · `FOLLOW_*` camera offset from the drone in
+metres.
+
+**It attaches to the running stack** rather than starting its own PX4 — the Gazebo GUI
+client talks to the live server, the PX4 pane tails the real console, and the flight is the
+same ROS 2 node the acceptance gate runs. So the video is evidence about the deployment you
+are testing, not about a private copy of it.
+
+**It exits non-zero if no successful flight happened**, and clears the previous run's
+artifacts first. That matters: an early version cheerfully produced a convincing 1080p
+video of a simulator that never armed, and reported success. Check the exit status, or read
+`out/mission-result.json`.
+
+> **Recordings, not live windows.** Everything renders to Xvfb inside the container, so you
+> get an `.mp4`, not something you can click. Attaching a browser-reachable viewer
+> (x11vnc + noVNC on the same display) is `D-02b` in
 > [`docs/docker/todo.md`](docs/docker/todo.md).
 
-Details and the seven gotchas that cost time: [`docker/demo/README.md`](docker/demo/README.md).
+**QGroundControl itself is not baked into any image** (180 MB) — `./scripts/fetch-qgc.sh`
+from step 2 puts it where both the `qgc` and `recording` services expect it.
+
+Details and the gotchas that cost time: [`docker/demo/README.md`](docker/demo/README.md).
 
 ### Ports
 

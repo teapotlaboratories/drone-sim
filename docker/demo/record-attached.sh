@@ -98,6 +98,29 @@ say "pane 1/4 — Gazebo GUI client (top-left)"
 gz sim -g > "$OUT/gzgui.log" 2>&1 &
 place "Gazebo Sim" 0 0 "$HW" "$HH"
 
+# Point the camera AT the vehicle and keep it there. Without this the GUI opens on a wide
+# default view and the drone is a speck — technically a recording of the flight, visually
+# useless. Same services PX4 uses itself when PX4_GZ_FOLLOW is set (px4-rc.gzsim:147).
+#
+# The offset is tuned, not guessed: -6,-6,3 still left the vehicle a dot. -3,-3,1.5 renders
+# a recognisable aircraft in a half-screen pane. Both services answer `data: true` either
+# way, so the reply proves nothing about framing — only a screenshot does.
+#
+# The GUI needs a moment after its window appears before it will answer.
+sleep 6
+MODEL=${MODEL_NAME:-x500_0}
+for i in $(seq 1 10); do
+  if gz service -s /gui/follow --reqtype gz.msgs.StringMsg --reptype gz.msgs.Boolean \
+       --timeout 5000 --req "data: \"$MODEL\"" >/dev/null 2>&1; then
+    gz service -s /gui/follow/offset --reqtype gz.msgs.Vector3d --reptype gz.msgs.Boolean \
+       --timeout 5000 \
+       --req "x: ${FOLLOW_X:--3.0}, y: ${FOLLOW_Y:--3.0}, z: ${FOLLOW_Z:-1.5}" >/dev/null 2>&1
+    echo "   camera following $MODEL"
+    break
+  fi
+  sleep 2
+done
+
 # QGC's window belongs to the qgc container and needs more than a one-shot placement:
 # it comes up `Map State: IsUnMapped`, and mapping it ONCE early does not stick — the
 # pane still recorded solid black. Map/activate/raise/place, verify with xwininfo, and

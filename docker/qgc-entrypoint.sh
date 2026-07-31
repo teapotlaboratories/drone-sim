@@ -69,14 +69,30 @@ print(f"qgc: seeded window geometry {w}x{h}+{x}+{y}")
 PYEOF
 chown -R qgcuser:qgcuser "$QGC_CONF"
 
-# KNOWN ISSUE, not fixed here: QGC shows a first-run "Measurement Units" dialog centred
-# over the flight view, and its window neither tiles nor stays where xdotool puts it.
-# Tried and REJECTED: seeding `[AppSettings] firstRunPromptIdsShown=1` into
-# QGroundControl.ini — a guess at QGC's internal key that did NOT suppress the dialog, so
-# it is not left in pretending to work. A synthetic Return keypress does not dismiss it
-# either (the dialog is a separate window). Fixing it properly means either finding the
-# real settings key in QGC 5.0.8's source or seeding a full pre-answered profile; tracked
-# with the tiling problem in D-02b.
+# Suppress QGC's first-run "Measurement Units" dialog, which otherwise sits centred over
+# the flight view and covers exactly the part worth looking at.
+#
+# The key is `firstRunPromptIdsShown` under **[General]** — NOT [AppSettings], which is
+# where an earlier attempt put it, and why that attempt silently did nothing. Found by
+# dismissing the prompts with a synthetic click and diffing the ini, rather than guessing
+# at QGC's internals a second time.
+#
+# It is a QUOTED, COMMA-SEPARATED LIST, not a single value: there are at least two prompts
+# (1 = Measurement Units, 2 = Vehicle Information), and suppressing only the first just
+# reveals the second. The extra ids are harmless padding — QGC only asks whether an id has
+# already been shown — and they cover prompts a later QGC release might add.
+QGC_CONF=/home/qgcuser/.config/QGroundControl
+mkdir -p "$QGC_CONF"
+INI="$QGC_CONF/QGroundControl.ini"
+PROMPTS='firstRunPromptIdsShown="1,2,3,4,5,6,7,8"'
+if grep -q '^firstRunPromptIdsShown' "$INI" 2>/dev/null; then
+  sed -i "s|^firstRunPromptIdsShown.*|$PROMPTS|" "$INI"
+elif grep -q '^\[General\]' "$INI" 2>/dev/null; then
+  sed -i "0,/^\[General\]/s||[General]\n$PROMPTS|" "$INI"
+else
+  printf '[General]\n%s\n' "$PROMPTS" >> "$INI"
+fi
+chown -R qgcuser:qgcuser "$QGC_CONF"
 
 # QGC refuses to run as root, so drop privileges. It also needs a writable HOME for its
 # settings and a writable TMPDIR for --appimage-extract-and-run.
