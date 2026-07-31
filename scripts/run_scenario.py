@@ -117,8 +117,9 @@ def build_variant_overlay(scenario: dict, variant: dict, tag: str) -> str:
     """Generate the per-seed world/model overlay INSIDE a container.
 
     It has to run in the container because it reads PX4's world and model out of the image.
-    Returns the container-side path, or "" when the scenario asks for no wind — in which
-    case the stack runs stock and nothing is overlaid.
+    Returns the container-side overlay path, or "" when the scenario declares no diversity
+    at all (no wind band and no mass jitter) — in which case every run uses the stock world
+    and they remain comparable to each other.
     """
     # Decide on what the SCENARIO DECLARES, never on the value this seed happened to draw.
     #
