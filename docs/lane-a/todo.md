@@ -241,29 +241,58 @@ run fewer seeds in CI than locally. Decide with evidence rather than by trimming
 
 ---
 
-## P1-04a — Seed the sensor noise via standalone Gazebo
+## P1-04a — Seed the CONDITIONS, not the RNG
 
-**Status:** `todo` · **Found:** 2026-07-31, while building `P1-04`
+**Status:** `todo` — **redesigned 2026-07-31 after the original approach was measured and
+failed.** Evidence: [`../worklog/2026-07-31-gz-seed-negative-result.md`](../worklog/2026-07-31-gz-seed-negative-result.md)
 
-**What.** Run Gazebo as its own compose service (`gz sim -r -s --seed <n> <world>`) with
-PX4 in `PX4_GZ_STANDALONE=1` mode, so the seed reaches the simulator's RNG.
+### The original plan does not work — measured, not assumed
 
-**Why.** Sensor noise is the genuinely stochastic element of a SITL run, and today it is
-uncontrolled: the seed varies the spawn pose, which in an empty world changes almost
-nothing. Without this, "10 seeded runs" is closer to "10 repeats" than the criterion
-intends — the runs do differ, but not because of the seed.
+`gz sim --seed` was going to seed the simulator's RNG so the noise stream became
+reproducible. It is accepted by the binary and the plumbing works — PX4 attaches to a
+world we start ourselves (`px4-rc.gzsim:63`), no `PX4_GZ_STANDALONE` needed — and it has
+**no measurable effect.**
 
-**Acceptance.** Same seed twice produces materially closer trajectories than two different
-seeds; the difference is measurable, not asserted.
+Compared at **identical simulation timestamps**, on Gazebo's own sim-stamped IMU topic:
 
-**Trap.** The plan's service list already names a `gazebo` service, so this is also the
-architectural fix — but it splits a working stack, and `px4-sitl` currently owns the netns
-every other service joins.
+| Comparison | Aligned samples | Identical | Mean \|Δ accel_x\| |
+|---|---|---|---|
+| **Same seed** (42 vs 42) | 716 | **0 (0.0%)** | **0.00726** |
+| **Different seed** (42 vs 7) | 1911 | 0 (0.0%) | **0.00718** |
 
-**Do this together with [`D-06`](../docker/todo.md)** — redrawing the container boundaries
-so they mirror the Phase 4 machines. Both tasks have to move `px4-sitl` apart from what it
-currently contains, and doing them separately means paying the "split the netns donor" cost
-twice.
+Two runs with the same seed differ by as much as two runs with different seeds. Not one
+sample matches. **Do not retry this** without new evidence that `--seed` reaches
+`gz-sensors`' noise models.
+
+The plumbing was reverted — it added a branch to the PX4 startup and bought nothing, and
+leaving it in would imply control the stack does not have.
+
+### What to build instead
+
+**Seed the conditions, not the random stream.** A success rate does not need determinism;
+it needs *diversity*. Each of these is a scenario-declared range sampled with
+`random.Random(seed)` — the mechanism `scripts/run_scenario.py` already has, pointed at
+knobs that actually change the physics:
+
+| Knob | Why it is worth seeding |
+|---|---|
+| **Wind** speed + direction | The default world already has a `wind` element. The most physically meaningful disturbance for a multirotor, and the one a real flight actually meets. |
+| **Vehicle mass / inertia**, within a band | The controller meets a slightly different aircraft each run — a direct test of how much its behaviour depends on exact tuning. |
+| **Sensor noise `stddev`** in the model SDF | Not the stream, the *parameter*. Widening or narrowing the noise is a real robustness test even though the samples are not reproducible. |
+
+**Acceptance.** Across seeds, a measurable property of the flight differs systematically
+(e.g. mean waypoint error correlates with wind speed) — demonstrated with numbers, not
+asserted. And the gate still passes with the diversity switched on, or the failures it
+surfaces are real ones worth fixing.
+
+**Traps.**
+- **Two of these mutate the model or world SDF**, which lives inside the image. Mount an
+  overlay or generate a per-run copy; do not edit the vendored tree (least-destructive
+  vendor edits).
+- **Diversity that is too wide turns a real gate into a flaky one.** Pick ranges the
+  aircraft should genuinely handle, and record why those bounds.
+- **The runs still are not reproducible**, so a failing seed cannot be replayed. Keep the
+  per-run MCAP; it is the only evidence of a failure.
 
 ---
 
