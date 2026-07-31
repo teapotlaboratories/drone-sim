@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import math
 import json
 import sys
 import time
@@ -65,11 +66,30 @@ def check_run(result: dict, scenario: dict) -> tuple[bool, str]:
     errors = result.get("waypoint_errors_m") or []
     if len(errors) != total:
         return False, f"{len(errors)} error samples for {total} waypoints"
-    worst = max(errors)
+
+    # Reject non-finite errors EXPLICITLY, before any comparison.
+    #
+    # This is the hole this gate was written to close and originally had: every comparison
+    # against NaN is False, so `worst > radius` let a NaN through as a PASS, and `max()`
+    # dropped it so the reported worst error was wrong too. The case where the error is
+    # UNKNOWN must never be the case that looks clean. `None` is included because the
+    # controller now emits JSON null rather than a bare NaN.
+    for i, e in enumerate(errors):
+        if e is None or not isinstance(e, (int, float)) or not math.isfinite(float(e)):
+            return False, f"waypoint {i + 1} error is not a finite number: {e!r}"
+
+    worst = max(float(e) for e in errors)
     if worst > radius:
         return False, f"waypoint error {worst} m exceeds accept radius {radius} m"
 
     return True, ""
+
+
+def _worst(errors) -> float:
+    """Worst error for reporting — 0 when there is nothing usable, never a silent drop."""
+    usable = [float(e) for e in (errors or [])
+              if isinstance(e, (int, float)) and math.isfinite(float(e))]
+    return max(usable) if usable else 0.0
 
 
 def main() -> int:
@@ -113,7 +133,7 @@ def main() -> int:
         runs.append({
             "seed": seed, "passed": ok, "reason": why,
             "waypoint_errors_m": result.get("waypoint_errors_m"),
-            "worst_error_m": max(result.get("waypoint_errors_m") or [0]),
+            "worst_error_m": _worst(result.get("waypoint_errors_m")),
             "spawn_pose_applied": not a.reuse,
             "variant": variant,
             "mcap": f"out/{name}-seed{seed}",
