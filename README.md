@@ -63,7 +63,23 @@ branch-matched `px4_msgs`, then **verifies every pin against its recorded SHA** 
 build on a mismatch. Expect 20–40 minutes and ~11.6 GB; the pins land in
 `/etc/drone-sim-versions` inside the image.
 
-### 2. Bring the stack up and prove it flies
+### 2. Fetch QGroundControl (required — it is what lets the vehicle arm)
+
+```bash
+./scripts/fetch-qgc.sh          # ~180 MB, pinned to QGC 5.0.8, SHA256-verified
+```
+
+> **This is not an optional viewer.** PX4 refuses to arm without a ground-station
+> datalink, and that safety check is deliberately left **enforced** — it is the link an
+> operator uses to take over. QGC is also the *only* component in this project that speaks
+> MAVLink over IP; everything else is on the ROS 2 graph. Without this file the `qgc`
+> service cannot start and nothing can arm.
+>
+> The AppImage is git-ignored rather than committed, so the pin lives in
+> [`versions.lock`](versions.lock) and the script verifies it. A checksum mismatch is a
+> hard failure, not a warning — this binary is the arming datalink.
+
+### 3. Bring the stack up and prove it flies
 
 ```bash
 docker compose -f docker/compose.yaml up -d                          # PX4 + Gazebo + XRCE agent + ROS 2
@@ -90,7 +106,7 @@ miss. Reference: **RTF 1.0000 native · 0.9967 host podman · 0.9767 nested Dock
 > **`--shm-size=2g` is required, not optional.** Docker defaults `/dev/shm` to 64 MB and
 > Fast-DDS uses shared memory as its default transport; at the default it starves.
 
-### 3. Poke at it interactively
+### 4. Poke at it interactively
 
 With the stack up:
 
@@ -107,9 +123,9 @@ docker compose -f docker/compose.yaml exec ros2 bash -lc 'ros2 topic list | grep
 > with a pipe or a `screen` pty it busy-spins its prompt — ~1.45 M writes/s, **4.1 GB of
 > escape codes per 300 s run** and a fully consumed CPU core.
 
-### 4. Watch it fly (optional)
+### 5. Watch it fly (optional)
 
-**What steps 2–3 do and do not show you.** Lane A runs headless by design: the smoke test
+**What steps 3–4 do and do not show you.** Lane A runs headless by design: the smoke test
 starts the Gazebo *server* only, and the interactive path gives you the **PX4 CLI** but no
 Gazebo window and no QGroundControl. To see the simulator, use the demo image — it renders
 the GUIs onto a **virtual display** and records them to video:
@@ -118,22 +134,21 @@ the GUIs onto a **virtual display** and records them to video:
 # one-time, ~1 min (base layers are cached)
 docker build -f docker/demo/lane-a-video.Dockerfile -t drone-sim/lane-a-video:v1.16.0 .
 
-# arm → take off to 10 m → hover → land, recording four panes side by side
-mkdir -p out
-docker run --rm --shm-size=2g -e OUTDIR=/out -e RES=1920x1080 -e ALT=10 -e HOVER_S=45 \
-  -v "$PWD/out:/out" \
-  -v "$PWD/docker/demo/lane-a-record-quad.sh:/record.sh:ro" \
-  -v "$PWD/docker/demo/lane-a-fly.py:/fly.py:ro" \
-  -v "$PWD/vendor/tools/QGroundControl.AppImage:/qgc.AppImage:ro" \
-  drone-sim/lane-a-video:v1.16.0 bash /record.sh
-# -> out/quad-flight.mp4   (Gazebo GUI · QGroundControl · PX4 CLI · MAVLink script)
+# with the stack already up, record it flying — four panes side by side
+docker compose -f docker/compose.yaml --profile record run --rm recording
+# -> out/quad-flight.mp4   (Gazebo GUI · QGroundControl · PX4 console · ROS 2 controller)
 ```
 
-Single-pane variant: swap `lane-a-record-quad.sh` for `lane-a-record-flight.sh` and drop the
-QGC mount.
+The recorder **attaches to the running stack** rather than starting its own PX4: it runs
+only the Gazebo GUI client against the live server, tails the real PX4 console, and flies
+with the same ROS 2 node the acceptance gate uses. It exits non-zero if the flight did not
+succeed, so a video of an idle simulator cannot be mistaken for evidence.
 
-**QGroundControl is not in the image** (172 MB, and CI has no use for it) — fetch it once to
-`vendor/tools/QGroundControl.AppImage` and bind-mount it as above.
+> **Known cosmetic issue:** QGC's first-run "Measurement Units" dialog overlays its pane.
+> All four panes otherwise render correctly. Tracked in `D-02b`.
+
+**QGroundControl is not baked into any image** (180 MB) — `./scripts/fetch-qgc.sh` puts it
+at `vendor/tools/QGroundControl.AppImage`, which the `qgc` service bind-mounts.
 
 > **These are recordings, not live windows.** Everything renders to Xvfb inside the
 > container, so you get an `.mp4` rather than an interactive GUI. Attaching a live viewer
@@ -148,10 +163,16 @@ All four are published on **`127.0.0.1` only**.
 
 | Port | Use |
 |---|---|
-| 14550/udp | QGroundControl / GCS |
+| 18570/udp | **GCS datalink — PX4's actual GCS MAVLink port** (`px4-rc.mavlink:11`) |
+| 14550/udp | the port a ground station conventionally listens on |
 | 14540/udp | offboard + programmatic control |
 | 8888/udp | uXRCE-DDS agent (→ ROS 2 topics) |
 | 4560/tcp | Gazebo ↔ PX4 |
+
+> **18570, not 14550.** PX4 SITL's GCS MAVLink instance binds `18570+instance`. Nothing is
+> ever sent to 14550 — verified by binding it and receiving nothing while PX4 already held
+> 18570. A heartbeat aimed at 14550 is discarded silently, with no error and no log line,
+> and the datalink simply never comes up.
 
 > **MAVLink has no authentication.** Published on `0.0.0.0`, port 14540 lets anyone routable
 > arm and command the vehicle. To reach the stack from another machine, opt in explicitly:

@@ -162,8 +162,8 @@ The original definition (below) named five services. **Three shipped**, plus the
 | `xrce-agent` | ✅ shipped |
 | `ros2-ws` → `ros2` | ✅ shipped (renamed; idles for `exec`, will host Phase 1 nodes) |
 | `verify` | ✅ added — not in the original definition; it is the acceptance gate under `--profile test` |
-| `qgc` | ⏭️ **deferred to `D-02b`.** QGC needs a display, and the container has none. It works today only as a recording via `docker/demo/`; a compose service is only meaningful once x11vnc/noVNC gives it somewhere to draw. |
-| `recording` | ⏭️ **deferred to `D-02c`.** Exists and works as `docker/demo/lane-a-record-quad.sh`, but it starts its *own* PX4 rather than attaching to the composed stack — folding it in means teaching it `SMOKE_ATTACH`-style attach behaviour. Not a one-line service. |
+| `qgc` | ✅ **shipped (2026-07-30)** — promoted out of `D-02b` because it turned out to be a **functional dependency of flight**, not a viewer: PX4 will not arm without a GCS datalink, and that check is deliberately left enforced. Runs headless on Xvfb via `docker/qgc.Dockerfile`. `D-02b` still owns making it *viewable*. |
+| `recording` | ✅ **shipped (2026-07-30)** via `D-02c` — attaches to the running stack under `--profile record`. One known defect: the QGC pane records black (`D-02b`). |
 
 **Ports:** all four are published (14550, 14540, 8888, 4560) but **bound to `127.0.0.1`**, not
 `0.0.0.0` — MAVLink has no authentication, so a LAN-published 14540 lets anyone routable arm
@@ -195,9 +195,13 @@ networking makes it easy to accidentally expose it.
 **Status:** `todo` · **Blocked by:** D-02
 
 **What.** Expose the container's virtual display over the browser: `x11vnc` on the Xvfb
-display plus `noVNC` on an HTTP port, as a compose service. **This also carries the `qgc`
-service deferred from `D-02`** — a QGC compose service is only meaningful once there is a
-display it can draw on and a human can reach.
+display plus `noVNC` on an HTTP port, as a compose service.
+
+**Scope narrowed 2026-07-30:** the `qgc` service itself already shipped — it had to, because
+PX4 will not arm without a GCS datalink, which made QGC a functional dependency of flight
+rather than a viewer. It runs headless on Xvfb today. What is left here is making that
+display **reachable and interactive**, i.e. attaching a viewer to the Xvfb that QGC is
+already drawing on.
 
 **Why.** Today the GUIs (Gazebo, QGroundControl) render to Xvfb and are only obtainable as
 an `.mp4` — you cannot click anything. That is fine for CI evidence and useless for actually
@@ -222,10 +226,45 @@ them (orbit the camera, click Takeoff in QGC) while the smoke test's flight runs
 
 ## D-02c — Fold the recording demo into compose as a `recording` service
 
-**Status:** `todo` · **Blocked by:** D-02 · **Deferred from:** D-02
+**Status:** ✅ **`done` (2026-07-30)** — `docker compose --profile record run --rm recording`
+
+**Verified by running it:** attaches to the live stack, builds `control` from the mounted
+source, flies the real ROS 2 node (4/4 waypoints, landed, disarmed) and writes a
+1920x1080 / 556-frame MP4. Exits non-zero when the flight fails.
+
+**Design:** `qgc` owns the virtual display and the `xsock` volume shares it, so there is
+ONE QGroundControl — the datalink — whose window the recorder captures, rather than a
+second QGC fighting over PX4's learned remote address. That sharing is also the attachment
+point for `D-02b`'s live viewer. The PX4 pane is a `tail -f` of the console log, because a
+`screen` session cannot be attached across a container boundary.
+
+**Three bugs it caught, all fixed:**
+
+| Bug | Symptom |
+|---|---|
+| `-p takeoff_altitude:=10` is parsed as **INTEGER** against a DOUBLE default | `InvalidParameterTypeException`, node dead before it subscribed — and the recording captured an idle stack. Numeric parameters now use `dynamic_typing`. |
+| Stale `mission-result.json` from a previous run | Reads `"outcome": "success"` and looks exactly like proof this recording flew. Artifacts are cleared at start. |
+| `grep … \| tail \| sed \|\| echo` cannot detect failure | Pipeline exit status is `sed`'s, always 0 — the "no result" branch was unreachable. |
+
+**Fixed 2026-07-30 — the QGC pane recorded black.** Two wrong diagnoses before the right
+one, all of which *looked* like success:
+
+| Attempt | Result |
+|---|---|
+| Window unmapped (`Map State: IsUnMapped`) | Real, but only half of it — `xdotool` moves and resizes unmapped windows happily and reports success. Mapping alone did not fix the black pane. |
+| Window not tiling / wrong position | Refuted: `xdotool getwindowgeometry` showed exactly `960,0 960x540`. |
+| **External resize kills QGC's painting** | **The actual cause.** Qt Quick's software backend gets no repaint trigger on a headless Xvfb with no compositor, so a resized window stays mapped, viewable, correctly placed — and blank. |
+
+Fix: the `qgc` service seeds QGC's own `[MainWindowState]` so it **starts** at the target
+geometry and is never resized; the recorder maps and raises it but no longer moves or sizes
+it. Verified in the captured frame — QGC shows *Flying*, altitude, battery and live
+telemetry. **Remaining, cosmetic:** QGC's first-run "Measurement Units" dialog overlays the
+pane (`D-02b`).
+
+**Original definition:** ~~`todo` · Blocked by: D-02 · Deferred from: D-02~~
 
 **What.** The fifth service from the D-02 definition. The recorder already exists and works
-(`docker/demo/lane-a-record-quad.sh` → a four-pane `.mp4`), but it starts **its own** PX4,
+(as `docker/demo/lane-a-record-quad.sh`, now deleted) but started **its own** PX4,
 Gazebo and agent. As a compose service it must instead attach to the running stack — the same
 change `verify` needed (`SMOKE_ATTACH=1`).
 
@@ -238,7 +277,8 @@ would attach to for artifacts.
 
 **Traps.**
 - The demo currently owns the display, the flight *and* the simulator; only the first two
-  survive the split. `lane-a-fly.py` binds **14540**, which is already published — fine.
+  survive the split. The flight is now driven by the ROS 2 controller over uXRCE-DDS
+  (`lane-a-fly.py` was removed): **only QGroundControl speaks MAVLink over IP.**
 - Two recorders (or a recorder plus `verify`) both driving the same vehicle will fight over
   the offboard link. Make the profiles mutually exclusive, or document it.
 - QGC's pane needs the same display work as `D-02b`; a recording service without it is just

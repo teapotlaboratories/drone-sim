@@ -8,9 +8,7 @@ gate).
 | File | What it does |
 |---|---|
 | `lane-a-video.Dockerfile` | Thin image on top of `drone-sim/lane-a` adding Xvfb, ffmpeg, xterm, openbox, and an unprivileged `qgcuser` |
-| `lane-a-fly.py` | Arms, takes off, hovers, lands over MAVLink — with `COMMAND_ACK` results and altitude readback |
-| `lane-a-record-flight.sh` | Records one pane: the Gazebo GUI during a flight |
-| `lane-a-record-quad.sh` | Records four panes: Gazebo GUI · QGroundControl · PX4 CLI · MAVLink script |
+| `record-attached.sh` | Records four panes of the **running compose stack**: Gazebo GUI · QGroundControl · PX4 console · ROS 2 controller |
 
 ## Build the demo image
 
@@ -22,14 +20,20 @@ Base layers are cached, so this takes ~1 minute rather than rebuilding PX4.
 
 ## Record a four-pane flight
 
+Run it as a compose service against a stack that is already up:
+
 ```bash
-docker run --rm --shm-size=2g -e OUTDIR=/out -e RES=1920x1080 -e ALT=10 -e HOVER_S=45 \
-  -v "$PWD/out:/out" \
-  -v "$PWD/docker/demo/lane-a-record-quad.sh:/record.sh:ro" \
-  -v "$PWD/docker/demo/lane-a-fly.py:/fly.py:ro" \
-  -v "$PWD/vendor/tools/QGroundControl.AppImage:/qgc.AppImage:ro" \
-  drone-sim/lane-a-video:v1.16.0 bash /record.sh
+docker compose -f docker/compose.yaml --profile record run --rm recording
 ```
+
+**It attaches; it does not start its own simulator** (`D-02c`). The old recorders started a
+private PX4, Gazebo and agent, so the video showed a stack that merely *resembled* the one
+under test — and needed a MAVLink flight script to arm, which broke the rule that only
+QGroundControl speaks MAVLink over IP. Both are deleted.
+
+It exits **non-zero** if the flight did not succeed, and clears the previous run's
+artifacts first: a stale `mission-result.json` reads `"outcome": "success"` and looks
+exactly like proof that this recording flew.
 
 Everything is headless — one Xvfb display with software GL (`llvmpipe`), openbox for window
 management, `xdotool` for tiling, `ffmpeg x11grab` for capture. No GPU or physical display
@@ -41,27 +45,35 @@ needed.
   `vendor/tools/`.
 - **QGC refuses to run as root** and exits with a dialog. The demo image adds `qgcuser` and
   drops privileges for that pane only.
-- **Ports matter when QGC and the script run together.** PX4 streams GCS telemetry to
-  **14550** and onboard/offboard to **14540**. Binding 14550 in the script steals the GCS
-  link and QGC shows *"Comms Lost"* — so `lane-a-fly.py` uses **14540**, which is also how
-  the real vehicle is wired.
+- **Only QGroundControl speaks MAVLink over IP here.** The flight is driven by the ROS 2
+  offboard controller over uXRCE-DDS, which is how the real vehicle is wired. The old
+  `lane-a-fly.py` MAVLink script has been **removed** — it predated the controller and
+  violated that split.
 - **Xvfb needs `-ac +extension GLX +extension RANDR +render -noreset`**, or the Gazebo GUI
   dies mid-run with `XIO: fatal IO error 2 on X server :99`.
 - **`MAV_CMD_NAV_TAKEOFF` alone does not take off.** PX4 ACKs it, then auto-disarms
   ("Disarmed by auto preflight disarming"). The working sequence is `MIS_TAKEOFF_ALT` +
   `DO_SET_MODE(AUTO.TAKEOFF)`.
-- **Arming needs a GCS heartbeat.** `rcAndDataLinkCheck` refuses with *"Preflight Fail: No
-  connection to the ground control station"*. `lane-a-fly.py` sends 1 Hz `HEARTBEAT` — i.e.
-  it *is* a minimal GCS — rather than disabling a safety check.
-- **QGC's window will not tile** (known limitation): it resizes itself after its first-run
-  dialog and `xdotool windowsize` does not stick. Needs openbox per-app geometry rules or a
-  seeded `~/.config` window state.
+- **Arming needs a GCS datalink.** `rcAndDataLinkCheck.cpp:81` refuses to arm whenever
+  `NAV_DLL_ACT > 0`, and the x500 airframe sets it to 2. The check stays **enforced**;
+  QGroundControl (the `qgc` compose service) supplies the link.
+- **Never resize QGC's window externally.** This cost two rounds of debugging. `xdotool
+  windowsize` leaves the window mapped, viewable and correctly positioned — and painting
+  NOTHING: the Qt Quick software backend gets no repaint trigger on a headless Xvfb with no
+  compositor, so the pane records as **solid black while every check reports success**
+  (`xwininfo` said `IsViewable`, `xdotool getwindowgeometry` said `960,0 960x540`). The fix
+  is to seed QGC's own `[MainWindowState]` so it *starts* at the right geometry and is never
+  resized. The recorder still maps/raises it — its window comes up `IsUnMapped` — but does
+  not move or size it.
+- **Suppressing QGC's first-run dialog by seeding `firstRunPromptIdsShown` does NOT work** —
+  tried and reverted rather than left in pretending to. A synthetic Return keypress does not
+  dismiss it either; the dialog is a separate window.
 
 ## Not a substitute for the acceptance test
 
 These produce pictures, not verdicts. The gate is
 [`../../tests/lane-a-smoke.sh`](../../tests/lane-a-smoke.sh).
 
-`lane-a-fly.py` is likewise **demo code, not the flight stack** — Phase 1's offboard
-controller belongs in `ros2_ws/src/control/` and talks **uXRCE-DDS**, not MAVLink. This
-script exists because MAVLink was the fastest route to a takeoff for a video.
+The flight itself is no longer demo code: these recorders now drive
+`ros2_ws/src/control/`'s offboard controller over **uXRCE-DDS**, the same node the
+acceptance gate uses.
