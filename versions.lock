@@ -259,13 +259,29 @@ lane_a:
       with NO branch — i.e. main — while branch-matching px4_msgs. That asymmetry is a
       latent mismatch; both are branch-matched here.
   qgroundcontrol:
-    distribution: AppImage (latest channel)
-    source_url: https://d176tv9ibo4jno.cloudfront.net/latest/QGroundControl-x86_64.AppImage
-    downloaded: 2026-07-28
+    distribution: AppImage
+    version: 5.0.8            # released 2025-10-08; read from the embedded AppStream metainfo
+    source_url: https://github.com/mavlink/qgroundcontrol/releases/download/v5.0.8/QGroundControl-x86_64.AppImage
+    sha256: 06969c67ef58ea063def0a8271447a1cc385438c4a7df36813315b4475146737
     size_bytes: 180816376
-    path: vendor/tools/QGroundControl.AppImage
-    version: TODO-verify   # binary prints no version string without a display; read it from the GUI About box
-    status: observed
+    path: vendor/tools/QGroundControl.AppImage   # git-ignored; fetched, never committed
+    fetch: scripts/fetch-qgc.sh                  # pins version + verifies sha256
+    downloaded: 2026-07-28
+    repinned: 2026-07-30
+    status: LOCKED
+    why_locked: >-
+      QGC is a FUNCTIONAL DEPENDENCY OF FLIGHT, not an optional viewer. PX4 refuses to arm
+      without a GCS datalink (NAV_DLL_ACT=2, set by the x500 airframe at
+      4001_gz_x500:51); that check is deliberately left ENFORCED, and QGC is the only
+      component permitted to speak MAVLink over IP — everything else is on the ROS graph.
+      So the binary that holds the datalink determines whether the aircraft can arm.
+    was: >-
+      Previously pinned to the CloudFront *latest* channel with version TODO-verify. That
+      is a moving target, not a pin — the same class of failure that made the XRCE agent's
+      v2.4.2 retroactively unbuildable when its dependency branch was deleted. Repinned
+      2026-07-30 to an exact release + sha256, verified byte-identical (`cmp` clean) to the
+      AppImage used for the Phase 1 flight tests, so the pin reproduces what was tested
+      rather than whatever is current.
     smoke: >-
       P0-08: connected to PX4 v1.16.0 SITL over UDP 14550 — "Ready To Fly", flight mode
       Hold, battery 100%, PX4 Autopilot detected, map at SITL default home
@@ -505,3 +521,54 @@ couplings:
       instantaneous minimum. Measured aggregates: native 1.0000, host podman 0.9967,
       nested Docker 0.9767.
       Do NOT let a retry alone turn a desync into a green build.
+
+# ---------------------------------------------------------------------------------------
+# Container images built by this repo.
+#
+# Recorded because FLIGHT DEPENDS ON THEM, not for completeness: PX4 refuses to arm without
+# a GCS datalink, that check is deliberately left enforced, and the datalink is
+# QGroundControl running in the `qgc` image. An unrecorded build recipe for the component
+# that gates arming is the same reproducibility gap that the QGroundControl AppImage had
+# until 2026-07-30.
+#
+# The image IDs are the LOCAL build on `carbonite` at the time of writing. They are
+# evidence of what was tested, NOT a portable pin — a rebuild elsewhere from the same
+# Dockerfile will produce a different ID. The Dockerfile plus the pins it asserts are the
+# reproducible part; D-05 (CI builds the images) is what turns these into published digests.
+# ---------------------------------------------------------------------------------------
+images:
+  lane_a:
+    tag: drone-sim/lane-a:v1.16.0
+    dockerfile: docker/lane-a.Dockerfile
+    entrypoint: docker/lane-a-entrypoint.sh
+    base: ubuntu:24.04
+    local_image_id: sha256:f2b915c68b7b8a29ef43ebc0f4349ab56c97c574c413400a2d9707aee318be19
+    size_approx: 11.6 GB
+    role: the shippable Lane A stack — PX4, Gazebo, ROS 2, XRCE agent, px4_msgs
+    asserts: every pin above is verified against its recorded SHA at build time
+    status: LOCKED
+
+  qgc:
+    tag: drone-sim/qgc:v1.16.0
+    dockerfile: docker/qgc.Dockerfile
+    entrypoint: docker/qgc-entrypoint.sh
+    base: drone-sim/lane-a:v1.16.0
+    local_image_id: sha256:c615b2e6159e14753d8f952519f4c241031aef7292a8992b876e1b706b3475d4
+    role: >-
+      QGroundControl headless on Xvfb — the ONLY component permitted to speak MAVLink over
+      IP, and the datalink PX4 requires before it will arm. Also owns the shared X display
+      the `recording` service draws on.
+    adds: xvfb, openbox, x11-utils, libfuse2t64, Qt xcb deps, fonts-dejavu-core, qgcuser
+    note: >-
+      QGroundControl itself is NOT baked in (180 MB) — it is fetched by scripts/fetch-qgc.sh
+      and bind-mounted. See the qgroundcontrol entry above for its pin.
+    status: LOCKED
+
+  lane_a_video:
+    tag: drone-sim/lane-a-video:v1.16.0
+    dockerfile: docker/demo/lane-a-video.Dockerfile
+    base: drone-sim/lane-a:v1.16.0
+    local_image_id: sha256:ca4f4aa5198ebdfc8c17537240af0a262526531399ca09408e2cd6a9983029f2
+    role: recording only — the `recording` service (D-02c). Not needed by CI or by flight.
+    adds: ffmpeg, xterm, xdotool, openbox, imagemagick, mesa-utils
+    status: observed

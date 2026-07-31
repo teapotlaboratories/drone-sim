@@ -45,7 +45,16 @@ services:
     # For a remote QGC, set BIND_ADDR explicitly and understand what you are exposing:
     #   BIND_ADDR=0.0.0.0 docker compose -f docker/compose.yaml up -d
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:14550:14550/udp"   # QGroundControl / GCS
+      # BOTH GCS ports are published, and the handshake explains why:
+      #   * PX4 binds 18570 (px4-rc.mavlink:11, udp_gcs_port_local=$((18570+instance)))
+      #     and has no preconfigured remote.
+      #   * QGC binds 14550 and auto-discovers by sending TO 18570.
+      #   * PX4 then learns QGC's address and replies to 14550.
+      # So 14550 is silent until a GCS speaks first — which is exactly why a heartbeat
+      # aimed at 14550 on a fresh stack is discarded with no error and no log line.
+      # Verified 2026-07-30 by decoding /proc/net/udp in both containers.
+      - "${BIND_ADDR:-127.0.0.1}:18570:18570/udp"   # GCS datalink (PX4's actual GCS port)
+      - "${BIND_ADDR:-127.0.0.1}:14550:14550/udp"   # conventional GCS listen port
       - "${BIND_ADDR:-127.0.0.1}:14540:14540/udp"   # offboard + programmatic control
       - "${BIND_ADDR:-127.0.0.1}:8888:8888/udp"     # uXRCE-DDS agent
       - "${BIND_ADDR:-127.0.0.1}:4560:4560/tcp"     # Gazebo <-> PX4
@@ -109,6 +118,54 @@ services:
       start_period: 5s
 
   # ---------------------------------------------------------------------------------
+  # QGroundControl — the stack's ONLY MAVLink-over-IP client.
+  #
+  # ARCHITECTURE RULE: QGC speaks MAVLink over IP; everything else speaks ROS 2 over
+  # uXRCE-DDS. On the real aircraft the only MAVLink link is the telemetry radio to a
+  # ground station, and every other consumer sits on the ROS graph — so the sim matches.
+  #
+  # This is a FUNCTIONAL DEPENDENCY OF FLIGHT, not a viewer. PX4 refuses to arm without a
+  # GCS datalink (NAV_DLL_ACT=2, set by the airframe at 4001_gz_x500:51), and that check is
+  # deliberately left ENFORCED — it is the link an operator uses to take over. Stop this
+  # service and arming is denied, verified both directions.
+  #
+  # QGC auto-discovers the vehicle; no manual UDP link configuration is needed.
+  # ---------------------------------------------------------------------------------
+  qgc:
+    image: drone-sim/qgc:v1.16.0
+    restart: unless-stopped
+    container_name: lane-a-qgc
+    network_mode: "service:px4-sitl"
+    ipc: "service:px4-sitl"
+    depends_on:
+      px4-sitl:
+        condition: service_started
+    volumes:
+      # QGroundControl is 180 MB and is NOT baked into the image. Fetch it with
+      # ./scripts/fetch-qgc.sh — see the README.
+      - ../vendor/tools/QGroundControl.AppImage:/qgc.AppImage:ro
+      # This service OWNS the virtual display. Sharing the X socket lets the `recording`
+      # service (D-02c) draw its panes on the SAME display and capture QGC's window,
+      # instead of starting a second QGC that would fight over PX4's learned remote
+      # address. It is also the attachment point for D-02b's live viewer.
+      - xsock:/tmp/.X11-unix
+    # HONEST LIMITATION: this proves QGC is RUNNING, not that the datalink is UP. QGC
+    # emits no connection marker at default verbosity and uses unconnected UDP sockets, so
+    # neither its log nor /proc/net/udp can witness the link from inside this container.
+    # The link came up within ~10 s in testing, well inside the controller's 60 s arming
+    # timeout, so the residual race is small — but it is a race, and a flight that fails at
+    # `arm` right after a cold start is the symptom. Checking PX4's own
+    # /fmu/out/failsafe_flags would be the real test; it belongs on the flight path, not in
+    # a 10 s healthcheck loop.
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[Q]GroundControl' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # QGC takes ~15 s to come up under software GL, and longer to establish the link.
+      start_period: 45s
+
+  # ---------------------------------------------------------------------------------
   # ROS 2 side. Idles so you can exec into it; this is where ros2_ws nodes will run.
   # ---------------------------------------------------------------------------------
   ros2:
@@ -128,6 +185,16 @@ services:
       - bash
       - -lc
       - |
+        # Build the workspace from the mounted source on every start. The build lives in
+        # the container filesystem, so `compose down` discards it — without this it has to
+        # be rebuilt by hand before every run, which is exactly the undocumented manual
+        # step the reproducibility goal exists to remove.
+        mkdir -p /ros2_ws/src && rm -rf /ros2_ws/src/control
+        cp -r /ros2_ws_src/src/control /ros2_ws/src/control 2>/dev/null || true
+        if [ -d /ros2_ws/src/control ]; then
+          (cd /ros2_ws && colcon build --packages-select control --symlink-install) \
+            && echo "ros2: control package built" || echo "ros2: WARNING - control build failed"
+        fi
         echo "ros2: ready — try  docker compose exec ros2 bash -lc 'ros2 topic list'"
         exec sleep infinity
 
@@ -149,6 +216,11 @@ services:
       # spuriously. It passed only because PX4's healthcheck happens to take longer.
       xrce-agent:
         condition: service_healthy
+      # NOT qgc. This gate tests the STACK — topics, rates, RTF, TIMEOUTs — and never
+      # arms, so it does not need a datalink. Depending on qgc here made a 180 MB manual
+      # download a hard prerequisite for the D-01/D-02 acceptance gate, which failed with
+      # "dependency failed to start: container lane-a-qgc is unhealthy". A FLIGHT test
+      # does need qgc; that belongs in P1-06, where the dependency is real.
     environment:
       SMOKE_ATTACH: "1"          # do not launch PX4/agent; the stack is already up
       DURATION: "${DURATION:-300}"
@@ -159,5 +231,42 @@ services:
       - ../tests/lane-a-smoke.sh:/smoke.sh:ro
     command: ["bash", "/smoke.sh"]
 
+  # ---------------------------------------------------------------------------------
+  # Recording (D-02c) — records the RUNNING stack, under `--profile record`.
+  #
+  # It ATTACHES rather than starting its own PX4/Gazebo/agent: it runs only the Gazebo GUI
+  # client against px4-sitl's server, tails the real PX4 console, places the qgc service's
+  # own window, and flies with the same ROS 2 node the acceptance gate uses. The old
+  # recorder started a private stack that merely resembled the one under test.
+  #
+  # Uses the demo image because ffmpeg/xterm/xdotool are recording concerns, not core ones.
+  # ---------------------------------------------------------------------------------
+  recording:
+    image: drone-sim/lane-a-video:v1.16.0
+    profiles: ["record"]
+    container_name: lane-a-recording
+    network_mode: "service:px4-sitl"
+    ipc: "service:px4-sitl"
+    depends_on:
+      px4-sitl:
+        condition: service_healthy
+      # The display and the QGC window both belong to this service.
+      qgc:
+        condition: service_healthy
+    environment:
+      DISPLAY: ":99"
+      OUTDIR: /out
+      RES: "${RES:-1920x1080}"
+      ALT: "${ALT:-10}"
+    volumes:
+      - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
+      - ../out:/out
+      - ../ros2_ws:/ros2_ws_src:ro
+      - ./demo/record-attached.sh:/record.sh:ro
+      - xsock:/tmp/.X11-unix
+    command: ["bash", "/record.sh"]
+
 volumes:
   rosbags:
+  # Shared X socket: qgc owns the display, recording draws on it. See both services.
+  xsock:
