@@ -4,6 +4,8 @@
 MCAP recording, and the CI job that gates all of it.
 **Indexed from:** [`../drone-sim-todo.md`](../drone-sim-todo.md).
 **Plan source:** [`../reference/02_development_plan.md:36`](../reference/02_development_plan.md).
+**Stack topology:** [`architecture.html`](architecture.html) — what runs where, how it is
+connected, and the two traps the shared-namespace design creates.
 
 **Goal / DoD.** Deterministic headless PX4 + Gazebo SITL with a ROS 2 offboard controller
 flying GPS waypoint missions in lockstep, recorded to MCAP, CI run under 10 minutes.
@@ -189,7 +191,85 @@ timers and completes a flight; the pin is recorded.
 
 ## P1-04 — Seeded scenario runner
 
-**Status:** `todo` · **Blocked by:** P1-03
+**Status:** ✅ **`done` (2026-07-31)** — `scripts/run_scenario.py` + `scenarios/square-10m.yaml`
+
+```bash
+./scripts/run_scenario.py scenarios/square-10m.yaml --seed 1
+```
+
+Restarts the stack with seed-derived environment, flies the scenario's waypoints, records
+an MCAP named by scenario+seed, and writes a structured result. **Verified on two seeds,
+both `success` 4/4**, with the derived spawn actually landing in Gazebo (seed 1 derived
+`x=-3.656`, Gazebo reported `-3.712`).
+
+### What the seed controls — and what it does not
+
+**The seed selects a scenario VARIANT. It does NOT reproduce a trajectory.** Measured, not
+assumed: two back-to-back runs with identical configuration against the *same* simulator
+gave waypoint errors `[0.225, 0.104, 0.154, 0.204]` and `[0.118, 0.076, 0.158, 0.187]`.
+Any claim of seed-exact replay here would be false.
+
+That is precisely why the exit criterion is a success *rate*: one run is evidence about
+conditions, and only the rate is evidence about reliability.
+
+**The seed drives the spawn pose** (`PX4_GZ_MODEL_POSE`), and there is an honest caveat:
+in an *empty* world it varies almost nothing the controller can see. PX4's local frame
+origin is set wherever the EKF initialises, so a home-relative mission is unchanged — only
+the initialisation transient and ground contact differ. Confirmed by spawning at `(7, -4)`
+and watching the controller still report home `(-0.03, -0.02)`. It is wired now because it
+becomes load-bearing in Phase 2, where obstacles sit at fixed world coordinates.
+
+**Not yet seeded: sensor noise** — the genuinely stochastic element. `gz sim --seed` is the
+knob, but reaching it means running Gazebo standalone (`PX4_GZ_STANDALONE=1`) as its own
+compose service so we own the server command line rather than letting PX4's `gz_bridge`
+start it. Filed as `P1-04a`.
+
+### Trap found: never recreate `px4-sitl` alone
+
+Every other service joins its network namespace, so `docker compose up -d --force-recreate
+px4-sitl` leaves them attached to a namespace that no longer exists — **`ros2 topic list`
+returns 0 topics against a stack that reports healthy**. Measured: 0 topics after
+recreating the donor alone, 24 after recreating everything. The runner always recreates the
+whole stack.
+
+### Cost, which matters for `P1-07`
+
+**97.3 s per run**, dominated by the stack restart. Ten seeds is ~16 minutes — **over the
+10-minute CI budget** in the plan. Options for `P1-06`/`P1-07`: reuse one stack across
+seeds (`--no-restart`, at the cost of not applying the spawn pose), shrink the mission, or
+run fewer seeds in CI than locally. Decide with evidence rather than by trimming the gate.
+
+---
+
+## P1-04a — Seed the sensor noise via standalone Gazebo
+
+**Status:** `todo` · **Found:** 2026-07-31, while building `P1-04`
+
+**What.** Run Gazebo as its own compose service (`gz sim -r -s --seed <n> <world>`) with
+PX4 in `PX4_GZ_STANDALONE=1` mode, so the seed reaches the simulator's RNG.
+
+**Why.** Sensor noise is the genuinely stochastic element of a SITL run, and today it is
+uncontrolled: the seed varies the spawn pose, which in an empty world changes almost
+nothing. Without this, "10 seeded runs" is closer to "10 repeats" than the criterion
+intends — the runs do differ, but not because of the seed.
+
+**Acceptance.** Same seed twice produces materially closer trajectories than two different
+seeds; the difference is measurable, not asserted.
+
+**Trap.** The plan's service list already names a `gazebo` service, so this is also the
+architectural fix — but it splits a working stack, and `px4-sitl` currently owns the netns
+every other service joins.
+
+**Do this together with [`D-06`](../docker/todo.md)** — redrawing the container boundaries
+so they mirror the Phase 4 machines. Both tasks have to move `px4-sitl` apart from what it
+currently contains, and doing them separately means paying the "split the netns donor" cost
+twice.
+
+---
+
+## P1-04 — original definition
+
+**Status:** ~~`todo` · Blocked by: P1-03~~
 
 **What.** A runner that takes a scenario (waypoints, world, tolerances) plus a **seed**,
 executes one flight, and emits a structured result. Scenarios live in `scenarios/`,
@@ -209,7 +289,15 @@ seeds visibly differ.
 
 ## P1-05 — MCAP recording
 
-**Status:** `todo` · **Blocked by:** P1-03
+**Status:** 🟡 **mostly done (2026-07-31)** — the runner records one MCAP per run, named
+`<scenario>-seed<n>`, written to `/out` so it survives `--rm`. 1.36 MB for a ~45 s flight;
+replays and contains the full trajectory (verified by reading 5,360 position samples back
+out of one). `rosbag2-storage-mcap` was already in the image.
+
+**Left to do:** a declared topic set rather than the two hard-coded in the runner, and
+attaching the artifact in CI (`P1-07`).
+
+**Original definition:** ~~`todo` · Blocked by: P1-03~~
 
 **What.** Record the flight to MCAP — `rosbag2` with the `mcap` storage plugin — with a
 declared topic set, written to `/out` so artifacts survive `--rm` (the lesson `D-01` paid
@@ -224,7 +312,49 @@ you cannot replay is a run you will debug twice.
 
 ## P1-06 — Success-rate gate: 10 seeded runs
 
-**Status:** `todo` · **Blocked by:** P1-04, P1-05
+**Status:** ✅ **`done` (2026-07-31)** — `scripts/run_gate.py` · **SR = 10/10 (100%)**
+
+```bash
+./scripts/run_gate.py scenarios/square-10m.yaml          # the gate
+./scripts/run_gate.py scenarios/square-10m.yaml --reuse  # faster, and NOT a gate run
+```
+
+| Seed | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Result | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
+| Worst waypoint error (m) | 0.235 | 0.226 | 0.217 | 0.202 | 0.208 | 0.197 | 0.214 | 0.195 | 0.200 | 0.209 |
+
+Spread **0.195–0.235 m**, mean 0.210, against a 1.0 m accept radius — a 4x margin, and
+tight enough that a real regression should be obvious rather than marginal. **10/10 MCAPs
+written**, ~1.4 MB each, named by scenario and seed. Wall clock **974 s**.
+
+**The gate re-derives pass/fail from the numbers** rather than trusting the controller's own
+`outcome` field: waypoints reached must equal waypoints total, the error list must have one
+entry per waypoint, and the worst error must be inside the accept radius. A controller bug
+that mislabelled a flyaway as success would still fail the gate.
+
+### What this SR does and does not mean
+
+**It measures repeat-reliability, not seed-diversity.** The seed drives only the spawn pose,
+which in an empty world changes almost nothing the controller sees. Until `P1-04a` seeds the
+simulator's RNG, ten seeded runs are closer to ten repeats — still worth having, because
+flaky failures surface under repetition, but the word "seeded" is doing less work than it
+looks. The caveat is written into every report the gate emits.
+
+**`--reuse` cannot claim the criterion.** It shares one stack across runs (54 s each instead
+of 97 s) but never applies the spawn pose. An early version printed *"Phase 1 exit criterion
+met"* directly above *"not a full gate run"* — fixed so `met` requires both a perfect rate
+and a real gate run, and reuse mode reports `INCONCLUSIVE` instead.
+
+### Over the CI budget
+
+**974 s = 16.2 min against the plan's <10 min.** Roughly half is the per-run stack restart
+(97 s per run, of which ~50 s is restart). `--reuse` would fit at ~9 min but is not a gate
+run. This is `P1-07`'s problem to solve honestly — reduce the mission, publish a prebuilt
+image so the restart is cheaper, or state plainly that CI runs fewer seeds than the local
+gate. **Do not fit the budget by quietly weakening the gate.**
+
+**Original definition:** ~~`todo` · Blocked by: P1-04, P1-05~~
 
 **What.** The Phase 1 exit criterion as an executable test, alongside
 `tests/lane-a-smoke.sh`. Runs the scenario across 10 seeds, computes SR, asserts 100%, and

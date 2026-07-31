@@ -61,6 +61,11 @@ services:
     environment:
       HEADLESS: "1"
       GZ_IP: "127.0.0.1"
+      # Seeded scenario knobs (P1-04). Empty by default = PX4's own defaults.
+      # PX4_GZ_MODEL_POSE is "x,y,z,roll,pitch,yaw" and varies where the vehicle spawns,
+      # which changes EKF initialisation and ground contact — i.e. it is a real
+      # environmental variation, not a relabelled mission.
+      PX4_GZ_MODEL_POSE: "${PX4_GZ_MODEL_POSE:-}"
     volumes:
       - ./ros-env.sh:/etc/profile.d/10-ros.sh:ro
       - ../out:/out

@@ -222,6 +222,7 @@ docs/                  bench briefing, reference designs, backlogs, worklogs
 |---|---|
 | [`docs/drone-sim-todo.md`](docs/drone-sim-todo.md) | Master backlog index — start here |
 | [`versions.lock`](versions.lock) | Every pin, its status, and how it was verified |
+| [`docs/lane-a/architecture.html`](docs/lane-a/architecture.html) | **What runs where and how it is wired** — container topology, ports, the traps |
 | [`docs/bench.md`](docs/bench.md) | The machine and container this runs on |
 | [`docs/reference/`](docs/reference/) | Simulator landscape, development plan, hardware assessment |
 | [`docs/worklog/`](docs/worklog/) | Running record of each investigation, with evidence |

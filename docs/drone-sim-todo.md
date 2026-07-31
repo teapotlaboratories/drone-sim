@@ -49,7 +49,7 @@ before rendering complexity is added.
 |---|---|---|---|---|
 | **0** | [`phase-0/todo.md`](phase-0/todo.md) | Reproducible pinned toolchain; every component passes its smoke test; `versions.lock` committed | — | **in progress** — 4/5 exit criteria met |
 | — | [`docker/todo.md`](docker/todo.md) | **Cross-cutting:** the stack reproducible as Docker | **reproducibility** | in progress — `D-01` ✅ container is native-equivalent |
-| 1 | [`lane-a/todo.md`](lane-a/todo.md) | Deterministic headless PX4+Gazebo SITL; ROS 2 offboard controller flying GPS waypoints in lockstep; MCAP; CI <10 min | **GPS navigation** | **in progress** — backlog written, `P1-00` next |
+| 1 | [`lane-a/todo.md`](lane-a/todo.md) | Deterministic headless PX4+Gazebo SITL; ROS 2 offboard controller flying GPS waypoints in lockstep; MCAP; CI <10 min | **GPS navigation** | **in progress** — exit criterion **MET** (SR 10/10); `P1-03`, `P1-07` open |
 | 2 | `planning/todo.md`, `perception/todo.md` *(not yet created)* | Depth/LiDAR mapping + EGO-Planner collision-free flight through clutter | **obstacle & collision avoidance** | not started |
 | 3 | `vlm/todo.md`, `perception/todo.md` *(not yet created)* | Slow VLM target-generator + fast tracker; depth back-projection; cuVSLAM VIO → EKF2; GPS-denied | **vision-based navigation, VLM experimentation** | not started |
 | 4 | `eval/todo.md`, `hardware/todo.md` *(not yet created)* | AerialVLN/OpenFly reproduction; onboard Jetson VLM; PX4 HITL then real flight | **sim-to-real** | not started |
