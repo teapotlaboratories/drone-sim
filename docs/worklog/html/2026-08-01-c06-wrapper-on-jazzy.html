@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C-06 — The Wrapper Builds on Jazzy — 2026-08-01</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-01 · C-06</span>
+  <nav><a href="#why">Why first</a><a href="#repos">.repos drift</a><a href="#result">It builds</a><a href="#carla">The port</a><a href="#stub">Stub test</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-01 · C-06 · Lane C · nothing flies here</span>
+  <h1>The Wrapper<br>Builds on Jazzy</h1>
+  <p class="sub">One minute twenty-one seconds to turn the project's most load-bearing assumption from reasoning into evidence — and, unasked, to discover a CARLA instance squatting on the port Lane C needs.</p>
+  <div class="mastmeta"><span>Build <b>exit 0 · 1m21s</b></span><span>Errors <b>0</b></span><span>Unresolved libs <b>0</b></span><span>Msg types <b>24</b></span><span>Surprises <b>1</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">C-06</div><div class="v">BUILDS</div><div class="n">Jazzy / Ubuntu 24.04 / g++ 13.3.0</div></div>
+<div class="stat"><div class="k">Cost of asking early</div><div class="v">1m 21s</div><div class="n">vs. after a 24 GB engine pull</div></div>
+<div class="stat stop"><div class="k">Found</div><div class="v">PORT 41451</div><div class="n">CARLA is already on it</div></div>
+</div>
+
+<h2 id="why"><span class="secnum">01</span> Why this ran before anything expensive</h2>
+<p>The project chose <strong>Jazzy over doc 04's Humble</strong> on the reasoning that doc 04's
+recommendation was inherited from upstream example docs rather than measured. Research then
+showed upstream itself now documents Jazzy on Ubuntu 24.04 — but also that
+<strong>upstream's CI never builds the ROS 2 wrapper on any distro</strong>: its only workflow
+runs <code>setup.sh</code>, <code>build.sh</code> and <code>MavLinkTest --help</code>, and never
+invokes <code>colcon</code>. A GitHub issue search for "jazzy" in that repo returns
+<strong>zero</strong> results.</p>
+<div class="callout"><span class="lbl">So the ordering was the whole point</span>
+<p>"Tested with ROS2 Jazzy" was a maintainer assertion with no automated signal behind it. The
+wrapper is an ordinary <code>ament_cmake</code> package needing no engine, no GPU and no
+simulator — so it could answer the question for <strong>1m21s</strong>. Discovering a distro
+incompatibility <em>after</em> a 24 GB pull and a multi-hour UE build would have been the most
+expensive possible ordering of the same two facts.</p></div>
+
+<h2 id="repos"><span class="secnum">02</span> Two defects found on the way in</h2>
+<p><code>.repos</code> states at the top that <em>"Versions here MUST agree with versions.lock"</em>.
+A mechanical comparison said otherwise.</p>
+<div class="tw"><table>
+<thead><tr><th>Entry</th><th><code>.repos</code> said</th><th><code>versions.lock</code> says</th><th>Severity</th></tr></thead>
+<tbody>
+<tr><td><code>Micro-XRCE-DDS-Agent</code></td><td class="mono">v2.4.2</td><td class="mono">v2.4.3</td><td><span class="pill p-stop">serious</span></td></tr>
+<tr><td><code>px4_ros_com</code></td><td class="mono">main</td><td class="mono">release/1.16</td><td><span class="pill p-warn">latent</span></td></tr>
+</tbody></table></div>
+<div class="callout stop"><span class="lbl">The first one reconstructs a broken tree</span>
+<p><code>versions.lock</code> records v2.4.2 as <strong>genuinely unbuildable</strong> — eProsima
+deleted the Fast-DDS branch its superbuild pins, so it dies with
+<code>fatal: invalid reference: 2.12.x</code>. Anyone running
+<code>vcs import vendor &lt; .repos</code> on a fresh machine checked out the version that
+<em>cannot compile</em>.</p>
+<p>That is exactly the <em>"written from the docs rather than from evidence reproduces a broken
+stack"</em> failure this project has a rule against — sitting in the file that <strong>is</strong>
+the reconstruction mechanism.</p>
+<p>Both corrected and re-pinned by SHA, as <code>.repos</code>'s own header instructs. And
+automated: <code>scripts/check_repos_manifest.py</code> now runs in tier-1 CI, verified by
+restoring the v2.4.2 value and watching it fail.</p></div>
+
+<h2 id="result"><span class="secnum">03</span> The result</h2>
+<pre>colcon build --symlink-install     <span class="c"># ROS 2 Jazzy / Ubuntu 24.04 / g++ 13.3.0</span>
+
+Starting  &gt;&gt;&gt; airsim_interfaces
+Finished  &lt;&lt;&lt; airsim_interfaces
+Starting  &gt;&gt;&gt; airsim_ros_pkgs
+Finished  &lt;&lt;&lt; airsim_ros_pkgs [1min 6s]
+
+Summary: 2 packages finished [1min 21s]
+<b>exit=0</b></pre>
+<p><strong>No clang needed.</strong> The wrapper's CMake pulls the client library in directly
+(<code>add_subdirectory(AirLib)</code>, <code>rpclib_wrapper</code>, <code>MavLinkCom</code>), so
+<code>colcon</code> builds AirLib itself — the toolchain-ABI problem that made the UE5.5 line
+awkward never arises.</p>
+
+<h3>Warnings only, all upstream's</h3>
+<figure>
+<div class="figscroll">
+<svg viewBox="0 0 1080 170" role="img" aria-label="Bar chart of compiler warning classes, to scale: 26 sign-compare, 20 class-memaccess, 2 unused-variable, 2 attributes, 1 strict-aliasing, 1 deprecated-copy, and zero errors">
+  <text class="axl" x="16" y="18">WARNING CLASSES — BARS TO SCALE (26 = full width)</text>
+  <line class="e" x1="16" y1="26" x2="1060" y2="26"/>
+  <text class="mn" x="16" y="48">-Wsign-compare</text>   <rect x="230" y="34" width="700" height="16" fill="var(--ground)" opacity=".55"/><text class="mn" x="940" y="48">26</text>
+  <text class="mn" x="16" y="70">-Wclass-memaccess</text><rect x="230" y="56" width="538" height="16" fill="var(--ground)" opacity=".55"/><text class="mn" x="778" y="70">20</text>
+  <text class="mn" x="16" y="92">-Wunused-variable</text><rect x="230" y="78" width="54" height="16" fill="var(--ground)" opacity=".55"/><text class="mn" x="294" y="92">2</text>
+  <text class="mn" x="16" y="114">-Wattributes</text>    <rect x="230" y="100" width="54" height="16" fill="var(--ground)" opacity=".55"/><text class="mn" x="294" y="114">2</text>
+  <text class="mn" x="16" y="136">-Wstrict-aliasing / -Wdeprecated-copy</text><rect x="230" y="122" width="27" height="16" fill="var(--ground)" opacity=".55"/><text class="mn" x="267" y="136">1 each</text>
+  <text class="mn" x="16" y="160" style="fill:var(--ok)">errors</text><text class="mn" x="230" y="160" style="fill:var(--ok)">0 &mdash; and -Werror is deliberately NOT set. Do not add it.</text>
+</svg>
+</div>
+<figcaption>All from upstream's own sources, none from integration</figcaption>
+</figure>
+
+<h3>Not trusting the exit code</h3>
+<p><code>D-01</code> established that a build script's success banner proves nothing, and
+<code>P1-01</code> that a green <code>colcon build</code> can hide a package that dies at import.
+So the artifacts were asserted:</p>
+<div class="tw"><table>
+<thead><tr><th>Assertion</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>airsim_node</code> exists and is executable</td><td>12 MB</td></tr>
+<tr><td><code>ldd | grep -c 'not found'</code></td><td><strong>0</strong> unresolved</td></tr>
+<tr><td>links which ROS distro?</td><td><code>/opt/ros/jazzy/</code> — not another distro on the box</td></tr>
+<tr><td><code>ros2 interface list</code></td><td>24 <code>airsim_interfaces</code> types registered</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="lbl">A caveat about my own first check</span>
+<p>The initial <code>find -type f -executable</code> reported <strong>"airsim_node NOT
+FOUND"</strong>. That was wrong: <code>--symlink-install</code> makes the entry point a
+<strong>symlink</strong>, which <code>-type f</code> excludes. The binary was there all along.</p>
+<p>Recorded because it is the same shape as the failures this project keeps hitting — <em>the
+check was broken, not the thing under test</em> — and a less careful reading would have logged a
+false negative against a perfectly good build.</p></div>
+
+<h2 id="carla"><span class="secnum">04</span> Running it found something nobody was looking for</h2>
+<p>The node was run with no simulator, expecting it to sit retrying. Instead it said
+<strong><code>Connected!</code></strong>.</p>
+
+<figure>
+<div class="figscroll">
+<svg viewBox="0 0 1080 300" role="img" aria-label="The ROS 2 node connects to port 41451 and reaches a CARLA UE4 instance instead of Cosys-AirSim, failing the version handshake">
+  <defs><marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink2)"/></marker></defs>
+  <text class="axl" x="16" y="20">WHAT ACTUALLY ANSWERED ON 41451</text>
+  <line class="e" x1="16" y1="30" x2="1060" y2="30"/>
+
+  <rect class="n-v" x="16" y="52" width="240" height="60" rx="2"/>
+  <text class="nid" x="30" y="76">airsim_node</text>
+  <text class="nlb" x="30" y="94">our wrapper, just built</text>
+  <text class="nlb" x="30" y="106">API Client Ver: 4 (Min Req 1)</text>
+
+  <line class="e" x1="262" y1="82" x2="380" y2="82" marker-end="url(#a3)"/>
+  <text class="mn" x="278" y="74">TCP 41451</text>
+
+  <rect class="n-b" x="392" y="52" width="300" height="60" rx="2"/>
+  <text class="nid" x="406" y="76">CarlaUE4-Linux-</text>
+  <text class="nlb" x="406" y="94">pid 903836, bound 0.0.0.0:41451</text>
+  <text class="nlb" x="406" y="106" style="fill:var(--stop)">API Server Ver: 1 (Min Req 4)</text>
+
+  <rect x="392" y="128" width="300" height="26" rx="2" fill="none" stroke="var(--rule)" stroke-dasharray="3 4"/>
+  <text class="nlb" x="406" y="146" style="fill:var(--ink2)">also holds CARLA's own 2000 / 2001 / 2002</text>
+
+  <rect x="720" y="52" width="340" height="60" rx="2" fill="none" stroke="var(--chrome)" stroke-dasharray="4 4"/>
+  <text class="nid" x="734" y="76" style="fill:var(--chrome)">Cosys-AirSim sim container</text>
+  <text class="nlb" x="734" y="94">what C-03 will try to bind here</text>
+  <text class="nlb" x="734" y="106" style="fill:var(--stop)">&#10007; the port is already taken</text>
+
+  <rect x="16" y="178" width="1044" height="104" rx="2" fill="var(--panel2)" stroke="var(--stop)" stroke-width="2"/>
+  <text class="nid" x="32" y="200">THE DANGEROUS PART IS THE LINE BEFORE THE FAILURE</text>
+  <text class="mn" x="32" y="222" style="fill:var(--ok)">Waiting for connection - X</text>
+  <text class="mn" x="32" y="238" style="fill:var(--ok)">Connected!</text>
+  <text class="mn" x="32" y="254" style="fill:var(--stop)">Cosys-AirSim API server is of older version and not supported by this API client.</text>
+  <text class="nlb" x="32" y="274" style="fill:var(--ink)">"Connected!" is exactly what a working setup looks like at a glance. A silent cross-connection to the WRONG simulator would be a debugging nightmare.</text>
+</svg>
+</div>
+<figcaption>A CARLA instance on the host answers the AirSim RPC port well enough to fail a handshake</figcaption>
+</figure>
+
+<p>CARLA is UE4-based and the CARLA-Air work (doc 04) reuses the AirSim API, which is why it
+answers at all. The process is <strong>not visible in this container's process table</strong>
+though its socket is — it runs on the host. Both GPUs were near-idle when checked (3080:
+111 MiB / 10240; 5060 Ti: 30 MiB / 16311), so it is resident rather than rendering.
+<strong>Not touched</strong> — host-side processes need the operator, and killing someone else's
+simulator to free a port is not a decision to take unasked.</p>
+
+<div class="grid g3">
+<div class="callout stop"><span class="lbl">1 · Port conflict awaits C-03</span><p>The <code>sim</code> container will try to bind 41451 and lose — or worse, our client talks to CARLA again. <strong>Assert what answered</strong>, do not trust <code>Connected!</code>. Recorded as coupling <code>airsim-rpc-port-conflict</code>.</p></div>
+<div class="callout warn"><span class="lbl">2 · Bound to 0.0.0.0</span><p>Not loopback — the same exposure class <code>D-02</code> fixed for the MAVLink ports, where an unauthenticated port on a routable interface let anyone arm the vehicle.</p></div>
+<div class="callout"><span class="lbl">3 · It crashes, not degrades</span><p>When the API call fails the ROS context is torn down and a timer handle throws (<code>exit 250</code>). Worth knowing before <code>C-04</code> relies on it surviving a simulator hiccup.</p></div>
+</div>
+
+<div class="callout ok"><span class="lbl">What this accidentally proved</span>
+<p>The node initialises ROS, brings up its publishers (barometer, GPS, IMU, magnetometer), sets
+itself to DRONE mode, negotiates the real AirSim RPC protocol against a real UE-based server, and
+reports a version mismatch correctly. <strong>That is considerably more than "it compiles".</strong></p></div>
+
+<h2 id="stub"><span class="secnum">05</span> Going further: a stub server</h2>
+<p><code>C-06</code> only asked whether the wrapper compiles. But three questions
+<code>C-04</code> will need do <strong>not</strong> require the engine, because they are answered
+entirely on the wrapper side. The AirSim client speaks plain msgpack-RPC, so a stub can
+impersonate the server: <code>scripts/airsim_rpc_stub.py</code>.</p>
+<div class="callout warn"><span class="lbl">What this is not</span>
+<p>A <strong>test fixture, not a simulator.</strong> Every value it returns is fabricated by that
+file. It proves how the wrapper <em>transforms</em> input; it says nothing about how AirSim
+behaves, and it does not substitute for <code>C-02</code>. <strong>The port is a ROS parameter</strong>
+(<code>host_port</code>), so the stub ran on a spare port and the CARLA instance on 41451 was
+never touched.</p></div>
+
+<h3>Q1 &mdash; the topic surface: <span class="pill p-ok">answered</span></h3>
+<pre>/airsim_node/Drone1/altimeter/barometer        /airsim_node/Drone1/odom_local
+/airsim_node/Drone1/environment                /airsim_node/Drone1/vel_cmd_body_frame
+/airsim_node/Drone1/global_gps                 /airsim_node/Drone1/vel_cmd_world_frame
+/airsim_node/Drone1/gps/gps                    /airsim_node/gimbal_angle_euler_cmd
+/airsim_node/Drone1/imu/imu                    /airsim_node/gimbal_angle_quat_cmd
+/airsim_node/Drone1/magnetometer/magnetometer  /airsim_node/instance_segmentation_labels
+/airsim_node/object_transforms                 /airsim_node/origin_geo_point
+/tf   /tf_static</pre>
+<p><strong>Entirely disjoint from Lane A's <code>/fmu/*</code></strong>, as expected. Note
+<code>odom_local</code> and the two <code>vel_cmd_*</code> command topics &mdash; those are exactly
+what would tempt someone to bypass PX4, which coupling <code>lane-c-topic-parity</code> exists to
+prevent.</p>
+
+<h3>Q2 &mdash; the <code>/clock</code> trap: <span class="pill p-stop">worse than expected</span></h3>
+<div class="callout stop"><p><strong>There is no clock topic at all</strong> &mdash; not
+<code>/clock</code>, not <code>/airsim_node/clock</code>. <code>publish_clock</code> defaults to
+<code>false</code>, so by default <em>nothing</em> publishes a clock.</p>
+<p>A stack setting <code>use_sim_time:=true</code> against this wrapper as-shipped gets frozen
+timers and a node that hangs looking exactly like a deadlocked controller &mdash;
+<strong>precisely the <code>P1-03a</code> failure</strong>, arriving from a different direction.</p></div>
+
+<h3>Q3 &mdash; NWU vs ENU: answered from <em>source</em>, not runtime</h3>
+<p>The stub never got far enough to publish odometry, so this is <strong>static evidence, not a
+measurement</strong>. It is still conclusive:</p>
+<pre>odom_msg.pose.pose.position.y    = -odom_msg.pose.pose.position.y;
+odom_msg.pose.pose.position.z    = -odom_msg.pose.pose.position.z;
+odom_msg.pose.pose.orientation.y = -odom_msg.pose.pose.orientation.y;
+odom_msg.pose.pose.orientation.z = -odom_msg.pose.pose.orientation.z;
+<span class="c">// ... and the same for linear and angular twist</span></pre>
+<p><strong>y and z negated, x untouched &mdash; that is NED &rarr; NWU.</strong> ENU would
+additionally swap x and y. And <code>convert_tf_msg_to_enu()</code> is defined at line 1600 and
+called from <strong>nowhere</strong>:</p>
+<pre>1600: void AirsimROSWrapper::convert_tf_msg_to_enu(...)   <span class="c">&larr; definition only</span>
+1636 / 1653 / 1670 / 1687 / 1706: convert_tf_msg_to_ros(...)   <span class="c">&larr; every actual call</span></pre>
+<p>So upstream's doc claim &mdash; <em>"the right-handed coordinate frame of the ROS standard"</em>
+&mdash; is wrong, and anything written against REP-103 will be <strong>yaw-rotated 90&deg;</strong>.
+A runtime confirmation is still worth one <code>ros2 topic echo</code> in <code>C-02</code>.</p>
+
+<h3>Where the stub ran out of road, and why I stopped</h3>
+<p>Every nested struct must be complete &mdash; an empty <code>{}</code> throws
+<code>std::bad_cast</code> rather than defaulting. Each iteration was one crash:</p>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>Failing call</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td class="mono">1</td><td><code>simListInstanceSegmentationObjects</code></td><td>null &rarr; <code>[]</code>; a vector cast cannot take null</td></tr>
+<tr><td class="mono">2</td><td><code>simGetGroundTruthEnvironment</code></td><td>full <code>EnvironmentState</code> map (<code>RpcLibAdaptorsBase.hpp:487</code>)</td></tr>
+<tr><td class="mono">3</td><td><code>getMultirotorState</code></td><td>complete <code>collision</code> + <code>gps_location</code> + <code>rc_data</code> sub-structs</td></tr>
+<tr><td class="mono">4</td><td><code>simIsPaused</code></td><td>null &rarr; <code>false</code></td></tr>
+<tr><td class="mono">5</td><td><em>(DDS)</em> <code>BadParamException: string contains null characters</code></td><td><strong>stopped here</strong></td></tr>
+</tbody></table></div>
+<p>The fifth is a different class &mdash; a DDS serialization fault from a string field, most
+likely the segmentation-label plumbing the stub feeds with empty arrays. Chasing it means
+reimplementing more of AirSim's surface, which is <strong>exactly the "don't reinvent upstream"
+line</strong>, for a question <code>C-02</code> answers for free.</p>
+<div class="callout ok"><p><strong>Two of three answered, the third answered statically, and the
+stub kept</strong> &mdash; ~200 lines that already drive the wrapper to full initialisation, and
+the cheapest way to exercise wrapper-side behaviour without a 24 GB image. Its limits are written
+into its own docstring.</p></div>
+
+<div class="callout warn"><span class="lbl">Two process notes, because both wasted time</span>
+<p><code>pkill -f airsim_rpc_stub</code> <strong>killed the shell running it</strong> &mdash;
+<code>-f</code> matches the whole command line, and my own command contained that string. Then
+<code>grep '[a]irsim_node'</code> reported the node <strong>ALIVE when it had crashed</strong>,
+matching the grep's own command line.</p>
+<p>Twice, <strong>the check was broken rather than the thing under test</strong> &mdash; the same
+shape as the <code>find -type f</code> false negative in &sect;&nbsp;03.</p></div>
+
+<h2><span class="secnum">06</span> Answer to C-06</h2>
+<div class="panel">
+<p><strong>Builds on Jazzy. The stay-on-Jazzy decision is confirmed by evidence.</strong>
+<code>versions.lock: lane_c.cosys_airsim_ros2_wrapper</code> moves off <code>TODO-verify</code>.</p>
+<p><strong>Still unproven:</strong> the wrapper has never run against an actual Cosys-AirSim
+server — that needs <code>C-02</code>'s engine image. <em>Existing is not working, and compiling
+is not running.</em></p>
+<p style="margin:0"><strong>Next:</strong> <code>C-02</code> (24 GB engine pull, storage decided —
+internal NVMe), then resolve the 41451 conflict before <code>C-03</code>.</p>
+</div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

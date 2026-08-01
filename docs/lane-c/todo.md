@@ -109,7 +109,35 @@ the most expensive possible ordering of the same two facts.
 
 ## C-06 — Build the Cosys-AirSim ROS 2 wrapper against Jazzy
 
-**Status:** `todo` · **RUN THIS FIRST** · **Blocks:** the distro decision, and therefore `C-02`
+**Status:** ✅ **`done` (2026-08-01)** — **it builds.** Evidence:
+[`../worklog/2026-08-01-c06-wrapper-on-jazzy.md`](../worklog/2026-08-01-c06-wrapper-on-jazzy.md)
+
+```
+colcon build --symlink-install   # ROS 2 Jazzy / Ubuntu 24.04 / g++ 13.3.0
+Summary: 2 packages finished [1min 21s]     exit 0, 0 errors, warnings only
+```
+
+**The stay-on-Jazzy decision is now evidence rather than reasoning** — which was the entire
+point of running this first, for 1m21s instead of after a 24 GB engine pull.
+
+**Artifacts asserted, not assumed** (the `D-01` rule): `airsim_node` is 12 MB, `ldd` reports
+**0 unresolved libraries**, it links `/opt/ros/jazzy`, and 24 `airsim_interfaces` types
+register. No clang needed — `colcon` builds AirLib itself via `add_subdirectory`.
+
+**Two findings that outlived the task:**
+
+- **A CARLA UE4 instance on this host is bound to `0.0.0.0:41451`** — the exact AirSim RPC
+  port. The node connected to *it*, negotiated a version handshake and failed. The log line
+  before the failure said `Connected!`. **A port conflict is waiting for `C-03`**, and the
+  failure mode looks like success. Recorded as coupling `airsim-rpc-port-conflict`.
+- **The wrapper crashes rather than degrades** when an API call fails — the ROS context is
+  torn down and a timer handle throws (`exit 250`). Worth knowing before `C-04` relies on it
+  surviving a simulator hiccup.
+
+**Still unproven:** it has never run against an actual Cosys-AirSim server. That needs
+`C-02`.
+
+**Original definition:** ~~`todo` · RUN THIS FIRST · Blocks: the distro decision, and therefore `C-02`~~
 
 **What.** Check out Cosys-AirSim at **`5.8-v3.4.1`** (SHA `a552dd6cd517b8d5d26629ad88004356c3007326`)
 and attempt `colcon build` of its ROS 2 wrapper package alone, on the existing Jazzy /
