@@ -115,8 +115,48 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-07-31-ci-and-self-contained-qgc.html">
+    <span class="k">2026-07-31 · P1-07 / D-07 · newest</span>
+    <h3>Automating What Can Be Automated</h3>
+    <p>Tier-1 CI runs in <strong>24 s</strong> on every push; the flight gate cannot run on a hosted runner (12.6 GB image, 2 vCPU against an RTF floor of 0.95) and a self-hosted one on a public repo would execute fork code on this machine — so it is deferred and running it locally is accepted. Review of the CI found the job holding a <strong>write</strong> token. QGroundControl is now baked into its image, checksum-verified, proven by deleting the host copy and flying.</p>
+  </a>
+
+  <a class="card" href="2026-07-31-clock-bridge-and-bringup.html">
+    <span class="k">2026-07-31 · P1-03 / P1-03a</span>
+    <h3>The <code>/clock</code> Bridge &amp; the Library That Broke Gazebo</h3>
+    <p><code>use_sim_time</code> works for the first time in this project. Installing the bridge into the Lane A image then <strong>stopped PX4 launching its own simulator</strong>: <code>ros-gz-bridge</code> pulls vendored gz libraries that shadow system Harmonic once ROS is sourced, and <code>px4-sitl</code> runs through <code>bash -lc</code>. Both packages install cleanly and nothing warns. Fixed by splitting the image — the first real step of <code>D-06</code>. Layer placement: <strong>28 s against 20–40 min</strong>.</p>
+    <div class="tags">
+      <span class="pill p-ok">use_sim_time reachable</span>
+      <span class="pill p-stop">gz CLI shadowed</span>
+      <span class="pill p-warn">image split</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-07-31-mission-contracts.html">
+    <span class="k">2026-07-31 · P1-01</span>
+    <h3>Mission Contracts — A Bag That Explains Itself</h3>
+    <p><code>MissionStatus</code> and <code>MissionResult</code> recorded into every MCAP, so a failing seed's bag carries the controller's side — which matters because runs are <em>not</em> reproducible and cannot be replayed. Exposed a serious bug: <code>run_flight()</code> read a <strong>result file written 20 minutes earlier</strong> and reported it as this run's outcome. The gate calls it for every seed, so the mechanism to launder a failure into a pass existed.</p>
+    <div class="tags">
+      <span class="pill p-ok">882 status msgs</span>
+      <span class="pill p-stop">stale-artifact bug</span>
+      <span class="pill p-warn">2 races fixed</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-07-31-gz-seed-negative-result.html">
+    <span class="k">2026-07-31 · P1-04a</span>
+    <h3>A Negative Result, and What Replaced It</h3>
+    <p><code>gz sim --seed</code> does not control the sensor noise: compared at identical simulation timestamps, <strong>0 of 716 samples match</strong> between two runs with the same seed, and different seeds differ by the same amount. The plumbing was reverted. Seeding the <em>conditions</em> instead — wind — gives waypoint error tracking wind speed at <strong>r = 0.957</strong>.</p>
+  </a>
+
+  <a class="card" href="2026-07-30-phase-1-offboard.html">
+    <span class="k">2026-07-30 · P1-00 / P1-02</span>
+    <h3>First Flight &amp; Why It Would Not Arm</h3>
+    <p>The first flying code in the project — arm, takeoff, four-waypoint square, land, over uXRCE-DDS. Four wrong answers before the right one: PX4 refused to arm because the <strong>airframe</strong> sets <code>NAV_DLL_ACT 2</code>, requiring a ground station the headless stack did not have. Verified from <strong>5,360 MCAP samples</strong>, not the node's own logs.</p>
+  </a>
+
   <a class="card" href="2026-07-29-d01-container-parity.html">
-    <span class="k">2026-07-29 · D-01 · newest</span>
+    <span class="k">2026-07-29 · D-01</span>
     <h3>Container Parity &amp; the PX4 Prompt Spin</h3>
     <p>Closed <code>D-01</code>: the Lane A image is <strong>native-equivalent</strong> on a normal container runtime (aggregate RTF 0.9967 vs 1.0000); the 2.3% deficit belongs to this box's nested Docker, not to containerization. Root cause of nearly every anomaly across two sessions: PX4's pxh shell clears <code>ICANON</code> without setting <code>VMIN</code>, busy-spinning its prompt 1.45 M times/second — 4.1 GB per 300 s run. Also corrects the acceptance metric from Gazebo's noisy instantaneous RTF to the aggregate ratio.</p>
     <div class="tags">

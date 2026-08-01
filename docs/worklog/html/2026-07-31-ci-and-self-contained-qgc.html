@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CI Tier 1, Branch Protection &amp; Self-Contained QGC — Worklog 2026-07-31</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · P1-07 / D-07 · Lane A</span>
+  <nav><a href="#tiers">Two tiers</a><a href="#wrong">Bad checks</a><a href="#review">Review</a><a href="#qgc">QGC</a><a href="#decision">Decision</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · P1-07 / D-07 · Lane A</span>
+  <h1>Automating What Can Be Automated,<br>and Admitting What Cannot</h1>
+  <p class="sub">Tier 1 runs in 24 seconds on every push. The flight gate cannot run on a hosted runner, and a self-hosted one on a public repo would execute fork code on this box.</p>
+  <div class="mastmeta"><span>Date <b>2026-07-31</b></span><span>Tier 1 <b>24 s</b></span><span>Flight gate <b>deferred · D-07</b></span><span>QGC <b>baked in, verified</b></span><span>main <b>protected</b></span></div>
+</header>
+
+<div class="callout warn"><span class="lbl">Recorded deviation</span><p>This worklog was
+written <strong>after the fact</strong>, not as the work happened. The findings are
+reconstructed from commands and commit messages. Noted rather than presented as if the log
+had been kept live.</p></div>
+
+<h2 id="tiers"><span class="secnum">01</span> Why CI is two tiers</h2>
+<p>The plan asked for CI that builds the image and runs the gate under ten minutes. Measured
+against a GitHub-hosted runner, that is arithmetic, not effort:</p>
+<div class="tw"><table>
+<thead><tr><th></th><th>Hosted runner</th><th>Lane A needs</th></tr></thead>
+<tbody>
+<tr><td>Disk</td><td>~14 GB free</td><td>image is <strong>12.6 GB</strong></td></tr>
+<tr><td>Build</td><td>—</td><td><strong>20–40 min</strong></td></tr>
+<tr><td>CPU</td><td>2 vCPU</td><td>gate asserts <strong>RTF ≥ 0.95</strong></td></tr>
+<tr><td>Gate</td><td>—</td><td><strong>~19 min</strong> for 10 seeds</td></tr>
+</tbody></table></div>
+<div class="callout stop"><span class="lbl">The line that decides it</span><p>On two cores PX4
+and Gazebo miss the real-time floor <strong>on the hardware, not the code</strong>. The only way
+to green it would be lowering the floor — removing the assertion that caught this box's
+nested-Docker deficit in the first place.</p></div>
+
+<h2 id="wrong"><span class="secnum">02</span> Three checks that were wrong</h2>
+<div class="panel">
+<svg viewBox="0 0 1080 230" width="100%" role="img" aria-label="Where each bad check was caught">
+  <rect class="n-v" x="20" y="30" width="460" height="80" rx="3"/>
+  <text class="nid" x="38" y="54">Caught by running the steps LOCALLY</text>
+  <text class="nlb" x="38" y="76">attribution check failed on the files that DEFINE the rule</text>
+  <text class="nlb" x="38" y="94">conflict check failed on a real, accepted CONFLICT</text>
+
+  <rect class="n-b" x="20" y="130" width="460" height="80" rx="3"/>
+  <text class="nid" x="38" y="154">Caught only by CI</text>
+  <text class="nlb" x="38" y="176">the workflow contains the pattern it greps for —</text>
+  <text class="nlb" x="38" y="194">invisible while the file was still UNTRACKED</text>
+
+  <rect class="n-done" x="540" y="60" width="520" height="120" rx="3"/>
+  <text class="nid" x="558" y="86">The lesson</text>
+  <text class="nlb" x="558" y="110">git ls-files lists TRACKED files only.</text>
+  <text class="nlb" x="558" y="130">Running a workflow's steps by hand is worth doing —</text>
+  <text class="nlb" x="558" y="148">it caught two of three — but it cannot reproduce</text>
+  <text class="nlb" x="558" y="166">what git ls-files returns after git add.</text>
+</svg>
+</div>
+
+<h2 id="review"><span class="secnum">03</span> Review of the CI found a real privilege problem</h2>
+<div class="grid g2">
+<div class="callout stop"><span class="lbl">Write token</span><p>The job inherited the repo
+default <code>GITHUB_TOKEN</code>, which is <strong>write</strong>. A job running
+<code>pytest</code> and <code>grep</code> had write access to the repository. Now
+<code>contents: read</code>, set explicitly — this file is the template tier 2 and
+<code>D-05</code> get copied from.</p></div>
+<div class="callout warn"><span class="lbl">Moving tags</span><p>Actions were pinned to
+<code>@v4</code> / <code>@v5</code>. That contradicts this project's own rule that a branch is
+not a pin — learned when the XRCE agent's branch pin evaporated, and again when QGC's
+<code>latest</code> channel had to be repinned. Both are commit SHAs now.</p></div>
+</div>
+
+<h2 id="qgc"><span class="secnum">04</span> QGC made self-contained</h2>
+<p>QGC was a 180 MB bind mount the user had to fetch first, on the reasoning that CI has no use
+for it. That reasoning was wrong: PX4 will not arm without the datalink, so a stack that cannot
+fly until someone runs a download script is not "reproducible from the repo alone".</p>
+<div class="grid g3">
+<div class="stat ok"><div class="k">Verified by</div><div class="v">deleting it</div><div class="n">host copy removed, then flown 4/4</div></div>
+<div class="stat"><div class="k">Checksum gate</div><div class="v">exit 1</div><div class="n">built with a wrong hash on purpose</div></div>
+<div class="stat warn"><div class="k">Size traded</div><div class="v">452 MB</div><div class="n">extracted, vs 180 MB compressed</div></div>
+</div>
+<div class="callout stop"><span class="lbl">Two silent no-op edits</span><p>Two
+<code>str.replace</code> calls <strong>matched nothing and did nothing</strong> — the openbox
+block sits between the copy and the exec. Result: <code>QGC_APPIMAGE: unbound variable</code>
+and an <code>exec</code> pointing at a deleted file. Only running the container surfaced it.
+Edits now abort on a non-match.</p></div>
+
+<h2 id="decision"><span class="secnum">05</span> Decision: local CI is accepted</h2>
+<p><code>D-07</code> defers the automated flight gate. Two blockers — hosted runners cannot do
+it, and <strong>a self-hosted runner on a public repo lets any fork's pull request execute code
+on this machine</strong>, the one holding SSH keys, the netbird tunnel and the 7 TB drive.</p>
+<div class="callout"><span class="lbl">The substitute</span><p><code>./scripts/run_local_ci.sh
+--gate</code> — one command, the same tier-1 checks CI runs plus the flight gate. It warns when
+the working tree is dirty, and distinguishes a fast-checks pass from a real gate run so neither
+gets quoted as the other.</p>
+<p><strong>What it costs, plainly:</strong> a controller regression is caught when someone runs
+the gate, not when it lands.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

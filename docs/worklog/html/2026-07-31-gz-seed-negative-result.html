@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>gz sim --seed Does Not Control the Sensor Noise — Worklog 2026-07-31</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · P1-04a · Lane A</span>
+  <nav><a href="#claim">The claim</a><a href="#measure">Measuring</a><a href="#result">Result</a><a href="#instead">Instead</a><a href="#traps">Traps</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · P1-04a · Lane A</span>
+  <h1>A Negative Result,<br>and What Replaced It</h1>
+  <p class="sub">The plan was to seed the simulator's RNG so ten seeded runs meant ten conditions. The flag is accepted, the plumbing works, and it changes nothing measurable.</p>
+  <div class="mastmeta"><span>Date <b>2026-07-31</b></span><span>Same-seed identical <b>0 / 716</b></span><span>Verdict <b>reverted</b></span><span>Replacement <b>wind</b></span><span>Correlation <b>r = 0.957</b></span></div>
+</header>
+
+<h2 id="claim"><span class="secnum">01</span> The claim that needed testing</h2>
+<p>The gate passes SR 10/10 — but the seed only moved the spawn point, and PX4 sets its local
+frame origin wherever the estimator initialises. In an empty world the flight is unchanged.
+"Ten seeded runs" was closer to <strong>ten repeats</strong>. The plan was to reach the
+genuinely stochastic part, sensor noise, with <code>gz sim --seed</code>.</p>
+
+<h2 id="measure"><span class="secnum">02</span> Three measurements, two of them worthless</h2>
+<div class="panel">
+<svg viewBox="0 0 1080 250" width="100%" role="img" aria-label="Three attempts at measuring the seed effect">
+  <rect class="n-b" x="20" y="30" width="320" height="80" rx="3"/>
+  <text class="nid" x="36" y="54">1 · waypoint errors</text>
+  <text class="nlb" x="36" y="74">a heavily filtered end product</text>
+  <text class="nlb" x="36" y="92" style="fill:var(--stop)">suggestive — not evidence</text>
+
+  <rect class="n-b" x="20" y="130" width="320" height="96" rx="3"/>
+  <text class="nid" x="36" y="154">2 · sensor_combined --once</text>
+  <text class="nlb" x="36" y="174">samples NOT time-aligned; they would</text>
+  <text class="nlb" x="36" y="192">differ regardless of the seed</text>
+  <text class="nlb" x="36" y="212" style="fill:var(--stop)">a bad test, not a result</text>
+
+  <rect class="n-v" x="400" y="60" width="330" height="130" rx="3"/>
+  <text class="nid" x="418" y="86">3 · Gazebo's own IMU topic</text>
+  <text class="nlb" x="418" y="108">stamped in SIMULATION time —</text>
+  <text class="nlb" x="418" y="126">header{stamp{sec: 82 ...}}</text>
+  <text class="nlb" x="418" y="150">PX4's own timestamps are absolute</text>
+  <text class="nlb" x="418" y="168">wall clock: the XRCE bridge rewrites</text>
+  <text class="nlb" x="418" y="186">them, so no two runs overlap.</text>
+
+  <rect class="n-done" x="790" y="60" width="270" height="130" rx="3"/>
+  <text class="nid" x="808" y="86">~1930 samples per boot</text>
+  <text class="nlb" x="808" y="110">compared at IDENTICAL</text>
+  <text class="nlb" x="808" y="128">simulation timestamps</text>
+  <text class="nlb" x="808" y="156" style="fill:var(--ok)">the only one that</text>
+  <text class="nlb" x="808" y="174" style="fill:var(--ok)">proves anything</text>
+</svg>
+</div>
+
+<h2 id="result"><span class="secnum">03</span> The result</h2>
+<div class="tw"><table>
+<thead><tr><th>Comparison</th><th>Aligned samples</th><th>Identical</th><th>Mean |Δ accel_x|</th></tr></thead>
+<tbody>
+<tr><td><strong>Same seed</strong> (42 vs 42)</td><td>716</td><td><strong>0 (0.0%)</strong></td><td><strong>0.00726</strong></td></tr>
+<tr><td><strong>Different seed</strong> (42 vs 7)</td><td>1911</td><td>0 (0.0%)</td><td><strong>0.00718</strong></td></tr>
+</tbody></table></div>
+<div class="callout stop"><span class="lbl">Conclusion</span><p>Two runs with the <strong>same</strong>
+seed differ by as much as two runs with different seeds. Not one sample matches, at identical
+instants of simulated time. <code>gz sim --seed</code> does not control the sensor noise here.
+The plumbing was <strong>reverted</strong> — it bought nothing measurable and would have implied
+control the stack does not have.</p></div>
+
+<h2 id="instead"><span class="secnum">04</span> What shipped instead</h2>
+<p>Seed the <strong>conditions</strong>, not the random stream. A success rate needs diversity,
+not determinism.</p>
+<div class="tw"><table>
+<thead><tr><th>Wind (m/s)</th><th>0.40</th><th>0.68</th><th>0.71</th><th>0.97</th><th>1.39</th><th>1.71</th><th>1.87</th><th>2.38</th><th>2.87</th></tr></thead>
+<tbody><tr><td>Worst error (m)</td><td>0.377</td><td>0.380</td><td>0.384</td><td>0.395</td><td>0.395</td><td>0.437</td><td>0.477</td><td>0.490</td><td>0.555</td></tr></tbody>
+</table></div>
+<div class="grid g3">
+<div class="stat ok"><div class="k">Correlation</div><div class="v">r = 0.957</div><div class="n">wind vs worst waypoint error</div></div>
+<div class="stat"><div class="k">Slope</div><div class="v">0.070</div><div class="n">m of error per m/s of wind</div></div>
+<div class="stat warn"><div class="k">Margin</div><div class="v">4.3× → 1.8×</div><div class="n">against the 1.0 m accept radius</div></div>
+</div>
+
+<h2 id="traps"><span class="secnum">05</span> Three traps worth keeping</h2>
+<div class="grid g2">
+<div class="callout stop"><span class="lbl">A plugin in the world SDF</span><p>Makes Gazebo load
+<strong>only</strong> that plugin, dropping Physics, UserCommands and SceneBroadcaster. Six
+topics, no <code>scene/info</code>, no vehicle, PX4 times out — and <code>gz sdf -k</code> calls
+the file <strong>Valid</strong>. The plugin belongs in a copy of PX4's server config.</p></div>
+<div class="callout warn"><span class="lbl">enable_wind</span><p>Upstream <code>x500_base</code>
+does not set it, so without the model overlay the wind applies to nothing and the flight looks
+entirely normal.</p></div>
+<div class="callout warn"><span class="lbl">Zero wind is not the stock baseline</span><p>The
+overlay changes physics even at 0 m/s — 0.16 m mean error stock against 0.358 m on the overlay,
+because <code>enable_wind</code> adds air-relative drag the stock model has none of.</p></div>
+<div class="callout stop"><span class="lbl">The bound is load-bearing</span><p>At 8 m/s the
+<em>disarmed</em> vehicle is blown <strong>416 m</strong> before it can arm; the estimator gives
+up and the run fails in <code>wait_for_fcu</code> — a harness failure wearing a controller
+failure's costume.</p></div>
+</div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

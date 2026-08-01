@@ -3,9 +3,26 @@
 Tests that decide whether something **works**, as opposed to whether it builds. These are
 the gates CI runs; everything human-facing lives in [`../docker/demo/`](../docker/demo/).
 
-| Test | Asserts |
-|---|---|
-| `lane-a-smoke.sh` | The Lane A container reproduces the native `P0-07` result |
+| Test | Asserts | Needs a simulator? |
+|---|---|---|
+| `test_frames.py` (in `ros2_ws/src/control/test/`) | the single ENU↔NED conversion — sign, axis swap, yaw wrap | no |
+| `test_gate_checks.py` | the flight gate's verdict logic, and scenario-name validation | no |
+| `test_make_variant.py` | the seeded world/model overlay, and that the runner's knobs reach it | no |
+| `lane-a-smoke.sh` | the Lane A container reproduces the native `P0-07` result | **yes** |
+
+**25 of these run off-target**, in ~0.03 s, with no ROS, no containers and no simulator —
+which is what lets GitHub Actions run them on every push:
+
+```bash
+python3 -m pytest tests/ -q                     # the host-side suite
+./scripts/run_local_ci.sh                       # the same checks CI runs
+./scripts/run_local_ci.sh --gate                # + the 10-seed flight gate
+```
+
+Each off-target test exists because something silently did nothing or silently broke while
+looking healthy — a `NaN` waypoint error that passed the gate, a `<plugin>` that made
+Gazebo drop PX4's core systems while `gz sdf -k` still called the file *Valid*, an
+`enable_wind` outside the link. They are regression pins, not coverage theatre.
 
 ## `lane-a-smoke.sh`
 

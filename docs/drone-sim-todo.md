@@ -5,12 +5,27 @@ criterion — lives in the per-area TODO doc. Every feature or non-trivial chang
 exist as a documented TODO in its area doc *before* it is built, and be marked done when
 it lands (`.ai/AGENTS.md:72`).
 
-**Current position: Phase 0 — Environment & Version Lock. Lane A is up and verified.**
-As of 2026-07-29: ROS 2 Jazzy, PX4 v1.16.0 + Gazebo Harmonic, the uXRCE-DDS agent and
-branch-matched `px4_msgs` are installed and smoke-tested end to end — headless SITL for
-300 s with 0 sensor TIMEOUTs, RTF 1.000, 24 `/fmu/out/*` topics at 100 Hz, and QGC
-connected. **4 of 5 Phase 0 exit criteria met.** See
-[`phase-0/todo.md`](phase-0/todo.md) and the worklogs.
+**Current position: Phase 1 — Lane A Baseline. The exit criterion is MET; the phase is not
+finished.**
+
+As of 2026-07-31 the aircraft flies under its own ROS 2 controller over uXRCE-DDS, and the
+gate that proves it passes **SR 10/10 across ten genuinely different wind conditions**
+(waypoint error tracking wind speed at r = 0.921), with an MCAP kept per run.
+
+| | |
+|---|---|
+| Done | **every Phase 1 task**: `P1-00` conventions · `P1-01` contracts · `P1-02` controller · `P1-03`/`P1-03a` launch + `/clock` · `P1-04`/`P1-04a` seeded runner and conditions · `P1-05` MCAP · `P1-06` gate · `P1-07` tier 1 |
+| Open | `D-06` container boundaries · `D-07` automated flight gate — both **deferred by decision**, not outstanding work |
+
+**Two things are true at once and both matter.** The exit criterion is met — and the flight
+gate is **not automated**: it runs when someone runs it. Tier-1 CI (25 off-target tests,
+parse checks, `compose config`) runs on every push in 24 s and `main` requires it, but the
+simulator cannot run on a hosted runner and a self-hosted one on a public repo would execute
+fork code on the workstation. `./scripts/run_local_ci.sh --gate` is the accepted substitute.
+See `P1-07` and `D-07`.
+
+Phase 0 remains at **4 of 5 exit criteria** — the outstanding one is Isaac Sim, which is
+deferred with `P0-09`; see [`lane-b/isaac-driver-decision.md`](lane-b/isaac-driver-decision.md).
 
 ---
 
@@ -131,6 +146,7 @@ planned.
 | Doc | What it is |
 |---|---|
 | [`../versions.lock`](../versions.lock) | The pinned toolchain and the couplings CI must assert |
+| [`roadmap.html`](roadmap.html) | Phases and timeline, as a single page |
 | [`bench.md`](bench.md) | The machine and container being worked in |
 | [`reference/01_sim_stack_report.md`](reference/01_sim_stack_report.md) | Simulator landscape, why dual-sim, the three target papers |
 | [`reference/02_development_plan.md`](reference/02_development_plan.md) | Phased build plan, version-coupling landmines, CI, repo layout |
