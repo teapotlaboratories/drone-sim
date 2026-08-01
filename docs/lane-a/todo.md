@@ -679,6 +679,66 @@ Superseded by the two tiers above.
 
 ---
 
+## P1-08 — The gate cannot tell a void run from a real failure
+
+**Status:** `todo` · **Raised:** 2026-08-01, by a gate run that was silently invalid ·
+**Related:** `P1-06`, `D-07`
+
+**What.** Record machine state alongside the success rate, and let the gate mark its own
+result **suspect** rather than reporting a number that looks like a verdict.
+
+**Why — this already happened, and it cost a full 25-minute run to notice.**
+
+The gate was run on this branch and reported **SR 5/10**, with timeouts spread across
+takeoff, waypoints and land. That reads exactly like a controller regression. It was not.
+A second project on the same machine (`carla-air_testing`, driven by another session) had
+started **CARLA UE4 at 283% CPU plus its own PX4 SITL** partway through the run.
+
+Re-run on a quiet box, same seeds, same wind: **SR 10/10.**
+
+| | load (mean) | CARLA | wall clock | result |
+|---|---|---|---|---|
+| void run | ~4.3 | **283%** | 1499 s | 5/10 |
+| clean run | **1.68** | 0% | **1301 s** | **10/10** |
+
+All five failing seeds flipped, including the two that had reached **zero** waypoints. Run
+times tightened from a 100–216 s spread to 112–134 s — **the spread itself was the
+starvation signature**, and nothing in the report captured it.
+
+**The gap:** `out/square-10m-gate.json` records seed, wind, waypoint errors, MCAP path and
+duration. It records **nothing about the machine**. After the fact, a void run and a genuine
+regression are indistinguishable — the only reason this one was caught is that someone
+thought to look at `ps` before believing the number.
+
+That is the same failure class as the stale-result bug in `P1-01` and the instantaneous-RTF
+metric in `D-01`: **a number that looks like evidence and is not.**
+
+**What to record per run, and what to assert:**
+
+- **Aggregate RTF per run** — the metric `couplings.rtf-floor` already defines, and which
+  the gate does not currently check per-seed. This is the direct measure; load average is a
+  proxy for it.
+- **Load average** at start and end, and peak during the run.
+- **Foreign simulator processes** — any `px4`, `gz`, `Carla` or Unreal process outside our
+  own containers, by name and CPU. Cheap, and it is exactly what identified this.
+- **A `suspect: true` flag plus a reason** in the report when the RTF floor is breached or a
+  foreign simulator is seen, so a failing run says *"5/10, but the box was loaded"* rather
+  than just `5/10`.
+
+**Acceptance.** Re-running the gate under deliberate CPU load produces a report that is
+flagged `suspect` with the measured cause recorded — **not** a bare failing success rate.
+Prove it by generating the load, not by reasoning about it.
+
+**Trap.** Do not let `suspect` become a way to explain away real failures. It marks a result
+as *uninterpretable*, never as *passing*. A suspect run is re-run, not excused — and
+`sr_perfect` must stay false for it.
+
+**Also worth doing here:** `ROS_DOMAIN_ID` is unset everywhere, so the gate's DDS isolation
+currently rests on `px4-sitl` happening to sit in a bridge netns rather than on the host.
+That held this time — checked — but it is an accident, not a design. Pin it.
+
+---
+
 ## Not in Phase 1
 
 Recorded here so they are not smuggled in:
