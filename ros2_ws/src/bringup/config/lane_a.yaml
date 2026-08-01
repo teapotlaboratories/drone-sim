@@ -1,0 +1,9 @@
+offboard_control:
+  ros__parameters:
+    px4_ns: ""
+    takeoff_altitude: 10.0
+    square_side: 10.0
+    accept_radius: 1.0
+    hold_seconds: 2.0
+    setpoint_rate_hz: 20.0
+    state_timeout_s: 60.0

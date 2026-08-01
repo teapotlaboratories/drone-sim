@@ -755,3 +755,43 @@ now, grows with every run; decide a destination before it is a problem.
 **Done when:** a fresh machine running **native Docker** reaches a flying stack from
 documented steps alone, and no image carries a `carbonite`-specific workaround without it
 being labelled as one.
+
+---
+
+## D-09 — Optional Fern/Runpod full-stack image and GHCR publisher
+
+**Status:** 🟡 **full-stack GHCR build verified on `feat/image-builder` (2026-08-01)** ·
+**Issues:** #5, #8–#14 · **Related:** `D-05`, `D-07`, `P1-07`
+
+**What.** Add a contributor-portable Lane A path: an immutable single-container batch
+runtime for Fern/Runpod, a durable `/workspace/runs/<run-id>/` evidence contract, capacity
+preflight, loopback-only services, and a main-branch workflow that publishes a GHCR digest
+Fern can select with `--image`.
+
+**Why.** The original contributor workstation remains a valid contributor-specific path,
+but a multiple-contributor repository cannot require access to it. Fern is an additional
+GPU-backed option with explicit billing, persistence, network, and lifecycle boundaries.
+Lane A itself remains capable of CPU-only execution.
+
+**Verified before merge.**
+
+- 42 off-target tests cover artifacts, secret exclusion, preflight, occupied ports,
+  loopback-only runtime configuration, and shared sim-time launch;
+- shell, Python, YAML, package, workflow, and Dockerfile checks pass;
+- workflow run `30709124212` built and pushed the complete flattened stack from commit
+  `7ded074` in 22m42s;
+- the publisher trigger is restricted to `main`, with manual dispatch retained for
+  pre-merge validation.
+
+**Still required for the end-to-end gate.**
+
+- Fern deploys the canonical digest to a fresh GPU Pod after a reviewed dry run;
+- the five-minute smoke writes terminal status, metrics, logs, preflight, versions, and a
+  replayable MCAP under `/workspace/runs/<run-id>/`;
+- the final provider state confirms that billing stopped;
+- the guarded PR gate implements wait, download, destroy, cancellation cleanup, and cost
+  controls.
+
+**Boundary.** Feature-branch image evidence is not post-merge main-channel evidence. This
+publisher does not claim to complete the deferred automated flight gate in `D-07` or
+issues #13 and #14.

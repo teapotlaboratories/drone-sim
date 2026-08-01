@@ -1,4 +1,4 @@
-name: Drone Sim image
+name: Drone Sim stack image
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: drone-sim-image-${{ github.ref }}
+  group: drone-sim-stack-image-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -34,7 +34,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish Drone Sim image
+      - name: Build and publish Drone Sim stack image
         id: image
         shell: bash
         env:
@@ -44,48 +44,73 @@ jobs:
           set -euo pipefail
 
           image="${REGISTRY}/${IMAGE_NAME,,}"
-          immutable_ref="${image}:sha-${REVISION}"
+          base_ref="drone-sim-base:${REVISION}"
+          immutable_ref="${image}:stack-${REVISION}"
 
           tags=(--tag "${immutable_ref}")
           if [[ "${BRANCH}" == "main" ]]; then
-            tags+=(--tag "${image}:main")
+            channel_ref="${image}:stack-main"
           else
             safe_branch="${BRANCH//\//-}"
-            tags+=(--tag "${image}:test-${safe_branch}")
+            channel_ref="${image}:stack-test-${safe_branch}"
           fi
+          tags+=(--tag "${channel_ref}")
 
           docker build \
             --file docker/lane-a.Dockerfile \
+            --tag "${base_ref}" \
+            .
+
+          docker build \
+            --file docker/runpod/lane-a.Dockerfile \
+            --build-arg "BASE_IMAGE=${base_ref}" \
+            --build-arg "VCS_REF=${REVISION}" \
+            --build-arg "IMAGE_VERSION=stack" \
+            --build-arg "IMAGE_REFERENCE=${immutable_ref}" \
             "${tags[@]}" \
             .
 
           docker push "${immutable_ref}"
-          if [[ "${BRANCH}" == "main" ]]; then
-            docker push "${image}:main"
-          else
-            docker push "${image}:test-${safe_branch}"
-          fi
-
+          docker push "${channel_ref}"
           docker pull "${immutable_ref}"
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${immutable_ref}")"
           digest_ref="${image}@${digest#*@}"
 
+          jq -n \
+            --arg image "${immutable_ref}" \
+            --arg digest_reference "${digest_ref}" \
+            --arg revision "${REVISION}" \
+            --arg channel "${channel_ref}" \
+            '{schema_version: 1, image: $image, digest_reference: $digest_reference, revision: $revision, channel: $channel}' \
+            > image-manifest.json
+
           {
             echo "reference=${immutable_ref}"
             echo "digest_reference=${digest_ref}"
+            echo "channel_reference=${channel_ref}"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload stack image manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: drone-sim-stack-${{ github.sha }}
+          path: image-manifest.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Write job summary
         shell: bash
         run: |
           {
-            echo "## Drone Sim image"
+            echo "## Drone Sim stack image"
             echo
             echo "Published immutable image:"
             echo
             echo '```text'
             echo '${{ steps.image.outputs.digest_reference }}'
             echo '```'
+            echo
+            echo "Channel tag: \`${{ steps.image.outputs.channel_reference }}\`"
             echo
             echo "Source branch: \`${GITHUB_REF_NAME}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
