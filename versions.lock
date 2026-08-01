@@ -650,7 +650,27 @@ lane_c:
       with ROS2 Jazzy" (docs/ros2.md, changed 2026-07-10 in commit d1ceeae1 from "tested on
       Ubuntu 22.04 with ROS2 Iron"), and install_linux.md: "The current recommended and
       tested environment is Ubuntu 24.04 LTS".
-    status: TODO-verify     # documented, NOT CI-verified, and NOT true of the 5.5 tag
+    status: LOCKED          # BUILT on Jazzy 2026-08-01 — C-06
+    build_result: >-
+      BUILDS. colcon build --symlink-install on ROS 2 Jazzy / Ubuntu 24.04 / g++ 13.3.0:
+      exit 0 in 1 min 21 s, both packages (airsim_interfaces, airsim_ros_pkgs), 0 errors,
+      warnings only (26 sign-compare, 20 class-memaccess, 2 attributes, 4 misc — all
+      upstream's). No clang required: colcon builds AirLib itself via add_subdirectory, so
+      the toolchain-ABI problem that made the UE5.5 line awkward does not arise.
+      Artifacts asserted rather than assumed, per D-01: airsim_node is 12 MB, ldd reports
+      0 unresolved libraries, it links /opt/ros/jazzy, and 24 airsim_interfaces message
+      types register with `ros2 interface list`. The node starts, brings up its publishers
+      and speaks the real AirSim RPC protocol.
+      THE STAY-ON-JAZZY DECISION IS NOW EVIDENCE, NOT REASONING.
+      Still unproven downstream: it has never run against an actual Cosys-AirSim server,
+      which needs C-02's engine image.
+    extra_apt_deps_needed: >-
+      ros-jazzy-mavros-msgs and ros-jazzy-geographic-msgs were absent and had to be
+      installed; pcl-conversions, tf2-sensor-msgs, image-transport, joy, cv-bridge,
+      libyaml-cpp-dev, libopencv-dev and libpcl-dev were already present. Upstream's
+      setup.sh additionally fetches rpclib 2.3.1 and eigen 3.4.1r — note BOTH come from
+      WouterJansen/ forks rather than upstream rpclib/eigen, which is a supply-chain
+      detail D-04's Dockerfile inherits.
     vindicates_jazzy_decision: >-
       STRONGLY, and it inverts 04's recommendation. Humble is now the RISKIER choice: main
       includes <cv_bridge/cv_bridge.hpp> and the Humble branch of vision_opencv ships only
@@ -946,6 +966,19 @@ couplings:
       release + sha256. Cosys-AirSim's UE5.5 support was a pre-release branch, which is
       exactly the shape that evaporates.
     severity: high
+  - id: airsim-rpc-port-conflict
+    assert: >-
+      whatever answers on the AirSim RPC port is actually Cosys-AirSim — check the reported
+      server version, do not trust "Connected!"
+    why: >-
+      Found the hard way 2026-08-01 (C-06). A CARLA UE4 instance runs on this host bound to
+      0.0.0.0:41451, the exact port Cosys-AirSim uses. The ROS 2 wrapper connected to it,
+      negotiated a handshake, reported "API Server Ver:1 (Min Req:4)" and failed — but the
+      log line before that said "Connected!", which is exactly what a working setup looks
+      like at a glance. A silent cross-connection to the wrong simulator is a debugging
+      nightmare, and it is also bound to 0.0.0.0 rather than loopback, which is the same
+      exposure class D-02 fixed for the MAVLink ports.
+    severity: medium
   - id: lane-c-topic-parity
     assert: >-
       Lane C's /fmu/out/* topic names are IDENTICAL to Lane A's, produced by PX4's own

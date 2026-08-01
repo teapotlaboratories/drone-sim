@@ -115,8 +115,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-01-c06-wrapper-on-jazzy.html">
+    <span class="k">2026-08-01 · C-06 · newest</span>
+    <h3>The Wrapper Builds on Jazzy</h3>
+    <p><strong>1m21s, exit 0, zero errors</strong> — turning the project's most load-bearing assumption from reasoning into evidence, deliberately <em>before</em> a 24 GB engine pull. Artifacts asserted rather than trusted: 0 unresolved libraries, links <code>/opt/ros/jazzy</code>, 24 message types. Also found a <strong>CARLA instance squatting on port 41451</strong> — our node connected to it and failed a version handshake, one line after printing <code>Connected!</code>. And two <code>.repos</code> entries that disagreed with <code>versions.lock</code>, one of which reconstructed an unbuildable tree.</p>
+    <div class="tags">
+      <span class="pill p-ok">builds on Jazzy</span>
+      <span class="pill p-stop">port 41451 taken</span>
+      <span class="pill p-warn">.repos drift fixed</span>
+      <span class="pill p-chrome">2 new tier-1 checks</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-07-31-lane-c-primary.html">
-    <span class="k">2026-07-31 · Lane C · newest</span>
+    <span class="k">2026-07-31 · Lane C</span>
     <h3>Lane C Becomes the Primary Stack</h3>
     <p>Cosys-AirSim on Unreal replaces Gazebo for Phase 2 onward; Lane A is <strong>demoted to a regression baseline, not retired</strong>. Three open questions settled — and a fourth surfaced from research within the hour: <strong>UE5.5 and ROS 2 Jazzy cannot be had from one upstream tag</strong>. One command decided it — <code>ros-jazzy-cv-bridge 4.1.0</code> ships no <code>cv_bridge.h</code>, so the last UE5.5 release is <em>measurably unbuildable here</em>. Pin moved to <code>5.8-v3.4.1</code>. Nothing built, nothing flown.</p>
     <div class="tags">
