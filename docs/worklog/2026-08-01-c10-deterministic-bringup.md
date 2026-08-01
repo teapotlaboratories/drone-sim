@@ -108,13 +108,49 @@ Load-bearing details that are easy to mistake for style:
 
 - **"N times in a row" is not met.** One cold start, verified. The done-when asks for repeated
   unattended cold starts, and that has not been run.
-- **A deliberately mis-ordered start has not been fed to the gate** to confirm it is *failed*
-  rather than scored. The check voids correctly in isolation; wiring it into `run_gate.py` is
-  still open.
+- **A deliberately mis-ordered start has not been fed to the gate end to end.** The wiring is
+  now done (see below) and the healthy path is verified over 10 seeds, but no run has been
+  *observed* flowing through `run_gate.py` as VOID. The check itself has caught a real stale
+  origin (9.069 m, above) and the scoring is unit-tested, so the two halves are proved
+  separately — just not joined.
 - **The settle heuristic is not characterised** — 5 reads at 0.05 m was chosen, not derived.
+
+## Gate integration, and the Lane A gate re-run
+
+`run_gate.py` now asserts the origin before every run. Voids are **excluded from the rate** and
+**separately block the criterion** — excluding without blocking would let a gate where 9 of 10
+runs were void report 100%. Scoring moved into a pure `score()`, unit-tested for all-void, empty,
+reuse, and real-failure cases.
+
+**One bug caught before shipping:** the first version ran the checker with `sys.executable` on
+the gate host, where `ros2` does not exist. Every run would have been VOID and the gate could
+never have passed again. **A check that fails closed on its own plumbing disables a gate as
+surely as one that fails open.** It now execs into the `ros2` service the way `run_scenario.py`
+does, piped over stdin rather than assuming a mount path, with an AST test pinning the call site.
+
+**I also called this "blocked" when it was not.** I recorded the Lane A gate as unverifiable
+because Lane A and Lane C collide on ports. They collide only when run *simultaneously* —
+sequential is fine, and is exactly what `C-03` already did for the parity diff. Tearing Lane C
+down took one command.
+
+```
+[ 1/10] seed 1  PASS worst 0.364 m      [ 6/10] seed 6  PASS worst 0.502 m
+[ 2/10] seed 2  PASS worst 0.555 m      [ 7/10] seed 7  PASS worst 0.422 m
+[ 3/10] seed 3  PASS worst 0.414 m      [ 8/10] seed 8  PASS worst 0.382 m
+[ 4/10] seed 4  PASS worst 0.377 m      [ 9/10] seed 9  PASS worst 0.374 m
+[ 5/10] seed 5  PASS worst 0.503 m      [10/10] seed 10 PASS worst 0.432 m
+
+success rate: 10/10 (100%)   voids: 0   met: true   wall 1350 s
+```
+
+**The Phase 1 gate still holds under the new code** — the assertion adds a guard without
+disturbing the result.
+
+*Process note: the gate's log stayed 0 bytes for 15 minutes because Python block-buffers stdout
+when redirected to a file. Third time buffering has masked live output in this session, after
+`ros2 topic echo` twice. The process was healthy throughout; only the observation was broken.*
 
 ## Next
 
-1. Wire `check_ekf_origin.py` into `run_gate.py` so a void run is excluded from the success
-   rate rather than counted as a failure.
+1. ~~Wire `check_ekf_origin.py` into `run_gate.py`~~ — done, and the Lane A gate re-verified.
 2. Run the cold start N times and record the distribution of the initial offset.

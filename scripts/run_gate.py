@@ -33,6 +33,7 @@ Read this before quoting an SR from here.
 from __future__ import annotations
 
 import argparse
+import subprocess
 import importlib.util
 import math
 import json
@@ -85,6 +86,65 @@ def check_run(result: dict, scenario: dict) -> tuple[bool, str]:
     return True, ""
 
 
+def _origin_void_reason() -> str:
+    """Empty string if the EKF origin is sane; otherwise why this run is VOID.
+
+    Shells out to check_ekf_origin.py so there is exactly one implementation of the rule and
+    one place it can be wrong. A checker failure (missing script, unexpected crash) is itself
+    treated as void rather than as OK -- an unverifiable stack must never read as verified.
+    """
+    checker = REPO / "scripts" / "check_ekf_origin.py"
+    if not checker.is_file():
+        return f"EKF-origin checker missing at {checker}; treating the run as VOID"
+    # MUST run inside the ros2 service, not here. `ros2` does not exist on the host, so
+    # running the checker locally makes EVERY run void and the gate can never pass again --
+    # a check that fails closed on its own plumbing is as useless as one that fails open.
+    # Piped over stdin rather than assuming the repo is mounted at a known path in the
+    # container; `python3 -` still parses the args that follow.
+    try:
+        p = subprocess.run(
+            rs.COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
+                          ". /opt/ros/jazzy/setup.bash && python3 - --quiet"],
+            input=checker.read_text(), capture_output=True, text=True, timeout=120)
+    except Exception as exc:
+        return f"EKF-origin check could not run ({exc}); treating the run as VOID"
+    if p.returncode == 0:
+        return ""
+    return (f"EKF origin not verified (exit {p.returncode}); "
+            f"see C-10. This run is VOID, not a failure.")
+
+
+def score(runs: list[dict], reuse: bool) -> dict:
+    """Turn per-run records into the gate's verdict. Pure, so the VOID semantics below are
+    testable without a simulator.
+
+    VOID vs FAIL is the whole point (C-10, and P1-08 for Lane A). A run against a stack whose
+    EKF origin was mis-initialised did not measure the flight code at all -- the vehicle
+    reports an altitude tens of metres wrong and the controller, which targets an absolute
+    altitude, is commanded into the ground. Counting that as a failure blames code that is
+    byte-identical to the one passing 10/10, and averaging it into a success rate makes the
+    rate mean nothing.
+
+    So voids are EXCLUDED from the rate, and separately they BLOCK the criterion. Excluding
+    without blocking would let a gate where 9 of 10 runs were void report 100%.
+    """
+    valid = [r for r in runs if not r.get("void")]
+    voids = [r for r in runs if r.get("void")]
+    passed = sum(1 for r in valid if r["passed"])
+    sr = passed / len(valid) if valid else 0.0
+    return {
+        "passed": passed,
+        "total": len(runs),
+        "valid_total": len(valid),
+        "voids": len(voids),
+        "success_rate": round(sr, 4),
+        "sr_perfect": bool(valid) and sr == 1.0,
+        # `met` needs a perfect rate over a NON-EMPTY set of valid runs, a real gate run,
+        # and no voids at all.
+        "met": bool(valid) and sr == 1.0 and not reuse and not voids,
+    }
+
+
 def _worst(errors) -> float:
     """Worst error for reporting — 0 when there is nothing usable, never a silent drop."""
     usable = [float(e) for e in (errors or [])
@@ -101,6 +161,10 @@ def main() -> int:
                     help="reuse one stack for every run (faster, weaker — see the module "
                          "docstring; the spawn pose is then never applied)")
     ap.add_argument("--outdir", type=Path, default=REPO / "out")
+    ap.add_argument("--no-origin-check", action="store_true",
+                    help="skip the pre-run EKF-origin assertion (C-10). Only for stacks "
+                         "where /fmu/out/vehicle_gps_position is unavailable -- without it a "
+                         "mis-ordered stack is scored as a control failure.")
     a = ap.parse_args()
 
     scenario = rs.load_scenario(a.scenario)
@@ -131,14 +195,23 @@ def main() -> int:
             # than what it claims.
             vdir = rs.build_variant_overlay(scenario, variant, f"{name}-seed{seed}")
             rs.restart_stack(variant, vdir)
-        try:
-            result = rs.run_flight(scenario, seed, a.outdir)
-        except Exception as exc:                      # a crashed run is a failed run,
-            result = {"outcome": "failure",           # never an aborted gate
-                      "failure_reason": f"runner raised: {exc}"}
-        ok, why = check_run(result, scenario)
+        # Assert the stack is measurable BEFORE flying it. A stale EKF origin makes the
+        # vehicle report an altitude tens of metres wrong; the run would look like a control
+        # failure and would be indistinguishable from one in the report (C-10).
+        void_reason = "" if a.no_origin_check else _origin_void_reason()
+        if void_reason:
+            result = {"outcome": "void", "failure_reason": void_reason}
+            ok, why = False, void_reason
+        else:
+            try:
+                result = rs.run_flight(scenario, seed, a.outdir)
+            except Exception as exc:                  # a crashed run is a failed run,
+                result = {"outcome": "failure",       # never an aborted gate
+                          "failure_reason": f"runner raised: {exc}"}
+            ok, why = check_run(result, scenario)
         runs.append({
             "seed": seed, "passed": ok, "reason": why,
+            "void": bool(void_reason),
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
             "spawn_pose_applied": not a.reuse,
@@ -156,13 +229,14 @@ def main() -> int:
             "seconds": round(time.time() - t0, 1),
         })
         print(f"  [{i:>2}/{len(seeds)}] seed {seed:<3} "
-              f"{'PASS' if ok else 'FAIL':4}  worst {runs[-1]['worst_error_m']:.3f} m  "
+              f"{'VOID' if void_reason else ('PASS' if ok else 'FAIL'):4}  "
+              f"worst {runs[-1]['worst_error_m']:.3f} m  "
               f"wind {variant.get('wind_speed_ms', 0):.2f} m/s  "
               f"{runs[-1]['seconds']:.0f}s"
               + (f"  — {why}" if not ok else ""))
 
-    passed = sum(1 for r in runs if r["passed"])
-    sr = passed / len(runs) if runs else 0.0
+    verdict = score(runs, a.reuse)
+    passed, sr = verdict["passed"], verdict["success_rate"]
     elapsed = round(time.time() - started, 1)
 
     summary = {
@@ -170,15 +244,17 @@ def main() -> int:
         "seeds": seeds,
         "runs": runs,
         "passed": passed,
-        "total": len(runs),
-        "success_rate": round(sr, 4),
-        "criterion": "SR == 1.0 over independent seeded runs",
+        "total": verdict["total"],
+        "valid_total": verdict["valid_total"],
+        "voids": verdict["voids"],
+        "success_rate": sr,
+        "criterion": "SR == 1.0 over independent seeded runs, with zero VOID runs",
         # `met` requires BOTH a perfect rate and a real gate run. --reuse never applies the
         # spawn pose, so it cannot satisfy the criterion no matter how green it looks —
         # and a gate that prints "criterion met" next to "not a full gate run" is exactly
         # the kind of artifact that gets quoted without its caveat.
-        "met": sr == 1.0 and not a.reuse,
-        "sr_perfect": sr == 1.0,
+        "met": verdict["met"],
+        "sr_perfect": verdict["sr_perfect"],
         "mode": "reuse" if a.reuse else "restart-per-run",
         "wall_seconds": elapsed,
         "caveats": [
@@ -193,12 +269,19 @@ def main() -> int:
     out.write_text(json.dumps(summary, indent=2))
 
     print()
-    print(f"  success rate : {passed}/{len(runs)}  ({sr*100:.0f}%)")
+    print(f"  success rate : {passed}/{verdict['valid_total']}  ({sr*100:.0f}%)"
+          + (f"   [{verdict['voids']} VOID excluded]" if verdict["voids"] else ""))
     print(f"  wall clock   : {elapsed:.0f}s")
     print(f"  report       : {out}")
     print()
     if summary["met"]:
         print("  PASS — Phase 1 exit criterion met")
+    elif verdict["voids"]:
+        print(f"  INCONCLUSIVE — {verdict['voids']} run(s) VOID: the stack's EKF origin was")
+        print("                 not verified, so those runs did not measure the flight code")
+        print("                 at all. Fix the bring-up ordering (scripts/lane_c_up.sh)")
+        print("                 and re-run. Voids are excluded from the rate above, never")
+        print("                 counted as failures.")
     elif a.reuse and summary["sr_perfect"]:
         print("  INCONCLUSIVE — every run passed, but --reuse never applied the spawn")
         print("                 pose, so this does not satisfy the criterion. Re-run")
