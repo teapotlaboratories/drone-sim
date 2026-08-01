@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lane C Becomes the Primary Stack — 2026-07-31</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-07-31</span>
+  <nav><a href="#decision">Decision</a><a href="#three">Three answers</a><a href="#fourth">The fourth</a><a href="#research">What research changed</a><a href="#order">Ordering</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-07-31 · Lane C · planning only</span>
+  <h1>Lane C Becomes<br>the Primary Stack</h1>
+  <p class="sub">Cosys-AirSim on Unreal replaces Gazebo for Phase&nbsp;2 onward. Three open questions were settled before replanning — and a fourth surfaced from research within the hour, moving the engine pin off the version the decision was made on.</p>
+  <div class="mastmeta"><span>Decisions <b>4</b></span><span>Built <b>nothing</b></span><span>Flown <b>nothing</b></span><span>Commands run <b>1</b></span><span>Next <b>C-06</b></span></div>
+</header>
+
+<div class="callout stop"><span class="lbl">Scope, stated up front</span>
+<p><strong>Nothing in this entry was built, compiled, or flown.</strong> It is a planning
+change plus upstream research. Exactly one command was executed against this machine — the
+<code>cv_bridge</code> listing in §3 — and it is the only measured result here. Everything
+else is either a decision or a citation.</p></div>
+
+<h2 id="decision"><span class="secnum">01</span> The decision</h2>
+<p><strong>Cosys-AirSim on UE5.5 becomes the primary stack, and Phase 2 — perception and
+obstacle avoidance — moves off Gazebo.</strong> That was the owner's call, taken on
+<code>docs/reference/04_ue5_stack_architecture.md</code>.</p>
+<p>The reasoning in that report, followed to its conclusion: all three target papers (SPF,
+Fly0, OnFly) evaluate on Unreal/AirSim-family simulators, Microsoft AirSim was archived
+2023-12-15 and Colosseum 2026-07-11, so Cosys-AirSim is the only live option meeting every
+hard requirement. If the benchmarks must run there anyway, building Phase 2's perception in
+Gazebo means building it twice.</p>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Lane A</div><div class="v">DEMOTED</div><div class="n">regression baseline, not retired</div></div>
+<div class="stat"><div class="k">ROS 2</div><div class="v">JAZZY</div><div class="n">against doc 04's Humble</div></div>
+<div class="stat stop"><div class="k">Engine</div><div class="v">5.5 &rarr; 5.8</div><div class="n">forced by evidence, same day</div></div>
+</div>
+
+<h2 id="three"><span class="secnum">02</span> The three questions that were asked</h2>
+
+<h3>1 · Lane A — demoted, not retired</h3>
+<p>Doc 04 never said to drop Gazebo. Its own Fallback&nbsp;#2 keeps it as <em>"the always-on
+PX4 sim-to-real ground-truth baseline for controls/regression"</em>, and that is now its job:
+tier-1 CI, the <code>P1-06</code> flight gate, and the real-hardware PX4 tree (the Pixhawk 6C
+runs <code>v1.16.0</code> — this exact checkout). No new capability work.</p>
+<div class="callout ok"><span class="lbl">The argument that decided it</span>
+<p>Lane A is the only thing in the project that currently <strong>flies</strong>, and Lane C
+is rated <em>High likelihood / Med impact</em> for build fragility. Making Lane C primary
+removes the fallback lane; keeping Lane A alive is what makes that survivable.</p>
+<p>This is also why <code>C-07</code> — a Lane C flight gate — had to be added. <strong>Lane
+A's SR 10/10 is evidence about Gazebo and does not transfer.</strong> Without its own gate,
+Lane C would be a simulator with no acceptance criterion.</p></div>
+
+<h3>2 · ROS 2 — Jazzy, not Humble</h3>
+<p>Doc 04 recommends Humble. <code>versions.lock</code> pins Jazzy across every image,
+<code>px4_msgs release/1.16</code>, the <code>/clock</code> bridge, and the Isaac ROS
+perception packages. Decided on the reasoning that doc 04's Humble looked <em>inherited from
+upstream example docs rather than measured</em>. Research then showed something stronger —
+see §3.</p>
+
+<h3>3 · Phase numbering — mapped, not renumbered</h3>
+<p>Doc 04's Phase 0–3 are <strong>calendar weeks</strong>. The project's Phase 0–4 are
+<strong>capabilities with measured exit criteria</strong>. Not the same kind of object — and
+the <code>P&lt;phase&gt;-&lt;nn&gt;</code> scheme is load-bearing, since it exists precisely so
+a task reference cannot mis-link as a GitHub <code>#N</code>.</p>
+<div class="tw"><table>
+<thead><tr><th>Doc 04</th><th>Weeks</th><th>Project equivalent</th><th>State</th></tr></thead>
+<tbody>
+<tr><td><strong>Phase 0</strong> — Gazebo + PX4 + uXRCE-DDS in Docker</td><td>1–2</td><td>Project Phase 0 + Phase 1 (Lane A)</td><td><span class="pill p-ok">done</span> SR 10/10</td></tr>
+<tr><td><strong>Phase 1</strong> — Cosys-AirSim headless, lockstep, image bridge</td><td>3–6</td><td><code>C-01</code>–<code>C-04</code>, inside project Phase 2</td><td><span class="pill p-stop">next</span></td></tr>
+<tr><td><strong>Phase 2</strong> — Cesium maps, MassAI actors, wind</td><td>7–10</td><td>Split: clutter &rarr; Phase 2; georeferenced &rarr; Phase 4</td><td>—</td></tr>
+<tr><td><strong>Phase 3</strong> — VLM container, close the SPF loop</td><td>11+</td><td>Project Phase 3</td><td>—</td></tr>
+</tbody></table></div>
+<p>Two project gates have no equivalent in doc 04 and are not superseded by it: Phase 2's
+<strong>0 collisions over 20 seeded runs</strong> and Phase 4's <strong>real flight</strong>.</p>
+
+<h2 id="fourth"><span class="secnum">03</span> The fourth decision, which nobody asked for</h2>
+<p>Research against upstream turned up a conflict doc 04 could not have known about, because
+doc 04 was written when UE5.5 <em>was</em> upstream's target.</p>
+
+<div class="panel">
+<svg viewBox="0 0 1120 400" width="100%" role="img" aria-label="The UE5.5 line and the Jazzy fix never meet: a two-track upstream timeline">
+  <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink2)"/></marker></defs>
+
+  <text class="axl" x="20" y="24">UPSTREAM COSYS-AIRSIM — the two lines never meet</text>
+  <line class="e" x1="20" y1="34" x2="1100" y2="34"/>
+
+  <text class="axl" x="150" y="56">2025-04</text>
+  <text class="axl" x="420" y="56">2025-09</text>
+  <text class="axl" x="700" y="56">2026-07</text>
+  <text class="axl" x="940" y="56">now</text>
+
+  <text class="nid" x="20" y="112">UE5.5</text>
+  <text class="nlb" x="20" y="128" style="fill:var(--stop)">END OF LINE</text>
+  <line class="e-b" x1="140" y1="106" x2="700" y2="106"/>
+  <rect class="n-b" x="140" y="80" width="240" height="52" rx="3"/>
+  <text class="nid" x="154" y="100">5.5-v3.3</text>
+  <text class="nlb" x="154" y="118">e029c244 · 2025-04-16 · last 5.5 release</text>
+  <text class="nlb" x="560" y="100" style="fill:var(--stop)">&#10007; branch abandoned</text>
+  <text class="nlb" x="560" y="116" style="fill:var(--ink2)">"will no longer be receive updates"</text>
+
+  <text class="nid" x="20" y="212">MAIN</text>
+  <text class="nlb" x="20" y="228" style="fill:var(--ok)">maintained</text>
+  <line class="e" x1="140" y1="206" x2="1090" y2="206" marker-end="url(#ar)"/>
+  <rect class="n-v" x="400" y="180" width="250" height="52" rx="3"/>
+  <text class="nid" x="414" y="200">83d1b81c</text>
+  <text class="nlb" x="414" y="218">2025-09-24 · .h &rarr; .hpp — THE JAZZY FIX</text>
+  <rect class="n-done" x="700" y="180" width="290" height="52" rx="3"/>
+  <text class="nid" x="714" y="200">5.8-v3.4.1 &nbsp;&larr;&nbsp; PINNED</text>
+  <text class="nlb" x="714" y="218">a552dd6c · UE5.8 · Ubuntu 24.04 + Jazzy</text>
+
+  <line class="e-b" x1="520" y1="178" x2="520" y2="136"/>
+  <text class="nlb" x="530" y="156" style="fill:var(--stop)">the fix lands AFTER the last 5.5 release, and never reaches it</text>
+
+  <rect x="20" y="262" width="1080" height="118" rx="3" fill="var(--panel2)" stroke="var(--ok)" stroke-width="2"/>
+  <text class="nid" x="36" y="286">WHAT SETTLED IT — measured here, not inferred from branch listings</text>
+  <text class="nlb" x="36" y="308" style="font-family:'IBM Plex Mono',monospace;font-size:11px">$ ls /opt/ros/jazzy/include/cv_bridge/cv_bridge/</text>
+  <text class="nlb" x="36" y="324" style="font-family:'IBM Plex Mono',monospace;font-size:11px">cv_bridge.hpp   cv_bridge_export.h   cv_mat_sensor_msgs_image_type_adapter.hpp   rgb_colors.hpp   visibility_control.h</text>
+  <text class="nlb" x="36" y="348" style="fill:var(--stop)">ros-jazzy-cv-bridge 4.1.0 ships NO cv_bridge.h shim. tf2_geometry_msgs likewise ships only .hpp.</text>
+  <text class="nlb" x="36" y="366" style="fill:var(--ink)">So 5.5-v3.3 was not "unsupported on paper" — it was measurably UNBUILDABLE on this machine.</text>
+</svg>
+<figcaption style="border-top:1px solid var(--rule);padding-top:8px;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2)">The conflict doc 04 could not have known about — and the one command that resolved it</figcaption>
+</div>
+
+<h3>Two more marks against UE5.5, both open upstream</h3>
+<ul>
+<li><strong><code>Cosys-Lab/Cosys-AirSim#135</code></strong> — segmentation (ImageType 5) and
+annotation (ImageType 11) render <strong>all black</strong> on exactly UE5.5 + Ubuntu 24.04 +
+clang-18, while Scene renders fine. Segmentation ground truth is load-bearing for the VLM work.</li>
+<li><strong><code>Cosys-Lab/Cosys-AirSim#129</code></strong> — PX4 SITL lockstep desync against
+<code>5.5-v3.3</code> with PX4 <strong>v1.16.0</strong>, the exact PX4 line Lane A pins.</li>
+</ul>
+
+<div class="callout warn"><span class="lbl">This inverted decision 2, rather than confirming it</span>
+<p>Upstream now documents Jazzy on Ubuntu 24.04 — <code>docs/ros2.md</code>: <em>"The following
+was tested with ROS2 Jazzy"</em> (changed 2026-07-10); <code>install_linux.md</code>: <em>"The
+current recommended and tested environment is <strong>Ubuntu 24.04 LTS</strong>"</em>.</p>
+<p><strong>Humble is now the riskier choice.</strong> Current upstream includes
+<code>&lt;cv_bridge/cv_bridge.hpp&gt;</code>, and Humble's <code>vision_opencv</code> ships only
+<code>cv_bridge.h</code> — so anyone acting on doc 04's Humble recommendation against current
+upstream fails to compile immediately. The decision was made on a hypothesis about <em>why</em>
+doc 04 said Humble; the evidence showed doc 04 is simply out of date.</p>
+<p><strong>A fallback recorded this morning was withdrawn this afternoon.</strong>
+<code>versions.lock</code> briefly carried <em>"if the wrapper will not build on Jazzy, run it
+in a Humble/22.04 sidecar and bridge the topics"</em>. That is now the <em>worst</em> option —
+it would pin us to pre-fix code <strong>and</strong> buy cross-distro DDS interop risk, for
+nothing. Replaced with a ~6-line header patch carried as a patch file, and recorded rather
+than quietly deleted: the reasoning was sound, only the evidence changed.</p></div>
+
+<div class="callout ok"><span class="lbl">The gate that remained — cleared the same day</span>
+<p>Cesium for Unreal's UE5.8 support was unverified when the pin moved, and Cesium is doc 04's
+hard requirement #7. Checked immediately afterwards. <strong>Both gates passed:</strong></p>
+<ul class="tight">
+<li><strong>Cesium:</strong> v2.28.0 (2026-07-01) — <em>"Added support for Unreal Engine 5.8."</em>
+PR <code>CesiumGS/cesium-unreal#1856</code> merged 2026-06-26. The UE5.8 asset is a real 1.23 GB
+download returning HTTP 200 — an artifact, not a roadmap entry.</li>
+<li><strong>Epic image:</strong> <code>dev-slim-5.8.0</code> exists, digest
+<code>sha256:daac0262&hellip;4a0c46</code>, published 2026-06-17 — the day UE5.8 shipped.</li>
+<li><strong>Sanity check that could have sunk the pin:</strong> UE5.8 is a <em>released</em>
+engine (2026-06-17, current stable; hotfix 5.8.1 on 2026-07-28), not a preview.</li>
+</ul>
+</div>
+
+<div class="callout warn"><span class="lbl">The fallback inverted — this reverses what was written hours earlier</span>
+<p><strong>Cesium v2.29.0 removes UE5.5 support</strong> — <em>"Unreal Engine 5.6 or later is now
+required"</em> — and v2.28.0 is the terminal Cesium release for 5.5. So "fall back to
+<code>5.5-v3.3</code> plus a backport", described above as the safe retreat, would now mean an
+end-of-line Cosys-AirSim branch <strong>plus</strong> a header patch owned forever
+<strong>plus</strong> a permanently frozen Cesium. <strong>UE5.5 is no longer a fallback.</strong></p>
+<p>Worth noting how narrowly that was avoided: the UE5.8 decision was taken on compile evidence
+alone, before anyone knew Cesium was about to drop 5.5. The right answer was reached for
+incomplete reasons — and it is only luck that the incomplete reasoning pointed the same way.</p></div>
+
+<h3>Two findings that change work beyond the pin</h3>
+<div class="grid g2">
+<div class="callout stop"><span class="lbl">The engine image is Ubuntu 22.04</span>
+<p>Not 24.04, on an NVIDIA CUDA base. <strong>ROS 2 Jazzy has no jammy packages</strong>, so
+nothing Jazzy can be installed inside the engine image. That makes doc 04's separate
+<code>sim</code> and <code>ros2</code> containers <strong>mandatory rather than stylistic</strong>,
+and the AirSim&harr;ROS 2 boundary must stay the RPC/MAVLink socket.</p>
+<p>The plan survives: <code>C-06</code> already builds the wrapper in the 24.04/Jazzy container,
+which is now the only place it can be built.</p></div>
+<div class="callout warn"><span class="lbl">Building this lane needs a credential</span>
+<p>EpicGames org membership <strong>plus</strong> a PAT with <code>read:packages</code>. That is a
+genuine gap against the <em>"fresh machine reaches a working stack from the repo alone"</em> goal
+— a clone and a Dockerfile are not sufficient. Filed against <code>C-02</code>, to be documented
+in <code>docker/README.md</code> before <code>D-05</code>.</p></div>
+</div>
+
+<div class="callout"><span class="lbl">The pin is still TODO-verify, deliberately</span>
+<p>The tag was <strong>observed in the registry, not pulled and run</strong> — and the credential
+used for that lookup is being rotated, so the query cannot even be re-run as-is. <em>Existing is
+not working.</em> <code>C-02</code> is what moves it to <code>pinned</code>.</p></div>
+
+<div class="callout warn"><span class="lbl">A credential claim that did NOT survive checking — recorded because I made it</span>
+<p>The research synthesis ended with an urgent instruction: <em>"Rotate the GitHub PAT — now,
+before anything else. During the ghcr.io token exchange the bearer token was echoed into a session
+log, and that bearer is a plain base64 encoding of the PAT... Treat it as disclosed."</em></p>
+<p><strong>I relayed that without verifying it. It is not supported by the evidence.</strong>
+Checked afterwards, when the claim was challenged:</p>
+<div class="tw"><table>
+<thead><tr><th>Check</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Bearer <em>values</em> in the agent transcripts</td><td><strong>0</strong> — the header name appears, no value does</td></tr>
+<tr><td>Token-shaped strings in the transcripts</td><td><strong>0</strong> across all three agent files</td></tr>
+<tr><td>Transcript permissions</td><td><code>-rw-------</code>, owner-only</td></tr>
+<tr><td>Credential actually used</td><td>the machine's <strong>existing <code>gh</code> CLI login</strong> — nothing pasted, nothing echoed</td></tr>
+</tbody></table></div>
+<p><strong>What is true:</strong> the token's scopes are far broader than the read-only lookup
+needed — <code>admin:org</code>, <code>delete:packages</code>, <code>repo</code>,
+<code>workflow</code>, <code>write:packages</code> among others, against a task requiring
+<code>read:packages</code>. Worth narrowing on principle. That is hygiene, not an incident.</p>
+<p><strong>Separately and still standing:</strong> the roadmap carries a pre-existing note that a
+personal access token was pasted into an earlier session's chat and not rotated. Unaffected by
+any of this; judge it on its own.</p>
+<p><strong>The lesson, and the reason this is written down at all:</strong> it happened
+<em>hours after</em> correcting the <code>dev-slim-5.5.4</code> error — the same failure, treating
+a confident secondary claim as established fact. A subagent's urgency is not evidence.</p></div>
+
+<h2 id="research"><span class="secnum">04</span> What else the research changed</h2>
+
+<h3>The parity claim needed splitting, not defending</h3>
+<p>One research pass reported <em>"NO uXRCE-DDS PARITY — this breaks the core design
+premise"</em>, on the basis that a repo-wide grep of Cosys-AirSim finds zero references to
+<code>uxrce</code>, <code>px4_msgs</code> or <code>/fmu/out</code>.</p>
+<p><strong>The grep result is real and the conclusion drawn from it is wrong.</strong>
+<code>/fmu/out/*</code> is published by PX4's <em>own</em> <code>uxrce_dds_client</code>, which
+needs no knowledge of whichever simulator is driving it over MAVLink. Confirmed on both sides:
+PX4's SITL <code>rcS</code> starts the client unconditionally in v1.14.3, v1.15.4 and v1.16.0
+alike, and issue <code>#129</code> shows a third party reading
+<code>/fmu/out/sensor_combined</code> and writing <code>/fmu/in/obstacle_distance</code>
+<strong>while AirSim drives PX4 v1.16.0</strong>.</p>
+<p>What the grep does establish is the correct division, which is worth having written down:</p>
+<div class="tw"><table>
+<thead><tr><th>Surface</th><th>Producer</th><th>Parity with Lane A</th></tr></thead>
+<tbody>
+<tr><td>flight state / commands</td><td>PX4 <code>uxrce_dds_client</code> &rarr; <code>/fmu/out/*</code>, <code>/fmu/in/*</code></td><td><span class="pill p-warn">expected</span> prove it in <code>C-03</code></td></tr>
+<tr><td>sensor imagery / LiDAR</td><td>Cosys-AirSim &rarr; <code>/airsim_node/&lt;vehicle&gt;/*</code>, <code>airsim_interfaces/*</code></td><td><span class="pill p-stop">none</span> Lane A has no equivalent</td></tr>
+</tbody></table></div>
+<p><em>"Only the transport is swapped"</em> was always a claim about the <strong>controller</strong>.
+It was never true of perception, and pretending otherwise would have set <code>C-04</code> up to fail.</p>
+
+<h3>Three traps that are documented wrong upstream</h3>
+<p>Each is a silent failure, and two are shapes this project has already been bitten by in Lane A.</p>
+<div class="tw"><table>
+<thead><tr><th>Trap</th><th>What the docs say</th><th>What the code does</th></tr></thead>
+<tbody>
+<tr><td><strong>Frames</strong></td><td>"the right-handed coordinate frame of the ROS standard"</td><td>Negates only y and z &mdash; that is NED&rarr;<strong>NWU</strong>, not ENU. <code>convert_tf_msg_to_enu()</code> exists at <code>airsim_ros_wrapper.cpp:1600</code> and is <strong>never called</strong>. Anything written against REP-103 is yaw-rotated 90&deg;.</td></tr>
+<tr><td><strong><code>/clock</code></strong></td><td>"Will publish the ros /clock topic if set to true"</td><td>Publishes to <code>~/clock</code> &rarr; <code>/airsim_node/clock</code>, and defaults to <code>False</code>. <strong>This is <code>P1-03a</code> again</strong> &mdash; <code>use_sim_time</code> with no <code>/clock</code> freezes every timer and looks like a deadlocked controller.</td></tr>
+<tr><td><strong><code>LockStep</code></strong></td><td>set <code>LockStep: true</code></td><td><code>initialize()</code> sets <code>lock_step_enabled_</code>, then <code>openAllConnections()</code> &rarr; <code>resetState()</code> clears it. If so, every documented lockstep setup runs <strong>free-running</strong> &mdash; the mode that degrades under exactly our LiDAR + multi-camera + VLM load.</td></tr>
+</tbody></table></div>
+<p>Also recorded against <code>C-04</code>: IMU is a polled 100 Hz snapshot rather than a stream
+(bad for preintegrating VIO), <code>camera_info.header.frame_id</code> does not match the TF
+tree, and <code>odom_local</code> is physics ground truth rather than EKF2 output — a
+sim-to-real gap that would not surface until real flight.</p>
+
+<h3>PX4 single-tree: probably, at medium confidence</h3>
+<p>The wire protocol is unchanged v1.12 &rarr; v1.16 — <code>none_iris</code> still exists at
+v1.16.0 (<code>simulator_mavlink/CMakeLists.txt:62</code>), PX4 still dials out as a TCP client
+on <code>4560+instance</code>, lockstep is still on by default
+(<code>boards/px4/sitl/sitl.cmake:14</code>).</p>
+<p>But upstream Cosys-AirSim documents no PX4 newer than <strong>v1.11.3</strong>, has zero PX4
+coverage in CI, and PX4 itself classifies AirSim as community-supported with an explicit
+disclaimer that it <em>"may or may not work with current versions of PX4"</em>. The strongest
+v1.16 evidence is two third-party bug reports, not a green test.</p>
+<div class="callout"><p><strong>So <code>lane_c.px4</code> stays <code>TODO-verify</code>, and
+Lane B's v1.14.3 pin is retained regardless</strong> — it belongs to Pegasus, not to Lane C, and
+Lane B reopens unchanged on an R580 host rebase. If v1.16.0 does hold, the project drops from
+two PX4 trees to one, collapsing the development plan's dominant architectural risk.</p></div>
+
+<h2 id="order"><span class="secnum">05</span> The ordering change that came out of it</h2>
+<p><code>C-06</code> — compile the Cosys-AirSim ROS 2 wrapper against Jazzy — was added and put
+<strong>first</strong>, ahead of <code>C-01</code> and <code>C-02</code>.</p>
+<div class="grid g2">
+<div class="callout ok"><span class="lbl">Why first</span><p>The wrapper is an ordinary
+<code>ament_cmake</code> + <code>rclcpp</code> package. It needs <strong>no Unreal Engine, no
+GPU and no simulator</strong> to attempt a build: roughly 30 minutes, against a 12 GB+ engine
+image and a multi-hour compile. It is also the one test that can invalidate the stay-on-Jazzy
+decision. Discovering a distro incompatibility <em>after</em> the engine build would be the most
+expensive possible ordering of the same two facts.</p></div>
+<div class="callout warn"><span class="lbl">And why it is not a formality</span><p>Upstream's own
+CI never builds it — <code>build-linux.yml</code> runs <code>setup.sh</code>,
+<code>build.sh</code> and <code>MavLinkTest --help</code>, and never invokes <code>colcon</code>
+on any distro or tag. A GitHub issue search for "jazzy" in that repo returns <strong>zero</strong>
+results. "Tested with ROS2 Jazzy" is a maintainer assertion, and we are plausibly an early
+adopter of the path.</p></div>
+</div>
+
+<h2><span class="secnum">06</span> Deviations, recorded</h2>
+<ul>
+<li><strong>The <code>cesium</code> entry under <code>lane_c</code> was mis-scoped</strong>, and
+had been since it was written: it described the Cesium-for-<em>Omniverse</em> FSD/PhysX
+exclusion, which is an Isaac constraint and does not automatically transfer to Cesium for
+<em>Unreal</em>. Corrected in both <code>versions.lock</code> and the coupling. The UE5 case is
+now marked <strong>unverified</strong> rather than either broken or fine — which is the honest
+state.</li>
+<li><strong><code>versions.lock</code>'s header still reads "NOTHING here has been installed
+yet"</strong>, which has been false since Phase 0 closed. Left alone deliberately: it is a Phase 1
+truth, and fixing it inside the Lane C commit would mix two changes. Flagged for the next pass.</li>
+</ul>
+
+<div class="panel"><p style="margin:0"><strong>Next:</strong> <code>C-06</code>, then
+<code>C-01</code>'s Cesium gate. <strong>Nothing in this entry has been built or run.</strong>
+Source of truth: <code>docs/lane-c/todo.md</code> and <code>versions.lock</code>.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

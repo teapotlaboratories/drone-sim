@@ -170,8 +170,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <header class="mast">
   <span class="eyebrow">Roadmap · snapshot 2026-07-31</span>
   <h1>Phases &amp; Timeline</h1>
-  <p class="sub">Phase 1 is closed with its exit criterion met. Phase 0 stands at 4 of 5, with Isaac deferred for a driver conflict. Everything beyond is estimated, not measured.</p>
-  <div class="mastmeta"><span>Elapsed <b>4 days</b></span><span>Commits <b>17</b></span><span>Off-target tests <b>26</b></span><span>Phase 1 <b>CLOSED</b></span><span>Next <b>Phase 2</b></span></div>
+  <p class="sub">Phase 1 is closed with its exit criterion met. Phase 0 stands at 4 of 5, with Isaac deferred for a driver conflict. <strong>Lane C is now the primary stack and Phase 2 is built there, not in Gazebo.</strong> Everything beyond is estimated, not measured.</p>
+  <div class="mastmeta"><span>Elapsed <b>4 days</b></span><span>Commits <b>17</b></span><span>Off-target tests <b>26</b></span><span>Phase 1 <b>CLOSED</b></span><span>Primary lane <b>C</b></span><span>Next <b>C-06</b></span></div>
 </header>
 
 <div class="callout"><span class="lbl">How to read this</span>
@@ -184,7 +184,28 @@ extrapolated onto Phase 2, which is dominated by porting EGO-Planner.</p></div>
 <div class="grid g3">
 <div class="stat ok"><div class="k">Phase 1</div><div class="v">CLOSED</div><div class="n">every task done, exit criterion met</div></div>
 <div class="stat warn"><div class="k">Phase 0</div><div class="v">4 / 5</div><div class="n">Isaac deferred — driver conflict</div></div>
-<div class="stat"><div class="k">Next</div><div class="v">Phase 2</div><div class="n">perception &amp; obstacle avoidance</div></div>
+<div class="stat stop"><div class="k">Next</div><div class="v">C-06</div><div class="n">Lane C bring-up — never built</div></div>
+</div>
+
+<div class="callout stop"><span class="lbl">Decision — 2026-07-31</span>
+<p><strong>All-in on Lane C.</strong> Cosys-AirSim on UE5.5 is the primary simulator, and
+<strong>Phase 2 — perception and obstacle avoidance — moves off Gazebo</strong>. The reasoning is in
+<code>docs/reference/04_ue5_stack_architecture.md</code>: all three target papers evaluate on
+Unreal/AirSim-family simulators, Microsoft AirSim was archived 2023-12-15 and Colosseum
+2026-07-11, so Cosys-AirSim is the only live option meeting every hard requirement. Building
+Phase 2 in Gazebo would mean building it twice.</p>
+<p>Three questions that report left open were settled at the same time:</p>
+<ul class="tight">
+<li><strong>Lane A is demoted, not retired</strong> — always-on regression baseline. It keeps tier-1 CI, the flight gate, and the real-hardware PX4 tree.</li>
+<li><strong>ROS 2 stays Jazzy</strong>, against the report's Humble recommendation — that recommendation is inherited from upstream example docs, while every pin here is Jazzy and measured.</li>
+<li><strong>Phases are mapped, not renumbered</strong> — the report's phases are calendar weeks; ours are capabilities with measured exit criteria.</li>
+<li><strong>The engine pin moved UE5.5 &rarr; UE5.8</strong> (tag <code>5.8-v3.4.1</code>), surfaced by research hours after the decision: UE5.5 and Jazzy cannot be had from one upstream tag, and the UE5.5 branch is end-of-life. Measured here — <code>ros-jazzy-cv-bridge 4.1.0</code> ships no <code>cv_bridge.h</code>, so that tag is <em>unbuildable on this machine</em>. <strong>Cesium gate cleared the same day:</strong> Cesium v2.28.0 supports UE5.8, and v2.29.0 <em>drops</em> UE5.5 — so the fallback inverted and UE5.8 is the only forward-supported path.</li>
+</ul>
+<p><strong>Two findings from clearing that gate change work beyond the pin.</strong> The Epic engine image is <strong>Ubuntu 22.04</strong>, and ROS 2 Jazzy has no jammy packages — so the separate <code>sim</code> and <code>ros2</code> containers become mandatory rather than stylistic, and building the wrapper in the existing 24.04 container (which is what <code>C-06</code> already does) is now the only option. And building this lane needs an <strong>EpicGames org credential</strong>, which is a real gap against &ldquo;a fresh machine reaches a working stack from the repo alone&rdquo;.</p>
+<p><strong>The honest part:</strong> Lane C has never been built. Every <code>lane_c</code> entry in
+<code>versions.lock</code> is <code>pinned</code> or <code>TODO-verify</code> with no passing smoke
+test. Making it primary does not lower that risk — it removes the fallback, which is exactly why
+Lane A stays alive.</p>
 </div>
 
 <h2 id="timeline"><span class="secnum">02</span> Timeline</h2>
@@ -256,41 +277,45 @@ extrapolated onto Phase 2, which is dominated by porting EGO-Planner.</p></div>
 </div>
 
 <h2 id="lanes"><span class="secnum">03</span> Phases are not lanes</h2>
-<p><strong>Everything shipped so far is Lane A.</strong> The phase axis above hides a second
-one, and the two are easy to conflate: a phase is a capability, a lane is a simulator.</p>
+<p><strong>Everything shipped so far is Lane A — and everything from here is Lane C.</strong>
+The phase axis above hides a second one, and the two are easy to conflate: a phase is a
+capability, a lane is a simulator. On 2026-07-31 the lane axis changed underneath the phase
+axis, without moving a single phase boundary.</p>
 
 <div class="panel">
-<svg viewBox="0 0 1120 300" width="100%" role="img" aria-label="Which lane each phase needs">
-  <text class="axl" x="150" y="26">PHASE 0</text><text class="axl" x="270" y="26">PHASE 1</text>
-  <text class="axl" x="390" y="26">PHASE 2</text><text class="axl" x="530" y="26">PHASE 3</text>
-  <text class="axl" x="760" y="26">PHASE 4</text>
+<svg viewBox="0 0 1120 330" width="100%" role="img" aria-label="Which lane each phase is built in, after the 2026-07-31 switch">
+  <text class="axl" x="150" y="26">PHASE 0</text><text class="axl" x="272" y="26">PHASE 1</text>
+  <text class="axl" x="400" y="26">PHASE 2</text><text class="axl" x="640" y="26">PHASE 3</text>
+  <text class="axl" x="860" y="26">PHASE 4</text>
   <line class="e" x1="140" y1="36" x2="1100" y2="36"/>
+  <line class="e" x1="380" y1="30" x2="380" y2="300" style="stroke-dasharray:2 5"/>
+  <text class="axl" x="386" y="318" style="fill:var(--stop)">&#8592; the lane switch happens here, not at a phase boundary</text>
 
   <text class="nid" x="20" y="72">LANE A</text>
-  <text class="nlb" x="20" y="88">PX4 · Gazebo</text>
-  <text class="nlb" x="20" y="102">ROS 2 · CI backbone</text>
+  <text class="nlb" x="20" y="88">PX4 · Gazebo · ROS 2</text>
+  <text class="nlb" x="20" y="102" style="fill:var(--ok)">regression baseline</text>
   <rect class="n-done" x="140" y="52" width="230" height="58" rx="3"/>
   <text class="nlb" x="156" y="76" style="fill:#3F7A34">DONE — 0 and 1 complete</text>
   <text class="nlb" x="156" y="94">controller · gate · SR 10/10</text>
-  <rect class="n-a" x="380" y="52" width="130" height="58" rx="3"/>
-  <text class="nlb" x="396" y="82">depth · EGO-Planner</text>
-  <rect class="n-a" x="520" y="52" width="220" height="58" rx="3"/>
-  <text class="nlb" x="536" y="76">VLM client · cuVSLAM VIO</text>
-  <text class="nlb" x="536" y="94">the plumbing stays here</text>
-  <rect class="n-a" x="750" y="52" width="350" height="58" rx="3"/>
-  <text class="nlb" x="766" y="82">HITL · real Pixhawk 6C · the ROS graph, unchanged</text>
+  <rect x="380" y="52" width="720" height="58" rx="3" fill="var(--panel2)" stroke="var(--ok)" stroke-width="2" stroke-dasharray="6 4"/>
+  <text class="nlb" x="396" y="76" style="fill:var(--ok)">ALWAYS-ON REGRESSION BASELINE — tier-1 CI · the P1-06 flight gate · controls ground truth</text>
+  <text class="nlb" x="396" y="94">No new capability work. Still runs the real Pixhawk 6C's PX4 tree (v1.16.0) — Phase 4 flies this firmware.</text>
 
   <text class="nid" x="20" y="162">LANE C</text>
   <text class="nlb" x="20" y="178">UE5.5 · Cosys-AirSim</text>
-  <text class="nlb" x="20" y="192">photoreal + benchmarks</text>
-  <rect x="140" y="142" width="370" height="58" rx="3" fill="none" stroke="var(--rule)" stroke-dasharray="3 4"/>
-  <text class="nlb" x="290" y="176" style="fill:var(--ink2)">not needed</text>
-  <rect class="n-b" x="520" y="142" width="220" height="58" rx="3"/>
-  <text class="nlb" x="536" y="166" style="fill:var(--stop)">photoreal scenes</text>
-  <text class="nlb" x="536" y="184">INHERITED from deferred Lane B</text>
-  <rect class="n-b" x="750" y="142" width="350" height="58" rx="3"/>
-  <text class="nlb" x="766" y="166" style="fill:var(--stop)">REQUIRED — AerialVLN / OpenFly reproduction</text>
-  <text class="nlb" x="766" y="184">all three target papers use Unreal/AirSim; none uses Isaac</text>
+  <text class="nlb" x="20" y="192" style="fill:var(--stop)">PRIMARY — never built</text>
+  <rect x="140" y="142" width="230" height="58" rx="3" fill="none" stroke="var(--rule)" stroke-dasharray="3 4"/>
+  <text class="nlb" x="205" y="176" style="fill:var(--ink2)">not needed</text>
+  <rect class="n-v" x="380" y="142" width="240" height="58" rx="3"/>
+  <text class="nlb" x="396" y="164" style="fill:var(--chrome)">BRING-UP + PHASE 2</text>
+  <text class="nlb" x="396" y="180">C-06 · C-01..C-04 · C-07 gate</text>
+  <text class="nlb" x="396" y="194">then depth · EGO-Planner</text>
+  <rect class="n-v" x="630" y="142" width="210" height="58" rx="3"/>
+  <text class="nlb" x="646" y="166" style="fill:var(--chrome)">PHASE 3</text>
+  <text class="nlb" x="646" y="184">VLM client · cuVSLAM VIO</text>
+  <rect class="n-v" x="850" y="142" width="250" height="58" rx="3"/>
+  <text class="nlb" x="866" y="166" style="fill:var(--chrome)">PHASE 4</text>
+  <text class="nlb" x="866" y="184">AerialVLN / OpenFly · Cesium</text>
 
   <text class="nid" x="20" y="248">LANE B</text>
   <text class="nlb" x="20" y="264">Isaac Sim · Pegasus</text>
@@ -301,36 +326,43 @@ one, and the two are easy to conflate: a phase is a capability, a lane is a simu
 </div>
 
 <div class="callout stop">
-<span class="lbl">The long pole nobody is holding</span>
-<p><strong>Lane C has five tasks, all <code>todo</code>, and nothing currently forces it to
-start</strong> — yet Phase 3 needs it for photoreal scenes and Phase 4 cannot happen without
-it. The plan rates it <strong>High likelihood / Med impact</strong> for build fragility: the
-precompiled Cosys-AirSim Linux plugin targets <strong>UE5.2.1</strong>, and the UE5.5 branch
-was a <strong>March-2025 pre-release</strong>. <code>C-01</code> is literally "find a commit
-that builds".</p>
-<p>Discovering during Phase 3 that it does not build would be an expensive surprise on the
-critical path. Proving a build early — <code>C-01</code> and <code>C-02</code> alone — de-risks
-two phases for comparatively little, and can run in parallel with Phase 2 because they share
-no code.</p>
+<span class="lbl">The long pole — now someone is holding it</span>
+<p>This page previously said Lane C was <em>"the long pole nobody is holding"</em>: five tasks, all
+<code>todo</code>, with nothing forcing a start until Phase 3 needed it. <strong>That is
+resolved — by making it the critical path rather than by de-risking it.</strong></p>
+<p>The risk itself is unchanged and should not be read as smaller: the plan rates Lane C
+<strong>High likelihood / Med impact</strong> for build fragility, the precompiled Cosys-AirSim
+Linux plugin targets <strong>UE5.2.1</strong>, and the UE5.5 branch was a <strong>March-2025
+pre-release</strong>. <code>C-01</code> is still literally "find a commit that builds". What
+changed is that this is now discovered <em>first</em>, at Phase 2, instead of as a surprise
+during Phase 3 — and that Lane A is kept alive underneath it rather than retired.</p>
+<p><strong>The order was chosen to fail cheap.</strong> <code>C-06</code> — compile the
+Cosys-AirSim ROS 2 wrapper against Jazzy — runs before the multi-hour UE5 engine build, because
+it is an ordinary colcon package that needs no engine, no GPU and no simulator, and it is the
+one test that can invalidate the ROS 2 distro decision.</p>
 </div>
 
 <h2 id="phases"><span class="secnum">04</span> The phases, and what each unlocks</h2>
 <div class="tw"><table>
-<thead><tr><th>Phase</th><th>Goal</th><th>Exit criterion</th><th>Unlocks</th><th>State</th></tr></thead>
+<thead><tr><th>Phase</th><th>Lane</th><th>Goal</th><th>Exit criterion</th><th>Unlocks</th><th>State</th></tr></thead>
 <tbody>
-<tr><td><strong>0</strong></td><td>Pinned, reproducible toolchain</td><td>headless SITL, no sensor TIMEOUTs; <code>/fmu/out/*</code>; QGC connects; Isaac + <em>hello VLM</em></td><td>—</td><td><span class="pill p-warn">4 / 5</span> Isaac deferred</td></tr>
-<tr><td><strong>1</strong></td><td>ROS 2 offboard controller flying GPS waypoints, recorded to MCAP</td><td><strong>SR = 100% over 10 seeded runs</strong> + artifact</td><td>GPS navigation</td><td><span class="pill p-ok">CLOSED</span></td></tr>
-<tr><td><strong>2</strong></td><td>Depth/LiDAR mapping + EGO-Planner through clutter</td><td><strong>0 collisions / 20 runs</strong>; reach ≥ 80%</td><td>obstacle avoidance</td><td>next</td></tr>
-<tr><td><strong>3</strong></td><td>Slow VLM target-generator + fast tracker; GPS-denied on VIO</td><td>SR ≥ 50% (SR@5m); VIO drift &lt; 1 m / 60 s</td><td>vision-based navigation</td><td>—</td></tr>
-<tr><td><strong>4</strong></td><td>Benchmark reproduction, onboard Jetson, HITL, real flight</td><td>within ~10 pts of Fly0's 70.43%; latency ≤ 1 s; <strong>one real flight</strong></td><td>sim-to-real</td><td>—</td></tr>
+<tr><td><strong>0</strong></td><td><span class="pill p-ok">A</span></td><td>Pinned, reproducible toolchain</td><td>headless SITL, no sensor TIMEOUTs; <code>/fmu/out/*</code>; QGC connects; Isaac + <em>hello VLM</em></td><td>—</td><td><span class="pill p-warn">4 / 5</span> Isaac deferred</td></tr>
+<tr><td><strong>1</strong></td><td><span class="pill p-ok">A</span></td><td>ROS 2 offboard controller flying GPS waypoints, recorded to MCAP</td><td><strong>SR = 100% over 10 seeded runs</strong> + artifact</td><td>GPS navigation</td><td><span class="pill p-ok">CLOSED</span></td></tr>
+<tr><td><strong>2</strong></td><td><span class="pill p-chrome">C</span></td><td><strong>Lane C bring-up first</strong>, then depth/LiDAR mapping + EGO-Planner through clutter</td><td>Lane C passes its own gate (<code>C-07</code>), then <strong>0 collisions / 20 runs</strong>; reach ≥ 80%</td><td>obstacle avoidance</td><td><span class="pill p-stop">next</span></td></tr>
+<tr><td><strong>3</strong></td><td><span class="pill p-chrome">C</span></td><td>Slow VLM target-generator + fast tracker; GPS-denied on VIO</td><td>SR ≥ 50% (SR@5m); VIO drift &lt; 1 m / 60 s</td><td>vision-based navigation</td><td>—</td></tr>
+<tr><td><strong>4</strong></td><td><span class="pill p-chrome">C</span> + real</td><td>Benchmark reproduction, onboard Jetson, HITL, real flight</td><td>within ~10 pts of Fly0's 70.43%; latency ≤ 1 s; <strong>one real flight</strong></td><td>sim-to-real</td><td>—</td></tr>
 </tbody></table></div>
+<p><strong>The exit criteria did not change when the lane did.</strong> Phase 2 gains one
+prerequisite the table above now shows explicitly: Lane C must pass its own flight gate before
+its collision numbers mean anything, because Lane A's SR 10/10 is evidence about Gazebo and does
+not transfer.</p>
 
 <h2 id="next"><span class="secnum">05</span> What is actually next</h2>
 <div class="grid g2">
-<div class="callout stop"><span class="lbl">Before anything else</span><p><strong>36 uncommitted paths</strong>, held until 18:00 PT by the project's own commit-window rule. Five coherent commits: QGC self-contained, the CI decision, the docs catch-up, launch + <code>/clock</code>, and the mission contracts.</p></div>
-<div class="callout"><span class="lbl">Then: Phase 2 opens</span><p>Create <code>docs/planning/todo.md</code> and <code>docs/perception/todo.md</code> — area docs are written when their phase starts. The plan's own risk note: <em>the EGO-Planner ROS 2 port is the item most likely to be underestimated</em>, with a ROS 1 bridge container as the fallback.</p></div>
-<div class="callout warn"><span class="lbl">Or first: D-06</span><p>Redraw the container boundaries to mirror the Phase 4 machines. No user-visible change, but Lane C, GPU services (<code>D-03</code>) and Phase 4 all inherit it — and the first step happened already, because the <code>/clock</code> bridge forced the ROS 2 image apart from the Gazebo one.</p></div>
-<div class="callout"><span class="lbl">Carried, still unaddressed</span><p>The PX4 <code>VMIN</code> defect is unreported upstream. And a personal access token pasted into this session's chat has not been rotated.</p></div>
+<div class="callout stop"><span class="lbl">Before anything else</span><p><strong>38 uncommitted paths</strong>, held until 18:00 PT by the project's own commit-window rule. Five coherent commits: the mission contracts, launch + <code>/clock</code>, QGC self-contained, the CI decision, and the docs catch-up — plus a sixth for this replan.</p></div>
+<div class="callout"><span class="lbl">Then: C-06, and it is deliberately cheap</span><p>Compile the Cosys-AirSim ROS 2 wrapper against Jazzy. No Unreal Engine, no GPU, no simulator — an ordinary colcon package. It runs first because it is the only test that can invalidate the <strong>stay-on-Jazzy</strong> decision, and finding that out after a multi-hour UE5 engine build would be the most expensive possible ordering of the same two facts.</p></div>
+<div class="callout warn"><span class="lbl">Then: C-01 and C-02</span><p>The release is chosen — <code>5.8-v3.4.1</code>, SHA <code>a552dd6c</code>, <strong>a SHA and never a branch</strong>: there is no <code>5.5</code> branch upstream at all, and <code>main</code> has already migrated 5.5 &rarr; 5.6dev &rarr; 5.7pdev &rarr; 5.8. What remains in <code>C-01</code> is the <strong>Cesium-on-UE5.8 gate</strong> and confirming the Epic <code>dev-slim</code> tag for 5.8 actually exists. Then build the engine image; Epic org access is already confirmed. Budget the disk first — the internal NVMe is the constrained volume.</p></div>
+<div class="callout"><span class="lbl">Carried, still unaddressed</span><p>The PX4 <code>VMIN</code> defect is unreported upstream. A personal access token pasted into this session's chat has not been rotated. <code>D-06</code> (container boundaries) stays deferred — but Lane C inherits it, and its first step already happened when the <code>/clock</code> bridge forced the ROS 2 image apart from the Gazebo one.</p></div>
 </div>
 
 <div class="panel"><p style="margin:0"><strong>Source of truth:</strong> <code>docs/drone-sim-todo.md</code> and the per-area backlogs. This page is a snapshot on 2026-07-31; if it disagrees with those, trust them and update this.</p></div>

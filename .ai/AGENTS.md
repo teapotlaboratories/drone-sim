@@ -8,12 +8,24 @@ maintainer asks for.
 built toward **VLM-based sim-to-real drone navigation**. Three simulation lanes feed
 one shared ROS 2 graph:
 
-- **Lane A — PX4 v1.16 + Gazebo Harmonic + ROS 2 Jazzy** — the fast, headless,
-  lockstep, CI-friendly SITL baseline (GPS nav, controls, offboard).
-- **Lane B — Isaac Sim 5.1 + Pegasus Simulator** — photorealistic RTX perception
-  (camera/stereo/depth/Lidar), domain randomization, VLM-in-the-loop, RL.
-- **Lane C — Unreal Engine 5.5 + Cosys-AirSim** — benchmark-reproduction lane for
-  AerialVLN/OpenFly-style evaluation and Cesium georeferenced terrain.
+- **Lane A — PX4 v1.16 + Gazebo Harmonic + ROS 2 Jazzy** — **the always-on regression
+  baseline** *(demoted from primary 2026-07-31, not retired)*. Fast, headless, lockstep
+  SITL: tier-1 CI, the `P1-06` flight gate, controls ground truth, and the PX4 tree the
+  **real Pixhawk 6C** runs. **No new capability work lands here.**
+- **Lane B — Isaac Sim 5.1 + Pegasus Simulator** — photorealistic RTX perception.
+  ⛔ **DEFERRED** — Isaac 5.1 SIGSEGVs on this host's driver 610.43.03 and no Pegasus
+  release exists for Isaac 6.0. Reversible: reopens on a host rebase to R580.
+- **Lane C — Unreal Engine 5.8 + Cosys-AirSim** — ⭐ **THE PRIMARY STACK**
+  *(2026-07-31)*. **Phase 2 (perception + obstacle avoidance) onward is built here, not
+  in Gazebo**, through Phase 3 VLM work to Phase 4 AerialVLN/OpenFly reproduction and
+  Cesium georeferenced terrain. **Never built yet** — every `lane_c` pin is
+  `TODO-verify`, and the lane is rated High-likelihood for build fragility, which is
+  precisely why Lane A is kept alive underneath it.
+
+  **Note the engine version: UE5.8, not 5.5.** UE5.5 and ROS 2 Jazzy cannot be obtained
+  from one upstream tag — the last UE5.5 Cosys-AirSim release predates the Jazzy header
+  fix and that branch is end-of-life. Decision doc:
+  `docs/reference/04_ue5_stack_architecture.md`; backlog: `docs/lane-c/todo.md`.
 
 The target is to reproduce and extend the **SPF / Fly0 / OnFly** line of VLM drone
 navigation (slow VLM target-generator + fast geometric planner), first in sim, then
@@ -295,14 +307,31 @@ in `versions.lock`; CI must assert the couplings hold:
 
 - **Two PX4 trees.** Lane A and real hardware use **PX4 v1.16.x + uXRCE-DDS**; Pegasus
   (Lane B) is pinned to **PX4 v1.14.3** over the MAVLink SITL API. This is designed
-  around, not worked around.
+  around, not worked around. *(In question, favourably, since 2026-07-31: Lane C may be
+  able to drive **v1.16.0** over the MAVLink SITL API, which would collapse this to a
+  single tree. Unverified — `C-03`. Keep the v1.14.3 pin regardless; it belongs to
+  Pegasus, and Lane B reopens unchanged.)*
 - **`px4_msgs` MUST be branch-matched to the firmware** (`release/1.16`) — a mismatch
   silently breaks topics; CI asserts topics populate.
 - **Isaac Sim 5.1 ships Python 3.11; ROS 2 Jazzy is 3.12** → `rclpy` cannot be shared.
   Use NVIDIA's Python-3.11 ROS workspace and meet the app nodes over DDS.
 - **Pegasus ↔ Isaac** is explicitly not backward-compatible (v5.1.0 ↔ Isaac 5.1.0).
-- **Cosys-AirSim ↔ UE5** and **Cesium FSD ↔ PhysX** (mutually exclusive) — pin exact
-  versions; Cesium is render/data-gen only.
+- **Cosys-AirSim ↔ UE5** — pin the exact **SHA** (and, for the engine image, the **digest**);
+  upstream has no `5.5` branch at all and `main` has already migrated 5.5 → 5.6dev → 5.7pdev
+  → 5.8, so a branch pin here evaporates. Current: tag `5.8-v3.4.1` on UE5.8.
+- **Cesium FSD ↔ PhysX (mutually exclusive) is an ISAAC/OMNIVERSE coupling, not a general
+  one** *(scope-corrected 2026-07-31)*. It binds Cesium for **Omniverse** + Isaac's Fabric
+  Scene Delegate. **Cesium for Unreal is a different plugin and the exclusion does not
+  automatically transfer** — treat the UE5 case as *unverified* rather than as either broken
+  or fine. Cesium for Unreal **v2.28.0** supports UE5.5–5.8; **v2.29.0 drops UE5.5**, so
+  UE5.5 is no longer a safe fallback.
+- **One ROS 2 distro — Jazzy — everywhere** *(decided 2026-07-31)*. A second distro forks the
+  base image, the `px4_msgs` branch match, the perception packages and CI. Upstream
+  Cosys-AirSim now documents Jazzy on Ubuntu 24.04, and Humble can no longer compile its
+  wrapper.
+- **The Lane C engine image is Ubuntu 22.04 (jammy) and Jazzy has no jammy packages**, so the
+  renderer and the ROS 2 graph **cannot share a container**. Lane C is at least two
+  containers by necessity, with the AirSim↔ROS 2 boundary staying an RPC/MAVLink socket.
 - **NVIDIA driver.** Blackwell (RTX 5060 Ti) needs a recent branch but Isaac Sim breaks
   on too-new drivers — target the newest R580 that still launches Isaac Sim, verify
   Isaac launches *before* installing the rest, then pin and hold. See `docs/bench.md`

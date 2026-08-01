@@ -8,9 +8,37 @@
 > this one) must reach a working stack from the repo alone, with no undocumented manual
 > steps.
 
-**Definition of done for this area:** `docker compose up` brings the Lane A stack to the
-same state `P0-07` proved by hand — headless SITL, `/fmu/out/*` populated, QGC-consumable
-MAVLink — on a machine that has only Docker + an NVIDIA driver.
+**Definition of done — Lane A:** `docker compose up` brings the Lane A stack to the same
+state `P0-07` proved by hand — headless SITL, `/fmu/out/*` populated, QGC-consumable
+MAVLink — on a machine that has only Docker + an NVIDIA driver. **Met (`D-01`, `D-02`).**
+
+**Definition of done — Lane C, added 2026-07-31 and NOT met.** Lane C is now the project's
+primary stack (`../lane-c/todo.md`), so "reproducible as Docker" no longer means Lane A
+alone. Lane C is the harder case in three specific ways, all discovered on 2026-07-31:
+
+> ### The reproducibility goal has a hole in it, and it is worth stating plainly
+>
+> **The Lane A DoD says "a machine that has only Docker + an NVIDIA driver". Lane C cannot
+> meet that as written.** Its engine base image, `ghcr.io/epicgames/unreal-engine`, is
+> **credential-gated**: anonymous reads return HTTP 403, and pulling needs EpicGames GitHub
+> **org membership plus a PAT with `read:packages`**. A clone of this repo plus a Dockerfile
+> is **not sufficient** to build Lane C, and no amount of pinning fixes that.
+>
+> This is a genuine, permanent constraint from upstream licensing — not a gap to close.
+> **So the goal has to be restated rather than quietly failed:** a fresh machine reaches a
+> working stack from the repo alone **plus one documented credential step**, and that step
+> is documented, scripted where possible, and named in the README rather than discovered.
+>
+> Anything less and the honest description of this project is "reproducible except for the
+> primary simulator", which is not what the goal says.
+
+Concretely, Lane C's DoD is:
+
+1. `docker compose --profile lane-c up` brings up UE5.8 + Cosys-AirSim + PX4 + the ROS 2
+   graph, with `/fmu/out/*` populated identically to Lane A (`lane-c-topic-parity`).
+2. The **credential step is documented in `docker/README.md`** and fails with a clear,
+   actionable message rather than a registry 403.
+3. Disk is budgeted up front — see `D-04`.
 
 ---
 
@@ -293,6 +321,13 @@ would attach to for artifacts.
 **What.** GPU-consuming services (`vlm-server`, later perception) with correct device
 pinning.
 
+**Scope grew 2026-07-31:** Lane C's `sim` container is now the project's **primary** GPU
+consumer — a UE5.8 renderer that must be pinned to **GPU 0 (the 3080)** while `vlm-server`
+stays on **GPU 1 (the 5060 Ti)**. That makes the render/infer split a live compose concern
+rather than a Phase 3 one, and it is exactly the case where the boundary-level pin below
+matters: UE under `-RenderOffScreen` has historically ignored app-level GPU flags. See
+`D-04`.
+
 **Why / traps — these are this machine's specific hazards:**
 - **`CUDA_VISIBLE_DEVICES=1` alone does not pin the 5060 Ti.** CUDA defaults to
   `FASTEST_FIRST` ordering, so with two dissimilar cards index 1 is not reliably the
@@ -307,19 +342,128 @@ pinning.
 
 ---
 
-## D-04 — Lane C (UE5 + Cosys-AirSim) container
+## D-04 — Lane C (UE5.8 + Cosys-AirSim) containers
 
-**Status:** `todo` · **Blocked by:** Lane C bring-up
+**Status:** `todo` · **PROMOTED 2026-07-31 — no longer "eventual"** · **Blocked by:**
+`C-02` · **Pairs with:** `D-06`, `D-03`
 
-**What.** Build on `ghcr.io/epicgames/unreal-engine:dev-slim-5.5.4` (EpicGames org access
-confirmed 2026-07-28).
+**Why it moved.** Lane C is the **primary stack** and Phase 2 is built there, so this is no
+longer a late nice-to-have — it is on the critical path, and the reproducibility goal is not
+met while the primary simulator is unbuildable from the repo.
 
-**Why.** Lane C is now the photorealistic-perception lane, and a UE5 source build is
-precisely the kind of long, fragile, easy-to-get-slightly-different process that
-containerization exists for.
+**What.** Build on `ghcr.io/epicgames/unreal-engine:dev-slim-5.8.0`, digest
+`sha256:daac02628ea880513e18ccd1364b1cac949d40609b24c040d73872d8214a0c46`
+(was `dev-slim-5.5.4`, superseded when the engine pin moved to UE5.8 — see
+`versions.lock: lane_c.unreal_engine`).
 
-**Trap.** Image size and build time are both large; pin a known-good Cosys-AirSim commit
-before investing in the build (`02_development_plan.md:64`).
+### Three findings that change the shape of this task
+
+**1. The base image is credential-gated.** EpicGames org membership **plus** a PAT with
+`read:packages`. Anonymous pulls are HTTP 403. This breaks the area's Lane A DoD wording
+and is why that DoD was restated at the top of this file. **Deliverables:** the credential
+step documented in `docker/README.md`, a preflight check that fails with a readable message
+instead of a registry 403, and the same credential wired into `D-05`'s CI.
+
+> **Useful: inspection needs no `docker login` and no pull.** The `gh` CLI is already
+> authenticated here, and its token exchanges for a short-lived read-only ghcr bearer, so
+> the manifest and config blob can be read for ~17 KB with nothing written to disk. That is
+> how the tag, the layer count, the 24 GB size and the Ubuntu 22.04 label below were all
+> confirmed on 2026-07-31 *without* touching the 24 GB. Use this for the preflight check —
+> it can verify the pin is reachable before a build commits to the download.
+
+**2. The engine image is Ubuntu 22.04 (jammy), not 24.04.** **ROS 2 Jazzy has no jammy
+packages**, so nothing Jazzy can be installed inside it. Lane C is therefore **at least two
+containers, mandatorily** — an engine/`sim` container and a 24.04/Jazzy `ros2` container —
+with the AirSim↔ROS 2 boundary staying the **RPC (TCP 41451) / MAVLink (TCP 4560)** socket.
+This is not a packaging preference; a single-container Lane C is impossible. It also
+strengthens `D-06`'s rejection of collapsing everything into one container, with a second
+independent instance of the same constraint.
+
+**3. Disk — and this is now the real blocker, not credentials.** Measured 2026-07-31 from
+the registry manifest, without pulling:
+
+| | |
+|---|---|
+| `dev-slim-5.8.0` compressed | **24.0 GB** across 30 layers |
+| on disk after extraction | meaningfully more — and that is *before* the UE source build and Cosys-AirSim |
+| Docker root dir | **`/var/lib/docker`** — on the **internal NVMe** |
+| internal free | 272 GB (already holding 12.9 GB images + 17.4 GB build cache) |
+| external free | 5.4 TB |
+
+**The project rule is that large artifacts go on the 7 TB external drive, and Docker's
+data-root currently does not.** A 24 GB pull plus a UE source build plus assets against the
+constrained volume is exactly the case the rule exists for.
+
+### DECIDED 2026-07-31 — Unreal stays on the internal NVMe
+
+**Docker's `data-root` is not moved. The engine image, the UE source build and the live
+working set all stay on the internal NVMe.**
+
+**Why — and this corrects an assumption in the project rule rather than breaking it.**
+Checked the hardware before deciding:
+
+| Volume | Device | Type | Free |
+|---|---|---|---|
+| internal (`/`, holds `/var/lib/docker`) | Samsung 980 PRO 1TB | **NVMe SSD** (`rotational=0`) | 272 GB |
+| external (`/var/mnt/<uuid>`) | Seagate `ST10000NE0008` | **7200 RPM SPINNING DISK** (`rotational=1`) | 5.4 TB |
+
+The 7 TB drive is **mechanical**. UE5 shader compilation, asset streaming and Cesium tile
+paging are random-I/O-heavy and latency-sensitive; running them off a spinning disk would be
+slow in a way that shows up as poor simulator performance, not just a long build.
+
+**The rule** — *"large datasets/rosbags/assets go on the 7 TB external drive"* — was written
+for **archival, write-once, read-rarely** data. It was not written to cover a simulator's
+**live working set**. The useful distinction, which the rule should be read with:
+
+| Goes on the internal NVMe | Goes on the external HDD |
+|---|---|
+| Docker images and build cache | rosbags and MCAP archives |
+| the UE5 engine image and source build | benchmark datasets (AerialVLN/OpenFly) |
+| the live UE project and its working assets | recordings, MP4s, evidence artifacts |
+| Cesium tile **cache** (latency-sensitive) | model weights not in active use |
+
+**Budget check:** 24 GB compressed, call it 50–80 GB extracted plus build output, against
+272 GB free. Comfortable. Reclaim the **17.4 GB build cache** first (`docker builder prune`)
+for headroom, and note Isaac's images were already deleted to recover ~36 GB while Lane B
+stays deferred.
+
+**What this does not change:** unbounded, archival data still belongs on the external drive,
+still under `/var/mnt/<uuid>/Developments/projects/drone-sim/` — never `~`, and never a
+top-level directory on a drive we do not own.
+
+**Watch item:** 272 GB is enough for Lane C today, not forever. If the internal volume drops
+below ~100 GB free, revisit — the honest fix at that point is a second NVMe, not moving a
+latency-sensitive working set onto a mechanical disk.
+
+### Target topology (from `04_ue5_stack_architecture.md`, reconciled with `D-06`)
+
+| Service | GPU | Base | Role |
+|---|---|---|---|
+| `sim` | **yes — pin GPU 0 (3080)** | Epic UE5.8 (22.04) | UE5 + Cosys-AirSim + Cesium, `-RenderOffScreen`. AirSim RPC on 41451, MAVLink sim on 4560 |
+| `px4` | no | our Lane A image | PX4 SITL in lockstep, driven by `sim`; also runs `uxrce_dds_client` |
+| `ros2` | later | our 24.04/Jazzy image | XRCE agent + the AirSim ROS 2 wrapper + our nodes |
+| `vlm` | **yes — pin GPU 1 (5060 Ti)** | vLLM | Phase 3 |
+
+**Acceptance.** `docker compose --profile lane-c up` reaches a spawned vehicle that arms,
+with `/fmu/out/*` matching Lane A (`lane-c-topic-parity`), from a clone plus the documented
+credential step — on this machine first, and stated honestly if it has not been tried
+elsewhere.
+
+**Traps.**
+- **Headless Vulkan needs `-RenderOffScreen` explicitly**; without it UE silently falls back
+  to OpenGL. Set `NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility` and mount the
+  Vulkan/EGL ICD JSONs.
+- **GPU selection under `-RenderOffScreen` has historically ignored app-level flags and
+  defaulted to GPU 0.** Enforce the render/infer split **at the container boundary** with
+  `--device nvidia.com/gpu=0`, the way the Isaac probe did — not with an in-app setting.
+  See `D-03`.
+- **The image sits on an NVIDIA CUDA base**; check its CUDA runtime against this bench's
+  driver 610.43.03 at first pull, rather than after a failed build. Same class of mismatch
+  that deferred Lane B.
+- **Do not run a UE5 shader compile concurrently with other GPU work** — 64 GB will not
+  comfortably hold it alongside a heavy sim (`03_hardware_assessment.md:66`).
+- Pin the Cosys-AirSim SHA before investing in the build (`C-01`), and pin the
+  three-component image tag plus digest — `dev-slim-5.8` is a moving alias.
 
 ---
 
@@ -335,6 +479,13 @@ true rather than aspirational.
 
 **Acceptance.** A red build when a pin breaks — e.g. re-introducing the agent v2.4.2 pin
 must fail, since it is genuinely unbuildable.
+
+**Added 2026-07-31 — CI needs its own Epic credential for Lane C.** Building
+`lane-c.Dockerfile` requires a token with EpicGames org membership and `read:packages`
+(`D-04`). That is a repository secret plus an org-membership dependency, so CI can build
+Lane A from nothing but cannot build Lane C from nothing. Decide deliberately whether CI
+builds Lane C at all, or whether Lane C images are built here and published — and write
+the choice down rather than letting a red build discover it.
 
 ---
 
@@ -392,6 +543,15 @@ together, and it is the configuration that proved `D-01` parity). But it erases 
 rehearsal completely, and it cannot generalise: Lane B needs Isaac's Python 3.11 against
 ROS 2 Jazzy's 3.12, which is an architectural split, not a packaging preference. Keep the
 single-container path for the CI smoke gate; do not make it the deployment shape.
+
+**Strengthened 2026-07-31 by a second, independent instance — and this one is not
+hypothetical, because Lane C is the primary stack.** The Epic UE5.8 engine image is
+**Ubuntu 22.04 (jammy)** and **ROS 2 Jazzy has no jammy packages**, so the renderer and the
+ROS 2 graph *cannot* share a container no matter how the boundaries are drawn. Lane B's
+Python split was a deferred lane's problem; this one is the active lane's, and it converts
+the multi-container shape from a design preference into a hard constraint. It also fixes
+the AirSim↔ROS 2 boundary as a **socket** (RPC 41451 / MAVLink 4560), which is the kind of
+real link `D-06` wants standing in for a machine boundary. See `D-04`.
 
 **Acceptance.**
 - Containers map 1:1 onto Phase 4 machines, and `docs/lane-a/architecture.html` is redrawn
