@@ -25,6 +25,20 @@ mission:
     - [ 0.0, 10.0, 10.0]
     - [ 0.0,  0.0, 10.0]
 
+# What each run records to MCAP. Declared here rather than hard-coded in the runner,
+# because what is worth recording is a property of the SCENARIO: Phase 2 will want depth and
+# the planner's trajectory, Phase 3 the VLM's target, and neither should require editing the
+# harness.
+#
+# /mission/* is what makes a bag self-describing. Without it a failed seed shows the vehicle
+# in the wrong place and nothing about which waypoint the controller was aiming at — and
+# since runs are not reproducible, that bag is the only evidence the failure leaves.
+record_topics:
+  - /fmu/out/vehicle_local_position
+  - /fmu/out/vehicle_status_v1
+  - /mission/status
+  - /mission/result
+
 tolerances:
   accept_radius_m: 1.0    # a waypoint counts as reached inside this radius...
   hold_seconds: 2.0       # ...and only after settling there, so a fly-through does not score

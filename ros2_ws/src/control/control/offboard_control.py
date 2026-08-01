@@ -35,6 +35,8 @@ from px4_msgs.msg import (
     VehicleStatus,
 )
 
+from drone_interfaces.msg import MissionResult, MissionStatus
+
 from control.frames import enu_to_ned, yaw_enu_to_ned
 
 # PX4 mode ids for VEHICLE_CMD_DO_SET_MODE. param1 = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
@@ -54,6 +56,22 @@ class State(Enum):
     LAND = "land"
     DONE = "done"
     FAILED = "failed"
+
+
+# State -> MissionStatus constant. Kept beside the enum so the two cannot drift silently:
+# a state added here without a constant fails loudly at publish rather than reporting the
+# wrong number into a bag that will be read months later.
+STATE_TO_MSG = {
+    State.WAIT_FOR_FCU: MissionStatus.STATE_WAIT_FOR_FCU,
+    State.STREAM_SETPOINTS: MissionStatus.STATE_STREAM_SETPOINTS,
+    State.REQUEST_OFFBOARD: MissionStatus.STATE_REQUEST_OFFBOARD,
+    State.ARM: MissionStatus.STATE_ARM,
+    State.TAKEOFF: MissionStatus.STATE_TAKEOFF,
+    State.WAYPOINTS: MissionStatus.STATE_WAYPOINTS,
+    State.LAND: MissionStatus.STATE_LAND,
+    State.DONE: MissionStatus.STATE_DONE,
+    State.FAILED: MissionStatus.STATE_FAILED,
+}
 
 
 class OffboardControl(Node):
@@ -130,6 +148,16 @@ class OffboardControl(Node):
             TrajectorySetpoint, f"{ns}/fmu/in/trajectory_setpoint", pub_qos)
         self.pub_command = self.create_publisher(
             VehicleCommand, f"{ns}/fmu/in/vehicle_command", pub_qos)
+
+        # OUR topics use ROS defaults (RELIABLE), unlike the PX4 ones — conventions §5.
+        # TRANSIENT_LOCAL on the result so a late subscriber (or a recorder started after
+        # the flight ends) still receives the verdict rather than missing it by a second.
+        self.pub_status = self.create_publisher(MissionStatus, "/mission/status", 10)
+        self.pub_result = self.create_publisher(
+            MissionResult, "/mission/result",
+            QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       history=HistoryPolicy.KEEP_LAST, depth=1))
 
         self.create_subscription(
             VehicleLocalPosition, f"{ns}/fmu/out/vehicle_local_position",
@@ -270,9 +298,33 @@ class OffboardControl(Node):
             self._publish_offboard_mode()
             self._publish_setpoint(self.target_enu)
 
+        self._publish_status()
+
         handler = getattr(self, f"_do_{self.state.value}", None)
         if handler is not None:
             handler()
+
+    def _publish_status(self) -> None:
+        """Publish what the controller believes, so the MCAP explains itself.
+
+        Runs here are not reproducible, so a bag is the only evidence a failed seed leaves.
+        Without this the bag shows the vehicle in the wrong place and nothing about which
+        waypoint the controller was aiming at — the two failures look identical."""
+        msg = MissionStatus()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "map"          # ENU world frame, conventions §3
+        msg.state = STATE_TO_MSG[self.state]
+        msg.waypoint_index = int(self.wp_index)
+        msg.waypoint_total = int(len(self.waypoints))
+        msg.target_enu.x = float(self.target_enu[0])
+        msg.target_enu.y = float(self.target_enu[1])
+        msg.target_enu.z = float(self.target_enu[2])
+        d = self._distance_to(self.target_enu)
+        # -1 rather than NaN for "unknown": NaN in a bag silently defeats comparisons, which
+        # is the bug the gate already had once.
+        msg.distance_to_target_m = float(d) if d is not None else -1.0
+        msg.failure_reason = self.failure_reason
+        self.pub_status.publish(msg)
 
     def _do_wait_for_fcu(self) -> None:
         if self.status is None:
@@ -417,6 +469,22 @@ class OffboardControl(Node):
             rendered = json.dumps({"outcome": "failure",
                                    "failure_reason": f"non-finite value in result: {exc}"})
             result = json.loads(rendered)
+        # Graph-side verdict, so the bag carries its own outcome. The JSON below remains
+        # the HOST-side transport: run_scenario.py drives docker compose and has no ROS
+        # environment, so it cannot subscribe. Two transports, one source of truth.
+        rmsg = MissionResult()
+        rmsg.header.stamp = self.get_clock().now().to_msg()
+        rmsg.header.frame_id = "map"
+        rmsg.outcome = result["outcome"]
+        rmsg.failure_reason = result["failure_reason"]
+        rmsg.waypoints_reached = int(result["waypoints_reached"])
+        rmsg.waypoints_total = int(result["waypoints_total"])
+        rmsg.waypoint_errors_m = [float(e) for e in result["waypoint_errors_m"]]
+        rmsg.takeoff_altitude_m = float(result["takeoff_altitude_m"])
+        rmsg.accept_radius_m = float(result["accept_radius_m"])
+        rmsg.mission_source = result.get("mission_source", "")
+        self.pub_result.publish(rmsg)
+
         self.get_logger().info(f"result: {rendered}")
         if self.result_path:
             try:

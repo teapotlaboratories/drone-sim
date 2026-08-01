@@ -157,7 +157,10 @@ def restart_stack(variant: dict, variant_dir: str = "") -> None:
     env = {"PX4_GZ_MODEL_POSE": pose, "VARIANT_DIR": variant_dir}
     sh(COMPOSE + ["down"], timeout=300)
     sh(COMPOSE + ["up", "-d", "--force-recreate"], env=env, timeout=600)
-    for svc in ("lane-a-px4", "lane-a-qgc"):
+    # lane-a-ros2 included deliberately: it is healthy only once colcon has finished, and
+    # without waiting the runner execs into a container still building and flies before the
+    # controller exists.
+    for svc in ("lane-a-px4", "lane-a-qgc", "lane-a-ros2"):
         if not wait_healthy(svc):
             raise RuntimeError(f"{svc} never became healthy")
 
@@ -182,20 +185,36 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
     if flat:
         args += ["-p", "waypoints_enu:=[" + ",".join(str(v) for v in flat) + "]"]
 
-    # MCAP alongside the result (P1-05 in embryo): named by scenario AND seed, so an
-    # artifact can always be traced back to the run that produced it.
+    # MCAP alongside the result (P1-05): named by scenario AND seed, so an artifact can
+    # always be traced back to the run that produced it, and recording the topic set the
+    # SCENARIO declares rather than a list baked into the harness.
+    topics = scenario.get("record_topics") or [
+        "/fmu/out/vehicle_local_position", "/fmu/out/vehicle_status_v1",
+        "/mission/status", "/mission/result",
+    ]
+    bad = [t for t in topics if not t.startswith("/") or " " in t]
+    if bad:
+        raise ValueError(f"record_topics contains invalid topic names: {bad}")
     bag = f"/out/{tag}"
-    # `rm` as argv, with no shell involved at all.
-    sh(COMPOSE + ["exec", "-T", "ros2", "rm", "-rf", bag], timeout=60)
+    # Clear BOTH the bag and the result file before the run.
+    #
+    # Without clearing the result, a flight that never starts is scored from whatever
+    # `/out/<tag>.json` a previous run left behind — observed exactly that: a run whose
+    # controller died at import reported `success 4/4` from a file written twenty minutes
+    # earlier. The gate calls this for every seed, so that is a mechanism for laundering a
+    # failure into a pass. `rm` as argv, with no shell involved at all.
+    sh(COMPOSE + ["exec", "-T", "ros2", "rm", "-rf", bag, result_in_container], timeout=60)
+    host_result_path = REPO / "out" / f"{tag}.json"
+    host_result_path.unlink(missing_ok=True)
 
-    # The recorder needs the ROS environment, so it needs a shell — but the tag goes in
-    # through -e and is referenced as "$TAG". The shell then expands a VALUE; it never
-    # parses the scenario's text as code.
+    # The recorder needs the ROS environment, so it needs a shell — but the tag and the
+    # topic list go in through -e and are referenced as variables. The shell then expands
+    # VALUES; it never parses scenario text as code.
     recorder = subprocess.Popen(
-        COMPOSE + ["exec", "-T", "-e", f"TAG={tag}", "ros2", "bash", "-lc",
+        COMPOSE + ["exec", "-T", "-e", f"TAG={tag}", "-e", f"TOPICS={' '.join(topics)}",
+                   "ros2", "bash", "-lc",
                    '. /opt/ros/jazzy/setup.bash && cd /out && '
-                   'ros2 bag record -s mcap -o "$TAG" '
-                   '/fmu/out/vehicle_local_position /fmu/out/vehicle_status_v1'],
+                   'ros2 bag record -s mcap -o "$TAG" $TOPICS'],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(5)
 
