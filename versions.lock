@@ -573,7 +573,7 @@ lane_c:
     tag: 5.8-v3.4.1
     sha: a552dd6cd517b8d5d26629ad88004356c3007326
     target_engine: UE5.8
-    status: observed           # BUILT 2026-08-01 (C-02). Not yet packaged into a UE project, never run.
+    status: LOCKED             # plugin COMPILES AND LINKS against UE5.8 (C-02). Never RUN.
     decided: 2026-07-31
     build_result: >-
       BUILDS against UE5.8. `./build.sh --ue-root` in drone-sim/lane-c:ue5.8, exit 0,
@@ -582,10 +582,27 @@ lane_c:
       populated with 1,226 files (deps 1,042) with src/ correctly stripped as build.sh
       intends. The .comment section names clang 20.1.8, so the engine toolchain was genuinely
       used.
-    why_not_LOCKED_yet: >-
-      The AirLib plugin LIBRARY builds. Nothing has compiled the UE plugin through
-      UnrealBuildTool, nothing has packaged a project, and the simulator has never run - so
-      no PX4 link, no /fmu/* parity, no frames measured. Building is not running.
+    ue_plugin_build: >-
+      THE DECISIVE TEST FOR THE UE5.8 DECISION, and it passes. UnrealBuildTool compiled the
+      AirSim plugin against the UE5.8 engine API in the Blocks sample project:
+      "Result: Succeeded", 81/81 actions, 71.71 s. Everything before this proved only that a
+      STANDALONE library compiled - AirLib includes no Unreal headers, so it would build with
+      no engine present at all. The plugin subclasses engine types and calls engine APIs, so
+      an Epic rename or signature change between 5.5 and 5.8 could only surface here.
+      Artifacts on the host mount, asserted rather than trusted:
+        Plugins/AirSim/Binaries/Linux/libUnrealEditor-AirSim.so   5.5 MB, 77 AirSim symbols
+        Binaries/Linux/libUnrealEditor-Blocks.so                  576 KB
+      `ldd` outside the engine reports 12 unresolved, which is EXPECTED and not a defect:
+      all twelve are engine modules (libUnrealEditor-Core/-Engine/-RenderCore/...). Re-run
+      inside the image with the engine lib path they resolve to ZERO. Checked, not assumed.
+      Blocks.uproject declares EngineAssociation 5.8, an exact match - no convert-in-place
+      prompt, unlike the 5.5 tag which declared 5.4 and is a documented failure point.
+    what_is_STILL_unproven: >-
+      THE SIMULATOR HAS NEVER RUN. No rendering, no PX4 over the MAVLink SITL API, no
+      /fmu/* topics, no parity diff against Lane A, no frames measured, no lockstep
+      verified - and the CARLA instance still holds 0.0.0.0:41451, the port C-03 needs.
+      LOCKED here means THE PIN IS PROVEN BUILDABLE, which is what a version pin must show.
+      It does not mean the lane works. Compiling is not running.
 
     the_conflict_this_resolves: >-
       UE5.5 AND ROS 2 JAZZY COULD NOT BE HAD FROM ONE UPSTREAM TAG. Researched 2026-07-31

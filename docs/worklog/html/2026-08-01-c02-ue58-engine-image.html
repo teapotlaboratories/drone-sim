@@ -162,7 +162,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog · 2026-08-01 · C-02</span>
-  <nav><a href="#prove">What it proves</a><a href="#pull">The pull</a><a href="#probe">Inside</a><a href="#toolchain">Toolchain</a><a href="#plugin">It builds</a><a href="index.html">Index</a></nav>
+  <nav><a href="#prove">What it proves</a><a href="#pull">The pull</a><a href="#probe">Inside</a><a href="#toolchain">Toolchain</a><a href="#plugin">It builds</a><a href="#uebuild">UE plugin</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -319,19 +319,55 @@ naming its own compiler &mdash; the engine's bundled clang, <em>not</em> the ima
 <code>--ue-root</code> genuinely took effect, which is the whole reason UE5.8 was chosen over
 backporting onto UE5.5.</p></div>
 
-<h2><span class="secnum">06</span> Status</h2>
+<h2 id="uebuild"><span class="secnum">06</span> The plugin compiles against the engine</h2>
+<div class="callout warn"><span class="lbl">Terminology correction</span>
+<p>Earlier notes said "package". That is a different, heavier job (<code>RunUAT</code>, producing
+a distributable binary). What was run is compiling the <strong>editor target</strong> &mdash;
+building the AirSim plugin's C++ against Unreal's engine headers.</p></div>
+<p><strong>Why this is the step that matters.</strong> Everything before it proved a
+<em>standalone</em> library compiles: <code>libAirLib.a</code> includes no Unreal headers and
+would build with no engine present at all. The AirSim <strong>plugin</strong> is different code
+&mdash; it subclasses engine types and calls engine APIs. An Epic rename or signature change
+between 5.5 and 5.8 could only surface here.</p>
+<pre>1/3  update_from_git.sh        <span class="c">rsync the plugin + AirLib into Blocks/Plugins/</span>
+2/3  GenerateProjectFiles.sh   <span class="c">against /home/ue4/UnrealEngine</span>
+3/3  Build.sh BlocksEditor Linux Development
+
+[79/81] Link libUnrealEditor-AirSim.so
+[80/81] Link libUnrealEditor-Blocks.so
+<b>Result: Succeeded</b>          71.71 s, 81/81 actions</pre>
+<div class="tw"><table>
+<thead><tr><th>Artifact on the host mount</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>Plugins/AirSim/Binaries/Linux/libUnrealEditor-AirSim.so</code></td><td><strong>5.5 MB, 77 AirSim symbols</strong></td></tr>
+<tr><td><code>Binaries/Linux/libUnrealEditor-Blocks.so</code></td><td>576 KB</td></tr>
+<tr><td><code>Intermediate/</code> + plugin <code>Intermediate/</code></td><td>~510 MB &mdash; disk moved only 216 &rarr; 215 GB</td></tr>
+</tbody></table></div>
+<div class="callout"><span class="lbl">A false alarm, checked before reporting</span>
+<p><code>ldd</code> on the plugin module says <strong>12 unresolved libraries</strong>, which looks
+alarming. All twelve are <em>engine modules</em> &mdash; <code>libUnrealEditor-Core.so</code>,
+<code>-Engine.so</code>, <code>-RenderCore.so</code>, <code>-RHI.so</code> &mdash; which live in the
+engine tree, not on the host. Re-run inside the image with the engine lib path:
+<strong>zero unresolved</strong>. Expected for a UE plugin, not a defect.</p></div>
+<div class="callout ok"><span class="lbl">One more way the 5.8 line is coherent</span>
+<p><code>Blocks.uproject</code> declares <code>EngineAssociation: 5.8</code>, an exact match &mdash;
+no convert-in-place prompt. At the 5.5 tag it declared <code>5.4</code>, which triggers that prompt
+and is a documented point where a user hit a failed compile.</p></div>
+
+<h2><span class="secnum">07</span> Status</h2>
 <div class="panel">
 <div class="tw"><table>
 <thead><tr><th>Entry</th><th>Was</th><th>Now</th><th>Why</th></tr></thead>
 <tbody>
 <tr><td><code>unreal_engine</code></td><td><code>TODO-verify</code></td><td><span class="pill p-ok">LOCKED</span></td><td>pulled, probed, and something real compiled against it</td></tr>
-<tr><td><code>cosys_airsim</code></td><td><code>TODO-verify</code></td><td><span class="pill p-warn">observed</span></td><td>the AirLib plugin library builds</td></tr>
+<tr><td><code>cosys_airsim</code></td><td><code>TODO-verify</code></td><td><span class="pill p-ok">LOCKED</span></td><td>plugin compiles and links against the UE5.8 API</td></tr>
 <tr><td><code>cosys_airsim_ros2_wrapper</code></td><td>&mdash;</td><td><span class="pill p-ok">LOCKED</span></td><td>from <code>C-06</code></td></tr>
 </tbody></table></div>
-<p style="margin:0"><strong><code>cosys_airsim</code> is deliberately not LOCKED.</strong> The
-plugin <em>library</em> builds. Nothing has compiled the UE plugin through UnrealBuildTool,
-nothing has packaged a project, and the simulator has never run &mdash; no PX4 link, no
-<code>/fmu/*</code> parity, no frames measured. <strong>Building is not running.</strong></p>
+<p style="margin:0"><strong>LOCKED means the pin is proven buildable &mdash; not that the lane
+works.</strong> The simulator has never run: no rendering, no PX4 over the MAVLink SITL API, no
+<code>/fmu/*</code> topics, no parity diff against Lane A, no frames measured, no lockstep
+verified. And CARLA still holds <code>0.0.0.0:41451</code>, the port <code>C-03</code> needs.
+<strong>Compiling is not running.</strong></p>
 </div>
 
 <div class="callout"><span class="lbl">Recorded on the way in</span>

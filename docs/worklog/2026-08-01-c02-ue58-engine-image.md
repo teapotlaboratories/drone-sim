@@ -199,9 +199,67 @@ compiled the UE plugin through UnrealBuildTool, nothing has packaged a project, 
 simulator has never run — no PX4 link, no `/fmu/*` parity, no frames measured.
 **Building is not running.**
 
+## The plugin compiles against the engine — the test that actually decided UE5.8
+
+**Terminology correction:** earlier notes in this log said "package". That is a different,
+heavier job (`RunUAT`, producing a distributable binary). What was run is compiling the
+**editor target** — building the AirSim plugin's C++ against Unreal's engine headers.
+
+**Why it is the step that matters.** Everything before it proved a *standalone* library
+compiles: `libAirLib.a` includes no Unreal headers and would build with no engine present at
+all. The AirSim **plugin** is different code — it subclasses engine types and calls engine
+APIs. An Epic rename or signature change between 5.5 and 5.8 could only surface here.
+
+```
+1/3  update_from_git.sh        rsync the plugin + AirLib into Blocks/Plugins/
+2/3  GenerateProjectFiles.sh   against /home/ue4/UnrealEngine
+3/3  Build.sh BlocksEditor Linux Development
+
+[79/81] Link libUnrealEditor-AirSim.so
+[80/81] Link libUnrealEditor-Blocks.so
+Result: Succeeded          71.71 s, 81/81 actions
+```
+
+Faster than expected — Unreal Build Accelerator, and the engine itself is prebuilt.
+
+**Artifacts on the host mount, asserted rather than trusted:**
+
+| | |
+|---|---|
+| `Plugins/AirSim/Binaries/Linux/libUnrealEditor-AirSim.so` | **5.5 MB, 77 AirSim symbols** |
+| `Binaries/Linux/libUnrealEditor-Blocks.so` | 576 KB |
+| `Intermediate/` + plugin `Intermediate/` | ~510 MB — disk moved only 216 → 215 GB |
+
+**A false alarm I checked before reporting.** `ldd` on the plugin module says **12
+unresolved libraries**, which looks alarming. All twelve are *engine modules* —
+`libUnrealEditor-Core.so`, `-Engine.so`, `-RenderCore.so`, `-RHI.so` and so on — which live
+in the engine tree, not on the host. Re-run inside the image with the engine lib path:
+**zero unresolved**. Expected for a UE plugin, not a defect. Worth recording that the check
+was run rather than the number waved away.
+
+**One more way the 5.8 line is coherent:** `Blocks.uproject` declares
+`EngineAssociation: 5.8`, an exact match — no convert-in-place prompt. At the 5.5 tag it
+declared `5.4`, which triggers that prompt and is a documented point where a user hit a
+failed compile.
+
+### Status now
+
+| Entry | Status | Meaning |
+|---|---|---|
+| `unreal_engine` | **LOCKED** | pulled, probed, built against |
+| `cosys_airsim` | **LOCKED** | plugin compiles and links against the UE5.8 API |
+| `cosys_airsim_ros2_wrapper` | **LOCKED** | from `C-06` |
+
+**LOCKED means the pin is proven buildable — not that the lane works.** The simulator has
+never run: no rendering, no PX4 over the MAVLink SITL API, no `/fmu/*` topics, no parity
+diff against Lane A, no frames measured, no lockstep verified. And CARLA still holds
+`0.0.0.0:41451`, the port `C-03` needs. **Compiling is not running.**
+
 ## Next
 
-- Package a UE project (Blocks) against the plugin — the genuinely hours-long step, and what
+- `C-03`: PX4 over the MAVLink SITL API, `/fmu/*` parity diffed against Lane A, and the
+  port-41451 conflict resolved before anything binds it.
+- Optionally package a shipping binary (`RunUAT`) — not needed to run the editor — the genuinely hours-long step, and what
   `UnrealBuildTool` is for.
 - Then `C-03`: PX4 over the MAVLink SITL API, `/fmu/*` parity diffed against Lane A, and the
   port-41451 conflict resolved before anything else binds it.
