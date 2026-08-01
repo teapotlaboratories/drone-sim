@@ -661,8 +661,8 @@ rather than scored.
 
 ## C-04 — Camera/depth/LiDAR into the existing ROS 2 graph
 
-**Status:** 🟡 **started 2026-08-01 — wrapper builds and connects, then crashes on first
-publish.** `C-03` unblocked it.
+**Status:** 🟡 **in progress 2026-08-01 — wrapper now RUNS and publishes 14 topics.** The
+first-publish crash was an upstream data race; root-caused and fixed (below). `C-03` unblocked it.
 
 ### Where it actually stands
 
@@ -675,31 +675,88 @@ terminate called after throwing an instance of 'eprosima::fastcdr::exception::Ba
 [ros2run]: Aborted          ->  0 /airsim_node/* topics
 ```
 
-A Fast-CDR serialisation fault, i.e. a string field carrying embedded NULs — the usual cause is
-a fixed-size char buffer published without trimming at the first NUL. **Next step is to find
-which message**; it aborts at first publish, so it is on the initial state or TF path.
+A Fast-CDR serialisation fault: a string field carrying embedded NULs.
 
-### Four build findings, none of them in the upstream docs
+**Localised by backtrace (gdb, in-container), not by guessing:**
 
-1. **`geographic_msgs` and `mavros_msgs` are missing from `drone-sim/ros2:v1.16.0`.** Installed
-   with apt into the container to get moving; both need to move into the image (`D-01` rule),
-   or a fresh machine hits this immediately.
-2. **The wrapper must be built IN PLACE.** `airsim_ros_pkgs/CMakeLists.txt` reaches
-   `../../../cmake/{rpclib_wrapper,AirLib,MavLinkCom}` via `add_subdirectory`, so copying the
-   packages into a normal `src/` breaks it. The workspace must mirror `<root>/ros2/src/<pkg>`
-   with `<root>/cmake` alongside.
-3. **The build WRITES INTO ITS OWN SOURCE TREE** — `external/rpclib/.../include/rpc/version.h`
-   and `config.h` via `configure_file`. **So it cannot be built from a read-only mount.** Worked
-   around by symlinking the read-only parts (`cmake`, `AirLib`, `MavLinkCom`) and copying the
-   writable one (`external`, 15 MB).
-4. **The vendored tree carries 163 MB of build artifacts** (`ros2/build` 144 MB, `ros2/install`
-   19 MB) left by `C-06`'s in-tree build. Gitignored, so it never appeared in a diff — but it
-   contradicts the least-destructive-vendor-edits rule and it actively broke this build:
-   `cp -r` carried stale `CMakeCache.txt` files holding absolute host paths, which failed with
-   "current CMakeCache.txt directory is different than the directory where it was created".
-   **Clean it, and build out-of-tree from now on.**
+```
+#9  geometry_msgs::msg::TransformStamped cdr_serialize
+#10 tf2_msgs::msg::TFMessage cdr_serialize
+#16 tf2_ros::TransformBroadcaster::sendTransform
+#18 AirsimROSWrapper::publish_odom_tf(nav_msgs::msg::Odometry const&)   <- HERE
+#19 AirsimROSWrapper::publish_vehicle_state()
+#20 AirsimROSWrapper::drone_state_timer_cb()
+```
 
-**Blocked by:** nothing — the crash is the work.
+So it is the **odometry TF** — `header.frame_id` or `child_frame_id` in `publish_odom_tf`
+(`airsim_ros_wrapper.cpp:1232`) — not an image, sensor or segmentation topic.
+
+**Three candidate sources ruled out empirically:**
+
+| Hypothesis | Checked | Result |
+|---|---|---|
+| Segmentation object names carry NULs | `simListInstanceSegmentationObjects` | **clean** — 255 names, 0 NULs, 0 empties |
+| The RPC settings string carries NULs | `getSettingsString` | **clean** — 4827 chars, 0 NULs |
+| The frame-id constants are malformed | header `AIRSIM_ODOM_FRAME_ID` / `AIRSIM_FRAME_ID` | **clean** — plain `"odom_local"` / `"world"` |
+
+`listVehicles` returns `['PX4']`, so `vehicle_name_` — which feeds `child_frame_id` at `:1452`
+— looks clean from the outside too.
+
+### ROOT CAUSE — a data race, not a bad string. FIXED and verified.
+
+Instrumenting `publish_odom_tf` to hex-dump both frame ids killed the fourth hypothesis too:
+
+```
+ODOMTF frame_id=[PX4/odom_local] size=14 hex=50 58 34 2f 6f 64 6f 6d 5f 6c 6f 63 61 6c
+ODOMTF child=[PX4]               size=3  hex=50 58 34
+862 prints, ZERO containing a 00 byte  ->  and it still aborted
+```
+
+**Clean strings that still serialise as containing NULs means the value changes between the
+copy and the write** — a race. The log timestamps proved it directly: **30% of consecutive
+`publish_odom_tf` prints were out of order**, i.e. the callback was executing concurrently on
+several threads for a single vehicle.
+
+```
+airsim_node.cpp:22   create_callback_group(rclcpp::CallbackGroupType::Reentrant)
+airsim_node.cpp:25   rclcpp::executors::MultiThreadedExecutor
+```
+
+**`Reentrant` + `MultiThreadedExecutor` lets `drone_state_timer_cb` re-enter concurrently**,
+so threads race on the shared per-vehicle `curr_odom_`. Copying a `std::string` while another
+thread reassigns it is a torn read, and Fast-CDR sees the result as embedded NULs. That explains
+every observation at once: the strings log clean, 862 publishes succeed, then one aborts, and it
+is non-deterministic.
+
+**Fix — one word:** `Reentrant` → `MutuallyExclusive` at `airsim_node.cpp:22`.
+
+```
+node alive: yes    crashes: 0    /airsim_node topics: 14    odom_local flowing
+/airsim_node/PX4/{imu/imu, gps/gps, magnetometer/magnetometer, altimeter/barometer,
+                  odom_local, environment, global_gps}  + segmentation, object_transforms
+```
+
+**Method note worth keeping:** three guesses at "which string has a NUL" all died, and the
+answer was that no string ever did. The backtrace narrowed the site; the hex dump refuted the
+whole *class* of hypothesis and forced the race explanation. **Measuring the thing I was sure
+about is what broke the deadlock** — the same lesson as `ref_alt` in `C-09`.
+
+### The fix is NOT yet in the tree — this is vendored C++
+
+Applied to a container-local copy only; `vendor/Cosys-AirSim` is untouched and pristine. Per
+least-destructive-vendor-edits it must land as a **recorded patch plus vendoring notes**, not an
+in-place edit:
+
+1. Write the one-line change as a patch file and apply it in the build, not by editing `vendor/`.
+2. Start `docs/vendor/cosys-airsim.md` (still missing) and record this as deviation #1 — it is
+   an upstream defect, worth reporting to Cosys-Lab.
+3. **Clean the 163 MB of build artifacts out of `vendor/Cosys-AirSim/ros2/`** and keep builds
+   out-of-tree, so the tree stays diffable against upstream.
+4. Re-check the `C-04` trap list against a *running* node now that one exists — NWU-vs-ENU
+   frames, `/clock` on the wrong topic, polled-IMU cadence, and the `camera_info` frame_id
+   mismatch are all still unverified.
+
+**Blocked by:** nothing — the crash is fixed; the work is now the trap list.
 
 **What.** Bring Cosys-AirSim's sensors up on the ROS 2 C++ wrapper: RGB, depth,
 GPU-LiDAR, and the annotation/segmentation cameras.
