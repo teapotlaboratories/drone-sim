@@ -57,9 +57,10 @@ CPU-bound and runs fully headless.
 git clone <this repo> && cd drone-sim
 docker build -f docker/lane-a.Dockerfile -t drone-sim/lane-a:v1.16.0 .
 docker build -f docker/qgc.Dockerfile   -t drone-sim/qgc:v1.16.0 .      # thin, ~1 min
+docker build -f docker/ros2.Dockerfile  -t drone-sim/ros2:v1.16.0 .     # thin, ~30 s
 ```
 
-**Both images are required.** The second is not optional tooling: PX4 refuses to arm
+**All three images are required.** The second is not optional tooling: PX4 refuses to arm
 without a ground-station datalink, and QGroundControl provides it — so without
 `drone-sim/qgc` the stack comes up and nothing can fly.
 

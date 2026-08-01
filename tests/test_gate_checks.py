@@ -115,3 +115,76 @@ def test_runner_clears_the_result_before_a_run():
         "the result file must be removed BEFORE the flight, not after"
     assert "unlink(missing_ok=True)" in body, \
         "the host-side copy must be cleared too"
+
+
+# ---------------------------------------------------------------------------------------
+# offboard_control's result-fallback path, guarded statically.
+#
+# The allow_nan=False fallback replaces `result` with a two-key dict, so every field the
+# MissionResult population reads must use .get() with a default. Indexing directly raised
+# KeyError inside the timer callback, which killed rclpy.shutdown() and destroyed the very
+# artifact the fallback exists to produce.
+#
+# Then the FIX introduced the same class of bug one line over: a default referencing
+# `self.takeoff_alt`, an attribute that does not exist (it is `self.alt`), which would have
+# raised AttributeError on exactly the same path. Static, because these tests run
+# off-target with no ROS.
+# ---------------------------------------------------------------------------------------
+import ast
+import pathlib
+
+_CONTROL = (pathlib.Path(__file__).resolve().parent.parent
+            / "ros2_ws/src/control/control/offboard_control.py")
+
+
+def _write_result_fn():
+    tree = ast.parse(_CONTROL.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_write_result":
+            return tree, node
+    raise AssertionError("_write_result not found in offboard_control.py")
+
+
+def test_mission_result_population_never_indexes_result_directly():
+    """Every `result[...]` read after the fallback must be `.get()` with a default."""
+    _, fn = _write_result_fn()
+    offenders = []
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name) and node.value.id == "result"):
+            offenders.append(getattr(node, "lineno", "?"))
+    assert not offenders, (
+        f"offboard_control.py: result[...] indexed directly at line(s) {offenders}. "
+        "The allow_nan=False fallback leaves only {outcome, failure_reason}, so this "
+        "raises KeyError inside the timer callback and no artifact is written."
+    )
+
+
+def test_self_attributes_used_as_defaults_actually_exist():
+    """A default like `self.takeoff_alt` must name a real attribute.
+
+    Scoped to the SECOND argument of `result.get(key, default)` calls - that is the only
+    place a wrong name silently waits for the fallback path to be taken. Checking every
+    `self.x` load would flag inherited rclpy Node methods (get_logger, get_clock).
+    """
+    tree, fn = _write_result_fn()
+    assigned = {
+        t.attr for n in ast.walk(tree) if isinstance(n, (ast.Assign, ast.AugAssign))
+        for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+        if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
+        and t.value.id == "self"
+    }
+    used = set()
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get" and len(node.args) == 2):
+            for sub in ast.walk(node.args[1]):
+                if (isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name)
+                        and sub.value.id == "self"):
+                    used.add(sub.attr)
+    assert used, "no `result.get(key, default)` defaults found - has the code moved?"
+    unknown = sorted(used - assigned)
+    assert not unknown, (
+        f"offboard_control.py _write_result uses self.{{{', '.join(unknown)}}} as a "
+        ".get() default, but it is never assigned - AttributeError on the fallback path."
+    )

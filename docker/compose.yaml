@@ -208,6 +208,13 @@ services:
     # the `gz` CLI — which stopped px4-sitl from launching its own simulator. Whatever runs
     # Gazebo stays on plain lane-a; the ROS 2 side gets the bridge. See docker/ros2.Dockerfile.
     image: drone-sim/ros2:v1.16.0
+    # BUILD STANZA IS LOAD-BEARING, added 2026-08-01 after a merge-gate review: this
+    # image is new in this branch and NOTHING built it. `compose up` on a fresh clone
+    # failed on a missing image, and the Quickstart still listed only two `docker build`
+    # lines. With this, compose builds it on demand; README.md now lists it too.
+    build:
+      context: ..
+      dockerfile: docker/ros2.Dockerfile
     container_name: lane-a-ros2
     network_mode: "service:px4-sitl"
     ipc: "service:px4-sitl"          # shared /dev/shm — see xrce-agent
@@ -241,19 +248,35 @@ services:
         # build does not check imports, colcon reported success while the node died at
         # import when it ran.
         mkdir -p /ros2_ws/src
+        # A failed copy used to be swallowed by `|| true`, so a missing package looked
+        # identical to a healthy start. Fail loudly instead.
         for pkg in interfaces control bringup; do
           rm -rf "/ros2_ws/src/$$pkg"
-          cp -r "/ros2_ws_src/src/$$pkg" "/ros2_ws/src/$$pkg" 2>/dev/null || true
+          cp -r "/ros2_ws_src/src/$$pkg" "/ros2_ws/src/$$pkg" \
+            || { echo "ros2: FATAL - could not copy $$pkg from /ros2_ws_src"; exit 1; }
         done
         # --packages-skip, not --packages-select: OUR packages are picked up automatically
         # as they are added, while px4_msgs and px4_ros_com — already built into the image —
         # are not rebuilt. A plain `colcon build` rebuilds px4_msgs, which takes minutes and
         # left the runner flying before `control` existed.
         rm -f /ros2_ws/.build-ok
-        (cd /ros2_ws && colcon build --symlink-install \
-            --packages-skip px4_msgs px4_ros_com) \
-          && { touch /ros2_ws/.build-ok; echo "ros2: workspace built"; } \
-          || echo "ros2: WARNING - workspace build failed"
+        # ASSERT ON ARTIFACTS, NOT ON THE EXIT STATUS (D-01's rule). `colcon build` exits 0
+        # when it finds no packages at all, and an ament_python build never checks imports -
+        # which is exactly how drone_interfaces shipped missing while colcon reported success
+        # and the node died at import. This marker gates the scenario runner, so trusting the
+        # banner here would re-create that bug one layer up.
+        if (cd /ros2_ws && colcon build --symlink-install \
+              --packages-skip px4_msgs px4_ros_com); then
+          if [ -x /ros2_ws/install/control/lib/control/offboard_control ] \
+             && bash -lc '. /ros2_ws/install/setup.bash \
+                  && python3 -c "import drone_interfaces.msg"' >/dev/null 2>&1; then
+            touch /ros2_ws/.build-ok; echo "ros2: workspace built, artifacts verified"
+          else
+            echo "ros2: FATAL - colcon reported success but the artifacts are not there"
+          fi
+        else
+          echo "ros2: WARNING - workspace build failed"
+        fi
         echo "ros2: ready — try  docker compose exec ros2 bash -lc 'ros2 topic list'"
         exec sleep infinity
 

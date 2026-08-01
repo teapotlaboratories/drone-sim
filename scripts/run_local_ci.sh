@@ -58,9 +58,11 @@ echo "tier 1 — what GitHub Actions also runs:"
 step "off-target tests"        python3 -m pytest tests/ -q
 step "shell scripts parse"     bash -c 'f=0; while IFS= read -r -d "" s; do bash -n "$s" || f=1; done < <(git ls-files -z "*.sh"); exit $f'
 step "python scripts parse"    bash -c 'f=0; while IFS= read -r -d "" s; do python3 -m py_compile "$s" || f=1; done < <(git ls-files -z "*.py"); exit $f'
-step "compose file valid"      docker compose -f docker/compose.yaml config --quiet
+step "compose file valid"      env COMPOSE_PROFILES=test,record docker compose -f docker/compose.yaml config --quiet
 step "worklog renders"         python3 scripts/check_worklog_renders.py
 step ".repos matches lock"     python3 scripts/check_repos_manifest.py
+step "no AI attribution"       ./scripts/check_attribution.sh
+step "versions.lock conflicts" python3 scripts/check_versions_conflicts.py
 
 # --- the part CI cannot do --------------------------------------------------------
 if [ "$RUN_GATE" = "1" ]; then

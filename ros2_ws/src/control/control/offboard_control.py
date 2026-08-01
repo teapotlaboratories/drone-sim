@@ -276,6 +276,15 @@ class OffboardControl(Node):
         self.ticks_in_state += 1
 
         if self.state in (State.DONE, State.FAILED):
+            # Publish the TERMINAL status before shutting down. Without this the early
+            # return happens before _publish_status() below, so the last MissionStatus in
+            # the bag carries the pre-terminal state and an empty failure_reason —
+            # STATE_DONE and STATE_FAILED were unreachable values, and the one field that
+            # says why the controller gave up never reached the bag.
+            #
+            # That defeats the stated purpose of the message: a bag explaining a failed
+            # seed by itself. Runs are not reproducible, so the bag is the only evidence.
+            self._publish_status()
             self._write_result()
             rclpy.shutdown()
             return
@@ -475,13 +484,22 @@ class OffboardControl(Node):
         rmsg = MissionResult()
         rmsg.header.stamp = self.get_clock().now().to_msg()
         rmsg.header.frame_id = "map"
-        rmsg.outcome = result["outcome"]
-        rmsg.failure_reason = result["failure_reason"]
-        rmsg.waypoints_reached = int(result["waypoints_reached"])
-        rmsg.waypoints_total = int(result["waypoints_total"])
-        rmsg.waypoint_errors_m = [float(e) for e in result["waypoint_errors_m"]]
-        rmsg.takeoff_altitude_m = float(result["takeoff_altitude_m"])
-        rmsg.accept_radius_m = float(result["accept_radius_m"])
+        # EVERY field uses .get() with a default, because `result` is not always the full
+        # dict: the allow_nan=False fallback above replaces it with just {outcome,
+        # failure_reason}. Indexing directly raised KeyError there — and since _write_result
+        # is called from the timer callback, the exception escaped, rclpy.shutdown() never
+        # ran, the `result:` log line was never emitted and the JSON was never written.
+        #
+        # The escape hatch that exists to turn a silent bad artifact into a VISIBLE error was
+        # destroying the evidence instead. A non-finite result must still produce a readable
+        # verdict on both transports.
+        rmsg.outcome = result.get("outcome", "failure")
+        rmsg.failure_reason = result.get("failure_reason", "")
+        rmsg.waypoints_reached = int(result.get("waypoints_reached", 0))
+        rmsg.waypoints_total = int(result.get("waypoints_total", len(self.waypoints)))
+        rmsg.waypoint_errors_m = [float(e) for e in result.get("waypoint_errors_m", [])]
+        rmsg.takeoff_altitude_m = float(result.get("takeoff_altitude_m", self.alt))
+        rmsg.accept_radius_m = float(result.get("accept_radius_m", self.accept_radius))
         rmsg.mission_source = result.get("mission_source", "")
         self.pub_result.publish(rmsg)
 

@@ -100,6 +100,27 @@ def main() -> int:
 
     repos = (repos_doc or {}).get("repositories") or {}
 
+    # FLOOR GUARD. Without this the whole check passes vacuously: an empty .repos, a
+    # `repositories:` key with nothing under it, a mistyped top-level key, or a phase edit
+    # that comments out the wrong block all yield {} - and the loop below then compares
+    # nothing and prints a success banner. The sibling check
+    # (check_worklog_renders.py) has had this guard since it was written; this one did not,
+    # and a merge-gate review caught it.
+    #
+    # EXPECTED_ACTIVE is the set that must be uncommented at the current phase. Lane B is
+    # deliberately commented out while deferred, so it is not listed.
+    EXPECTED_ACTIVE = {
+        "PX4-Autopilot-v1.16", "Micro-XRCE-DDS-Agent", "px4_msgs", "px4_ros_com",
+        "Cosys-AirSim",
+    }
+    missing = EXPECTED_ACTIVE - set(repos)
+    if missing:
+        problems.append(
+            f".repos is missing entries that must be active at this phase: "
+            f"{sorted(missing)} - a commented-out or mis-indented block reconstructs a "
+            f"tree without them"
+        )
+
     # Couplings are a list of {id, assert, why, severity}; a clobbered entry shows up as a
     # duplicate id or a missing field rather than a parse error.
     seen_ids: set[str] = set()
@@ -127,21 +148,39 @@ def main() -> int:
             problems.append(f"{name}: versions.lock has no entry at {'.'.join(path)}")
             continue
 
-        accepted = {
+        sha = str(node.get("sha") or "").strip()
+        movable = {
             str(node.get(k)).strip()
-            for k in ("sha", "tag", "branch", "version")
+            for k in ("tag", "branch", "version")
             if node.get(k) is not None
-        }
-        accepted.discard("None")
+        } - {"None", ""}
 
-        if not accepted:
+        # A resolved SHA is a hard requirement, not one option among several. .repos's own
+        # header: "When a `sha: TODO-verify` in versions.lock is resolved, pin the SHA here
+        # too - a tag can move, a SHA cannot." The first version of this checker accepted
+        # sha OR tag OR branch, which let px4_msgs sit on a live branch while versions.lock
+        # had a SHA - the exact drift it was written to catch.
+        if sha and sha != "TODO-verify":
+            if version != sha:
+                problems.append(
+                    f"{name}: .repos version={version!r} but versions.lock "
+                    f"{'.'.join(path)} has a RESOLVED sha={sha!r}. A resolved sha must be "
+                    f"pinned here; {'a movable ref' if version in movable else 'this value'} "
+                    f"is not reproducible."
+                )
+        elif not movable:
             problems.append(
                 f"{name}: versions.lock {'.'.join(path)} pins no sha/tag/branch to check against"
             )
-        elif version not in accepted:
+        elif version == "TODO-verify" or version in ("", "None"):
+            problems.append(
+                f"{name}: .repos version={version!r} is a sentinel, not a pin - "
+                f"`vcs import` cannot check out TODO-verify"
+            )
+        elif version not in movable:
             problems.append(
                 f"{name}: .repos version={version!r} but versions.lock "
-                f"{'.'.join(path)} allows {sorted(accepted)}"
+                f"{'.'.join(path)} allows {sorted(movable)}"
             )
 
     if problems:

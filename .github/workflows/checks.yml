@@ -78,7 +78,11 @@ jobs:
       - name: Compose file is valid
         # `compose config` resolves interpolation, which is how the inert FOLLOW_* knobs
         # were caught before they shipped.
-        run: docker compose -f docker/compose.yaml config --quiet
+        # COMPOSE_PROFILES is load-bearing: `config` only resolves cross-references for
+        # services in ACTIVE profiles, so without it the `verify` (test) and `recording`
+        # (record) services - including the acceptance gate - are never validated. A
+        # depends_on pointing at a nonexistent service passed this step until 2026-08-01.
+        run: COMPOSE_PROFILES=test,record docker compose -f docker/compose.yaml config --quiet
 
       - name: .repos agrees with versions.lock
         # .repos says it itself: versions.lock is the authority, .repos is the mechanism.
@@ -112,14 +116,7 @@ jobs:
         # untracked the check could not see itself and passed. It failed on the first push,
         # once the file was committed. Running a workflow's steps locally is worth doing,
         # but it does not reproduce what `git ls-files` returns after `git add`.
-        run: |
-          hits=$(git ls-files \
-                 | grep -vE '^(\.ai/AGENTS\.md|CLAUDE\.md|\.github/workflows/checks\.yml)$' \
-                 | xargs grep -lniE 'co-authored-by:.*claude|generated with .*claude|🤖' 2>/dev/null || true)
-          if [ -n "$hits" ]; then
-            echo "::error::AI attribution found in: $hits"
-            exit 1
-          fi
+        run: ./scripts/check_attribution.sh
 
       - name: Every versions.lock CONFLICT is documented
         # NOT "there are no conflicts". There is a real, accepted one — the NVIDIA driver
@@ -128,18 +125,4 @@ jobs:
         # to ignore is worse than none.
         #
         # What is worth enforcing is that a CONFLICT never sits there unexplained.
-        run: |
-          python3 - <<'EOF'
-          import re, sys
-          text = open("versions.lock").read()
-          # Entries look like:  status: CONFLICT  followed by a summary: within the block.
-          bad = []
-          for m in re.finditer(r"^(\s*)status:\s*CONFLICT\s*$", text, re.M):
-              tail = text[m.end():m.end() + 800]
-              if "summary:" not in tail.split("\n\n")[0]:
-                  bad.append(text[:m.start()].count("\n") + 1)
-          if bad:
-              print(f"::error file=versions.lock::CONFLICT without a summary at line(s) {bad}")
-              sys.exit(1)
-          print("all CONFLICT entries carry a summary")
-          EOF
+        run: python3 scripts/check_versions_conflicts.py
