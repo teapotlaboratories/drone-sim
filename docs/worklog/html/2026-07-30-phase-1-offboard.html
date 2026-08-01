@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 1 — Offboard Control &amp; the Arming Investigation — Worklog 2026-07-30</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · P1-00 / P1-02 · Lane A</span>
+  <nav><a href="#freeze">Conventions</a><a href="#arming">Arming</a><a href="#port">18570</a><a href="#result">Result</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · P1-00 / P1-02 · Lane A</span>
+  <h1>First Flight<br>&amp; Why It Would Not Arm</h1>
+  <p class="sub">The first flying code in the project, and four wrong answers before the right one. PX4 refused to arm for a reason it only tells a ground station that was not there.</p>
+  <div class="mastmeta"><span>Date <b>2026-07-30</b></span><span>Waypoints <b>4/4</b></span><span>Worst error <b>0.23 m</b></span><span>Peak alt (MCAP) <b>10.18 m</b></span><span>Transport <b>uXRCE-DDS</b></span></div>
+</header>
+
+<h2 id="freeze"><span class="secnum">01</span> Conventions frozen first</h2>
+<p>The plan is explicit (<code>02_development_plan.md:252</code>): freeze topic and namespace
+conventions in Phase 1, because they reach the aircraft unchanged. Every decision was taken
+against the running stack, not from memory.</p>
+
+<div class="grid g2">
+<div class="callout"><span class="lbl">Namespace</span><p>Bare <code>/fmu/*</code> behind a
+<code>px4_ns</code> parameter defaulting to empty, so a second aircraft is configuration
+rather than a refactor.</p></div>
+<div class="callout warn"><span class="lbl">QoS — the false negative</span><p>PX4's
+<code>/fmu/out</code> publishers are <strong>BEST_EFFORT + TRANSIENT_LOCAL</strong>. A
+default subscription matches <strong>nothing</strong> and the node sees zero messages
+against a perfectly healthy stack.</p></div>
+<div class="callout ok"><span class="lbl">Frames</span><p>ENU/FLU outside, NED confined to
+one tested function. A double conversion is the identity on some axes and a sign flip on
+others — the vehicle accepts the command and flies into the ground.</p></div>
+<div class="callout stop"><span class="lbl">NaN, not 0.0</span><p><code>TrajectorySetpoint</code>
+documents NaN as "do not control this state". A zeroed velocity array commands zero
+velocity, fighting the position controller.</p></div>
+</div>
+
+<h2 id="arming"><span class="secnum">02</span> The arming investigation</h2>
+<p>The node reached offboard mode instantly, then sat in <code>arm</code> until it timed out.
+PX4 said only <code>Arming denied: Resolve system health failures first</code> — the specific
+reason goes to the MAVLink log, i.e. to the ground station a headless stack does not have.</p>
+
+<div class="panel">
+<svg viewBox="0 0 1080 300" width="100%" role="img" aria-label="Four hypotheses, one root cause">
+  <defs><marker id="a1" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink2)"/></marker></defs>
+  <rect class="n-b" x="20" y="30" width="200" height="56" rx="3"/>
+  <text class="nid" x="34" y="52">COM_RCL_EXCEPT</text><text class="nlb" x="34" y="70">set, confirmed, still denied</text>
+  <rect class="n-b" x="20" y="98" width="200" height="56" rx="3"/>
+  <text class="nid" x="34" y="120">stale params</text><text class="nlb" x="34" y="138">image has none — ruled out</text>
+  <rect class="n-b" x="20" y="166" width="200" height="56" rx="3"/>
+  <text class="nid" x="34" y="188">CPU starvation</text><text class="nlb" x="34" y="206">17.6% of a 90% limit</text>
+  <rect class="n-b" x="20" y="234" width="200" height="56" rx="3"/>
+  <text class="nid" x="34" y="256">ekf2 missing data</text><text class="nlb" x="34" y="274">once, at boot — transient</text>
+
+  <rect class="n-a" x="300" y="120" width="240" height="90" rx="3"/>
+  <text class="nid" x="316" y="146">listener health_report</text>
+  <text class="nlb" x="316" y="166">checks as BITFIELDS, not prose</text>
+  <text class="nlb" x="316" y="184">error flags 1052672</text>
+  <text class="nlb" x="316" y="200">can_arm_mode_flags 0</text>
+
+  <rect class="n-done" x="620" y="105" width="440" height="120" rx="3"/>
+  <text class="nid" x="638" y="131">ROOT CAUSE — the airframe, not the firmware</text>
+  <text class="nlb" x="638" y="153">rcAndDataLinkCheck.cpp:81 requires a GCS whenever NAV_DLL_ACT &gt; 0.</text>
+  <text class="nlb" x="638" y="171">Firmware default is 0 — but 4001_gz_x500:51 sets it to 2.</text>
+  <text class="nlb" x="638" y="195" style="fill:var(--stop)">PX4_PARAM_NAV_DLL_ACT=0 SILENTLY FAILS:</text>
+  <text class="nlb" x="638" y="211">env hook runs at rcS:134, the airframe at rcS:231.</text>
+
+  <line class="e" x1="224" y1="165" x2="294" y2="165" marker-end="url(#a1)"/>
+  <line class="e" x1="544" y1="165" x2="614" y2="165" marker-end="url(#a1)"/>
+</svg>
+</div>
+
+<div class="callout ok"><span class="lbl">The fix, and the one rejected</span>
+<p><strong>Rejected:</strong> setting <code>NAV_DLL_ACT 0</code> to switch the check off. It
+worked, and it was wrong — requiring a ground-station datalink before arming is correct, and
+a config that arms without one is not a config to carry toward hardware.</p>
+<p><strong>Shipped:</strong> a real QGroundControl service. Verified causally in both
+directions — QGC running: arms and flies. QGC stopped: <strong>arming denied</strong>.</p></div>
+
+<h2 id="port"><span class="secnum">03</span> 18570, not 14550</h2>
+<div class="tw"><table>
+<thead><tr><th>Port</th><th>Bound by</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr><td><code>18570</code></td><td>PX4</td><td>binding it failed with <code>EADDRINUSE</code></td></tr>
+<tr><td><code>14550</code></td><td>QGroundControl</td><td>bound it and received <strong>nothing in 8 s</strong></td></tr>
+</tbody></table></div>
+<p>QGC discovers by sending <em>to</em> 18570; PX4 then learns its address and replies <em>to</em>
+14550. So 14550 is silent until a ground station speaks first — and a heartbeat aimed there
+is discarded with <strong>no error and no log line</strong>.</p>
+
+<h2 id="result"><span class="secnum">04</span> Result</h2>
+<div class="grid g3">
+<div class="stat ok"><div class="k">Waypoints</div><div class="v">4 / 4</div><div class="n">arm → takeoff → square → land</div></div>
+<div class="stat ok"><div class="k">Peak altitude, from the MCAP</div><div class="v">10.18 m</div><div class="n">commanded 10.0</div></div>
+<div class="stat ok"><div class="k">Square, from the MCAP</div><div class="v">10.28 × 10.25</div><div class="n">commanded 10 × 10</div></div>
+</div>
+<p>Confirmed from <strong>5,360 position samples read back out of the bag</strong>, not from the
+node's own logging. uXRCE-DDS throughout — no MAVLink in our code at all.</p>
+
+<div class="callout"><span class="lbl">Also found</span><p><strong>Landing means stopping the
+setpoint stream.</strong> Continuing to publish an offboard setpoint at cruise altitude fights
+<code>AUTO.LAND</code>: the vehicle holds 10 m and the state times out.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

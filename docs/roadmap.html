@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>drone-sim — Phases &amp; Timeline</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Roadmap · snapshot 2026-07-31</span>
+  <nav><a href="#now">Now</a><a href="#timeline">Timeline</a><a href="#lanes">Lanes</a><a href="#phases">Phases</a><a href="#next">Next</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Roadmap · snapshot 2026-07-31</span>
+  <h1>Phases &amp; Timeline</h1>
+  <p class="sub">Phase 1 is closed with its exit criterion met. Phase 0 stands at 4 of 5, with Isaac deferred for a driver conflict. Everything beyond is estimated, not measured.</p>
+  <div class="mastmeta"><span>Elapsed <b>4 days</b></span><span>Commits <b>17</b></span><span>Off-target tests <b>26</b></span><span>Phase 1 <b>CLOSED</b></span><span>Next <b>Phase 2</b></span></div>
+</header>
+
+<div class="callout"><span class="lbl">How to read this</span>
+<p><strong>Elapsed days are measured; remaining estimates are the plan's, not mine.</strong>
+Phases 0 and 1 took four calendar days against a planned 18–27 engineer-days — that ratio
+says more about a plan written for a team than about velocity, and it should not be
+extrapolated onto Phase 2, which is dominated by porting EGO-Planner.</p></div>
+
+<h2 id="now"><span class="secnum">01</span> Where the project is</h2>
+<div class="grid g3">
+<div class="stat ok"><div class="k">Phase 1</div><div class="v">CLOSED</div><div class="n">every task done, exit criterion met</div></div>
+<div class="stat warn"><div class="k">Phase 0</div><div class="v">4 / 5</div><div class="n">Isaac deferred — driver conflict</div></div>
+<div class="stat"><div class="k">Next</div><div class="v">Phase 2</div><div class="n">perception &amp; obstacle avoidance</div></div>
+</div>
+
+<h2 id="timeline"><span class="secnum">02</span> Timeline</h2>
+<div class="panel">
+<svg viewBox="0 0 1120 470" width="100%" role="img" aria-label="Phase timeline, measured and estimated">
+  <defs><marker id="tarr" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink2)"/></marker></defs>
+
+  <text class="axl" x="20" y="24" style="fill:var(--chrome-ink)">MEASURED — actual calendar days</text>
+  <line class="e" x1="20" y1="36" x2="1100" y2="36"/>
+
+  <rect class="n-done" x="20" y="50" width="150" height="54" rx="3"/>
+  <text class="nid" x="34" y="72">PHASE 0</text>
+  <text class="nlb" x="34" y="90">28–29 Jul · 4/5 criteria</text>
+
+  <rect class="n-done" x="180" y="50" width="230" height="54" rx="3"/>
+  <text class="nid" x="194" y="72">PHASE 1 — CLOSED</text>
+  <text class="nlb" x="194" y="90">29–31 Jul · SR 10/10</text>
+
+  <rect class="n-v" x="420" y="50" width="180" height="54" rx="3"/>
+  <text class="nid" x="434" y="72">Docker · cross-cutting</text>
+  <text class="nlb" x="434" y="90">D-01 · D-02 · D-02c</text>
+
+  <text class="nlb" x="620" y="82" style="fill:var(--ok)">4 calendar days, 17 commits, 26 tests, 2 phases</text>
+
+  <text class="axl" x="20" y="140" style="fill:var(--ground)">ESTIMATED — engineer-days, from the plan (02_development_plan.md)</text>
+  <line class="e" x1="20" y1="152" x2="1100" y2="152"/>
+
+  <rect class="n-a" x="20" y="168" width="300" height="66" rx="3"/>
+  <text class="nid" x="36" y="192">PHASE 2 · 15–20 days</text>
+  <text class="nlb" x="36" y="210">depth/LiDAR mapping + EGO-Planner</text>
+  <text class="nlb" x="36" y="226" style="fill:var(--stop)">0 collisions / 20 runs · reach ≥ 80%</text>
+
+  <rect class="n-a" x="335" y="168" width="330" height="66" rx="3"/>
+  <text class="nid" x="351" y="192">PHASE 3 · 20–28 days</text>
+  <text class="nlb" x="351" y="210">VLM target-gen + cuVSLAM VIO, GPS-denied</text>
+  <text class="nlb" x="351" y="226" style="fill:var(--stop)">SR ≥ 50% · VIO drift &lt; 1 m / 60 s</text>
+
+  <rect class="n-a" x="680" y="168" width="420" height="66" rx="3"/>
+  <text class="nid" x="696" y="192">PHASE 4 · 25–35 days</text>
+  <text class="nlb" x="696" y="210">AerialVLN reproduction · Jetson · HITL · REAL FLIGHT</text>
+  <text class="nlb" x="696" y="226" style="fill:var(--stop)">within ~10 pts of Fly0's 70.43% · latency ≤ 1 s</text>
+
+  <line class="e" x1="320" y1="201" x2="330" y2="201" marker-end="url(#tarr)"/>
+  <line class="e" x1="665" y1="201" x2="675" y2="201" marker-end="url(#tarr)"/>
+
+  <text class="axl" x="20" y="288" style="fill:var(--space)">DEFERRED — by decision, with the reason recorded</text>
+  <line class="e" x1="20" y1="300" x2="1100" y2="300"/>
+
+  <rect class="n-b" x="20" y="316" width="340" height="62" rx="3"/>
+  <text class="nid" x="36" y="338">LANE B — Isaac Sim + Pegasus</text>
+  <text class="nlb" x="36" y="356">driver 610.43.03 vs Isaac's validated 580.65.06;</text>
+  <text class="nlb" x="36" y="372">no Pegasus release for Isaac 6.0</text>
+
+  <rect class="n-b" x="375" y="316" width="340" height="62" rx="3"/>
+  <text class="nid" x="391" y="338">D-07 — automated flight gate</text>
+  <text class="nlb" x="391" y="356">2 vCPU cannot hold RTF ≥ 0.95; a self-hosted</text>
+  <text class="nlb" x="391" y="372">runner on a public repo runs fork code here</text>
+
+  <rect class="n-b" x="730" y="316" width="370" height="62" rx="3"/>
+  <text class="nid" x="746" y="338">D-06 — container boundaries</text>
+  <text class="nlb" x="746" y="356">mirror the Phase 4 machines; first step already</text>
+  <text class="nlb" x="746" y="372">taken (ros2 image split from lane-a)</text>
+
+  <rect x="20" y="398" width="1080" height="54" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+  <text class="nid" x="36" y="420">THE HONEST CAVEAT</text>
+  <text class="nlb" x="36" y="440">Phase 4 is the first time anything reaches real hardware. Every flight so far is SITL, and arming a real X500 needs explicit per-run approval — every time.</text>
+</svg>
+</div>
+
+<h2 id="lanes"><span class="secnum">03</span> Phases are not lanes</h2>
+<p><strong>Everything shipped so far is Lane A.</strong> The phase axis above hides a second
+one, and the two are easy to conflate: a phase is a capability, a lane is a simulator.</p>
+
+<div class="panel">
+<svg viewBox="0 0 1120 300" width="100%" role="img" aria-label="Which lane each phase needs">
+  <text class="axl" x="150" y="26">PHASE 0</text><text class="axl" x="270" y="26">PHASE 1</text>
+  <text class="axl" x="390" y="26">PHASE 2</text><text class="axl" x="530" y="26">PHASE 3</text>
+  <text class="axl" x="760" y="26">PHASE 4</text>
+  <line class="e" x1="140" y1="36" x2="1100" y2="36"/>
+
+  <text class="nid" x="20" y="72">LANE A</text>
+  <text class="nlb" x="20" y="88">PX4 · Gazebo</text>
+  <text class="nlb" x="20" y="102">ROS 2 · CI backbone</text>
+  <rect class="n-done" x="140" y="52" width="230" height="58" rx="3"/>
+  <text class="nlb" x="156" y="76" style="fill:#3F7A34">DONE — 0 and 1 complete</text>
+  <text class="nlb" x="156" y="94">controller · gate · SR 10/10</text>
+  <rect class="n-a" x="380" y="52" width="130" height="58" rx="3"/>
+  <text class="nlb" x="396" y="82">depth · EGO-Planner</text>
+  <rect class="n-a" x="520" y="52" width="220" height="58" rx="3"/>
+  <text class="nlb" x="536" y="76">VLM client · cuVSLAM VIO</text>
+  <text class="nlb" x="536" y="94">the plumbing stays here</text>
+  <rect class="n-a" x="750" y="52" width="350" height="58" rx="3"/>
+  <text class="nlb" x="766" y="82">HITL · real Pixhawk 6C · the ROS graph, unchanged</text>
+
+  <text class="nid" x="20" y="162">LANE C</text>
+  <text class="nlb" x="20" y="178">UE5.5 · Cosys-AirSim</text>
+  <text class="nlb" x="20" y="192">photoreal + benchmarks</text>
+  <rect x="140" y="142" width="370" height="58" rx="3" fill="none" stroke="var(--rule)" stroke-dasharray="3 4"/>
+  <text class="nlb" x="290" y="176" style="fill:var(--ink2)">not needed</text>
+  <rect class="n-b" x="520" y="142" width="220" height="58" rx="3"/>
+  <text class="nlb" x="536" y="166" style="fill:var(--stop)">photoreal scenes</text>
+  <text class="nlb" x="536" y="184">INHERITED from deferred Lane B</text>
+  <rect class="n-b" x="750" y="142" width="350" height="58" rx="3"/>
+  <text class="nlb" x="766" y="166" style="fill:var(--stop)">REQUIRED — AerialVLN / OpenFly reproduction</text>
+  <text class="nlb" x="766" y="184">all three target papers use Unreal/AirSim; none uses Isaac</text>
+
+  <text class="nid" x="20" y="248">LANE B</text>
+  <text class="nlb" x="20" y="264">Isaac Sim · Pegasus</text>
+  <rect class="n-b" x="140" y="228" width="960" height="46" rx="3"/>
+  <text class="nlb" x="156" y="248" style="fill:var(--stop)">DEFERRED — driver 610.43.03 vs Isaac's validated 580.65.06, and no Pegasus release for Isaac 6.0.</text>
+  <text class="nlb" x="156" y="264">Its photoreal role passed to Lane C. Reopens if the host is rebased to an R580 driver.</text>
+</svg>
+</div>
+
+<div class="callout stop">
+<span class="lbl">The long pole nobody is holding</span>
+<p><strong>Lane C has five tasks, all <code>todo</code>, and nothing currently forces it to
+start</strong> — yet Phase 3 needs it for photoreal scenes and Phase 4 cannot happen without
+it. The plan rates it <strong>High likelihood / Med impact</strong> for build fragility: the
+precompiled Cosys-AirSim Linux plugin targets <strong>UE5.2.1</strong>, and the UE5.5 branch
+was a <strong>March-2025 pre-release</strong>. <code>C-01</code> is literally "find a commit
+that builds".</p>
+<p>Discovering during Phase 3 that it does not build would be an expensive surprise on the
+critical path. Proving a build early — <code>C-01</code> and <code>C-02</code> alone — de-risks
+two phases for comparatively little, and can run in parallel with Phase 2 because they share
+no code.</p>
+</div>
+
+<h2 id="phases"><span class="secnum">04</span> The phases, and what each unlocks</h2>
+<div class="tw"><table>
+<thead><tr><th>Phase</th><th>Goal</th><th>Exit criterion</th><th>Unlocks</th><th>State</th></tr></thead>
+<tbody>
+<tr><td><strong>0</strong></td><td>Pinned, reproducible toolchain</td><td>headless SITL, no sensor TIMEOUTs; <code>/fmu/out/*</code>; QGC connects; Isaac + <em>hello VLM</em></td><td>—</td><td><span class="pill p-warn">4 / 5</span> Isaac deferred</td></tr>
+<tr><td><strong>1</strong></td><td>ROS 2 offboard controller flying GPS waypoints, recorded to MCAP</td><td><strong>SR = 100% over 10 seeded runs</strong> + artifact</td><td>GPS navigation</td><td><span class="pill p-ok">CLOSED</span></td></tr>
+<tr><td><strong>2</strong></td><td>Depth/LiDAR mapping + EGO-Planner through clutter</td><td><strong>0 collisions / 20 runs</strong>; reach ≥ 80%</td><td>obstacle avoidance</td><td>next</td></tr>
+<tr><td><strong>3</strong></td><td>Slow VLM target-generator + fast tracker; GPS-denied on VIO</td><td>SR ≥ 50% (SR@5m); VIO drift &lt; 1 m / 60 s</td><td>vision-based navigation</td><td>—</td></tr>
+<tr><td><strong>4</strong></td><td>Benchmark reproduction, onboard Jetson, HITL, real flight</td><td>within ~10 pts of Fly0's 70.43%; latency ≤ 1 s; <strong>one real flight</strong></td><td>sim-to-real</td><td>—</td></tr>
+</tbody></table></div>
+
+<h2 id="next"><span class="secnum">05</span> What is actually next</h2>
+<div class="grid g2">
+<div class="callout stop"><span class="lbl">Before anything else</span><p><strong>36 uncommitted paths</strong>, held until 18:00 PT by the project's own commit-window rule. Five coherent commits: QGC self-contained, the CI decision, the docs catch-up, launch + <code>/clock</code>, and the mission contracts.</p></div>
+<div class="callout"><span class="lbl">Then: Phase 2 opens</span><p>Create <code>docs/planning/todo.md</code> and <code>docs/perception/todo.md</code> — area docs are written when their phase starts. The plan's own risk note: <em>the EGO-Planner ROS 2 port is the item most likely to be underestimated</em>, with a ROS 1 bridge container as the fallback.</p></div>
+<div class="callout warn"><span class="lbl">Or first: D-06</span><p>Redraw the container boundaries to mirror the Phase 4 machines. No user-visible change, but Lane C, GPU services (<code>D-03</code>) and Phase 4 all inherit it — and the first step happened already, because the <code>/clock</code> bridge forced the ROS 2 image apart from the Gazebo one.</p></div>
+<div class="callout"><span class="lbl">Carried, still unaddressed</span><p>The PX4 <code>VMIN</code> defect is unreported upstream. And a personal access token pasted into this session's chat has not been rotated.</p></div>
+</div>
+
+<div class="panel"><p style="margin:0"><strong>Source of truth:</strong> <code>docs/drone-sim-todo.md</code> and the per-area backlogs. This page is a snapshot on 2026-07-31; if it disagrees with those, trust them and update this.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

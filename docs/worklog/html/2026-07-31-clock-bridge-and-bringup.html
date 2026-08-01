@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The /clock Bridge, and the Library That Broke Gazebo — 2026-07-31</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-07-31 · P1-03 / P1-03a</span>
+  <nav><a href="#why">Why together</a><a href="#tested">Tested first</a><a href="#broke">It broke Gazebo</a><a href="#layers">Layer cost</a><a href="#works">It works</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-07-31 · P1-03 / P1-03a · Lane A · SITL only</span>
+  <h1>The <code style="font-size:.62em">/clock</code> Bridge,<br>and the Library<br>That Broke Gazebo</h1>
+  <p class="sub">Making <code>use_sim_time</code> reachable for the first time in this project — and discovering that installing the bridge into the Lane A image stopped PX4 from launching its own simulator. Both packages install cleanly. Nothing warns.</p>
+  <div class="mastmeta"><span>Kept <b>as it happened</b></span><span>Rebuild cost <b>20–40 min</b></span><span>After the fix <b>28 s</b></span><span>Result <b>4/4, exit 0 in 47 s</b></span></div>
+</header>
+
+<div class="callout"><span class="lbl">Provenance</span>
+<p>Kept as the work happens, per <code>.ai/AGENTS.md</code>. The previous two worklogs were written
+after the fact and said so; <strong>this one is not.</strong></p></div>
+
+<h2 id="why"><span class="secnum">01</span> Why these two together</h2>
+<p><code>docs/lane-a/conventions.md</code> §4 freezes <code>use_sim_time: true</code> as the rule —
+and then records that it is <strong>not reachable</strong>: nothing publishes <code>/clock</code>,
+so turning it on freezes every node's timers at zero and the node hangs in a way that looks exactly
+like a deadlocked controller. Every node therefore runs on wall clock, which is wrong by the ~2.7%
+the nested-Docker RTF deficit costs.</p>
+<p><code>P1-03</code> (launch composition) is where <code>use_sim_time</code> would be set, so
+building the launch files without the clock first would mean writing a parameter that cannot be
+switched on.</p>
+<div class="callout warn"><span class="lbl">Second motive, from using the stack all week</span>
+<p><code>docker compose down</code> <strong>discards the <code>control</code> build</strong>,
+because it lives in the container filesystem rather than a volume. Both the seeded runner and the
+recorder rebuild it on every start. That is the manual step <code>P1-03</code> should remove.</p></div>
+
+<h2 id="tested"><span class="secnum">02</span> Tested before baking it in</h2>
+<p><code>ros-jazzy-ros-gz-bridge</code> <strong>1.0.22-1noble.20260615.142443</strong> is in the
+image's existing apt sources. One thing worth checking rather than assuming: it depends on
+<code>ros-jazzy-gz-msgs-vendor</code> and <code>ros-jazzy-gz-transport-vendor</code> —
+<strong>vendored</strong> gz libraries, not the system's <code>libgz-transport13</code> /
+<code>libgz-msgs10</code> that Harmonic uses.</p>
+<p>If the vendored versions belonged to a different gz generation, the bridge would run happily and
+see no topics — <strong>the same shape of silent failure as the BEST_EFFORT QoS mismatch.</strong>
+Tested in a throwaway container against the live stack before touching the Dockerfile:</p>
+<pre>/clock present: 1
+sec: 36  -&gt;  sec: 40      (advancing)
+[ros_gz_bridge]: Creating GZ-&gt;ROS Bridge:
+  [/world/default/clock (gz.msgs.Clock) -&gt; /world/default/clock (rosgraph_msgs/msg/Clock)]</pre>
+<p>The vendored libraries do see the Harmonic server. No mismatch.</p>
+<p><strong>Topic name:</strong> Gazebo publishes <code>/world/default/clock</code>; ROS convention
+is <code>/clock</code>, so the bridge is remapped. <strong>The world name is in that topic path</strong>,
+so a different world means a different source topic — it is a launch argument, not a constant.</p>
+
+<h2 id="broke"><span class="secnum">03</span> Installing the bridge into the Lane A image BREAKS GAZEBO</h2>
+<p>After the rebuild, PX4 could not start Gazebo at all:</p>
+<pre>INFO  [init] Waiting for Gazebo world...   (x6)
+ERROR [init] Timed out waiting for Gazebo world</pre>
+
+<figure>
+<div class="figscroll">
+<svg viewBox="0 0 1080 300" role="img" aria-label="Sourcing ROS puts vendored gz libraries on LD_LIBRARY_PATH, shadowing system Harmonic and breaking the gz CLI, so PX4 cannot launch its own simulator">
+  <defs><marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink2)"/></marker></defs>
+  <text class="axl" x="16" y="20">THE MECHANISM, ISOLATED</text>
+  <line class="e" x1="16" y1="30" x2="1060" y2="30"/>
+
+  <rect class="n-done" x="16" y="50" width="250" height="48" rx="2"/>
+  <text class="mn" x="30" y="70" style="fill:var(--ink)">gz sim --versions</text>
+  <text class="nlb" x="30" y="88" style="fill:var(--ok)">8.14.0 &mdash; fine</text>
+
+  <line class="e" x1="272" y1="74" x2="330" y2="74" marker-end="url(#a2)"/>
+
+  <rect class="n-g" x="336" y="50" width="300" height="48" rx="2"/>
+  <text class="mn" x="350" y="70" style="fill:var(--ink)">. /opt/ros/jazzy/setup.bash</text>
+  <text class="nlb" x="350" y="88">ros-gz-bridge pulled gz_transport_vendor</text>
+
+  <line class="e" x1="642" y1="74" x2="700" y2="74" marker-end="url(#a2)"/>
+
+  <rect class="n-b" x="706" y="50" width="354" height="48" rx="2"/>
+  <text class="mn" x="720" y="70" style="fill:var(--ink)">gz sim --versions</text>
+  <text class="nlb" x="720" y="88" style="fill:var(--stop)">prints the help text &mdash; BROKEN</text>
+
+  <rect class="n-box" x="16" y="118" width="1044" height="46" rx="2"/>
+  <text class="nlb" x="30" y="138" style="fill:var(--ink)">LD_LIBRARY_PATH now contains /opt/ros/jazzy/opt/gz_transport_vendor/lib and /opt/ros/jazzy/opt/gz_msgs_vendor/lib</text>
+  <text class="nlb" x="30" y="154" style="fill:var(--stop)">libgz-transport13.so.13.5.0 SHADOWS the system Harmonic library</text>
+
+  <rect class="n-b" x="16" y="184" width="1044" height="46" rx="2"/>
+  <text class="nlb" x="30" y="204" style="fill:var(--ink)">px4-sitl runs its command through `bash -lc`, which sources /etc/profile.d/10-ros.sh</text>
+  <text class="nlb" x="30" y="220" style="fill:var(--stop)">&rarr; PX4 got the vendored libraries and could no longer launch its own simulator</text>
+
+  <rect x="16" y="250" width="1044" height="40" rx="2" fill="var(--panel2)" stroke="var(--ok)" stroke-width="2"/>
+  <text class="nlb" x="30" y="275" style="fill:var(--ok)">FIX: keep the bridge OUT of the image that runs Gazebo. px4-sitl and xrce-agent stay on plain lane-a; the ROS 2 side gets a thin image with the bridge added.</text>
+</svg>
+</div>
+<figcaption>Both packages install cleanly, gz works until ROS is sourced, and the failure surfaces as PX4 "waiting for Gazebo"</figcaption>
+</figure>
+
+<div class="callout stop"><span class="lbl">This is exactly the version-coupling class versions.lock exists for</span>
+<p>And it does not announce itself. Before this change, sourcing ROS was harmless <em>because the
+vendor packages were not installed</em>. The vendored libraries are only harmful to a process that
+launches <code>gz</code> — the bridge itself uses them correctly.</p>
+<p>That split also happens to be <strong>the first real step of <code>D-06</code></strong>: the
+flight-controller image and the companion image stop being the same thing.</p></div>
+
+<h2 id="layers"><span class="secnum">04</span> Layer placement cost a rebuild</h2>
+<p>First attempt added <code>ros-gz-bridge</code> to the ROS install block near the top of the
+Dockerfile, which is where ROS packages "belong" by tidiness. That <strong>invalidates every layer
+after it — including the 20–40 minute PX4 build</strong> — for a package with no relationship to
+PX4. The rebuild blew a 10-minute budget and was killed.</p>
+
+<figure>
+<div class="figscroll">
+<svg viewBox="0 0 1080 150" role="img" aria-label="Bar chart to scale comparing a 20 to 40 minute rebuild against 28 seconds after moving the layer">
+  <text class="axl" x="16" y="20">REBUILD COST BY LAYER POSITION &mdash; BARS TO SCALE (2400 s full width)</text>
+  <line class="e" x1="16" y1="30" x2="1060" y2="30"/>
+
+  <text class="nlb" x="16" y="58">TOP of the Dockerfile</text>
+  <rect x="230" y="42" width="1040" height="22" rx="2" fill="var(--panel2)" stroke="var(--stop)" stroke-width="2"/>
+  <rect x="230" y="42" width="830" height="22" rx="2" fill="var(--stop)" opacity="0.28"/>
+  <text class="mn" x="244" y="58" style="fill:var(--ink)">1200&ndash;2400 s &mdash; invalidates the PX4 build</text>
+
+  <text class="nlb" x="16" y="104">LATE layer, before EXPOSE</text>
+  <rect x="230" y="88" width="12" height="22" rx="2" fill="var(--ok)"/>
+  <text class="mn" x="252" y="104" style="fill:var(--ok)">27.789 s</text>
+
+  <text class="nlb" x="16" y="136" style="fill:var(--ink)">Group a Dockerfile by RATE OF CHANGE, not by subject matter. Recorded in the Dockerfile itself so the next person does not "tidy" it back.</text>
+</svg>
+</div>
+<figcaption>28 seconds against tens of minutes, for the same package in a different position</figcaption>
+</figure>
+
+<p>The build now asserts <code>parameter_bridge</code> exists and records the version in
+<code>/etc/drone-sim-versions</code>, so a silent packaging change shows up as a build failure
+rather than as a bridge that carries nothing.</p>
+
+<h2 id="works"><span class="secnum">05</span> <code>use_sim_time</code> works — first time in this project</h2>
+<pre>ros2 launch bringup sim.launch.py use_sim_time:=true
+  [clock_bridge] Creating GZ-&gt;ROS Bridge: [/world/default/clock -&gt; /clock]
+  [offboard_control] armed
+  [offboard_control] reached takeoff altitude 10.0 m
+  [offboard_control] landed and disarmed
+  result: success 4/4  [0.156, 0.09, 0.15, 0.16]</pre>
+<p>The conventions document can stop saying <code>use_sim_time</code> is
+specified-but-unreachable.</p>
+
+<div class="callout warn"><span class="lbl">ros2 launch did not return</span>
+<p>The first run exited <strong>124</strong> — a timeout on a flight that had
+<em>already succeeded</em>. <code>ros2 launch</code> keeps running after the controller lands,
+because the clock bridge is still alive and launch has no reason to stop. Harmless interactively,
+fatal for the scenario runner or anything that needs an exit status.</p>
+<p><code>on_exit=Shutdown()</code> on the controller node fixes it: <strong>exit 0 in 47 s</strong>.</p>
+<p><strong>Worth noting the shape</strong> — the flight was fine, the <em>harness</em> was not, and a
+naive reading of "exit 124" would have blamed the flight.</p></div>
+
+<h3>Structure</h3>
+<div class="grid g2">
+<div class="callout ok"><span class="lbl">control.launch.py</span><p>The controller alone.
+<strong>Identical in sim and on the aircraft</strong>; a future <code>real.launch.py</code> includes
+it and adds the hardware transport, nothing else.</p></div>
+<div class="callout"><span class="lbl">sim.launch.py</span><p>The clock bridge plus that include.
+Everything simulator-only lives here, so the <em>"only the transport is swapped"</em> claim stays
+true.</p></div>
+</div>
+<p><code>use_sim_time</code> still <strong>defaults to false</strong>, deliberately: enabling it
+without a <code>/clock</code> publisher freezes every timer, and a stack launched with
+<code>clock_bridge:=false</code> should fail visibly rather than hang.</p>
+
+<div class="panel"><p style="margin:0"><strong>Source of truth:</strong>
+<code>docs/lane-a/todo.md</code> <code>P1-03</code>/<code>P1-03a</code>,
+<code>ros2_ws/src/bringup/</code>, and <code>docker/ros2.Dockerfile</code>.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

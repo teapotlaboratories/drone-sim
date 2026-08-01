@@ -76,7 +76,33 @@ topic strings outside the convention returns nothing.
 
 ## P1-01 — `drone_interfaces` — our message contracts
 
-**Status:** `todo` · **Blocked by:** P1-00
+**Status:** ✅ **`done` (2026-07-31)** — `ros2_ws/src/interfaces/`
+
+`MissionStatus` (continuous) and `MissionResult` (once), published by the controller and
+recorded into every run's MCAP.
+
+**Acceptance went further than the stated bar.** Rather than "a publish/echo round trip
+works", the whole flight is reconstructable **from the bag alone** — every state
+transition, the target the controller was aiming at, the distance to it, and the verdict.
+882 status messages and 1 result alongside 5,109 PX4 positions.
+
+**Scope judgment, made explicitly.** The task implies replacing the JSON result with ROS
+messages. That would not serve the actual consumer: `run_scenario.py` is a **host** script
+driving `docker compose`, with no ROS environment and no way to subscribe. So JSON stays as
+the host-side transport and these are the graph-side one — two transports, one source of
+truth, documented rather than left looking provisional.
+
+**Why it earns its place now:** a PX4-only bag shows the vehicle in the wrong place without
+showing which waypoint the controller was aiming at, and *"aimed at the wrong place"* versus
+*"aimed correctly and did not get there"* are different bugs that looked identical. Runs are
+not reproducible, so a failing seed cannot be replayed — the bag is the only evidence, and
+now it carries the controller's side.
+
+**Deliberately NOT invented:** Phase 3's `TargetWaypoint` / `VlmQuery`
+(`02_development_plan.md:162`). Freezing a contract for a consumer that does not exist is
+how you get one that fits nothing.
+
+**Original definition:** ~~`todo` · Blocked by: P1-00~~
 
 **What.** The `interfaces` package: messages/services for a mission spec (waypoint list,
 seed, tolerances), a mission result (outcome, per-waypoint errors, timings), and the
@@ -151,7 +177,21 @@ merely logged by the node itself.
 
 ## P1-03 — `sim.launch.py` and bringup composition
 
-**Status:** `todo` · **Blocked by:** P1-02
+**Status:** ✅ **`done` (2026-07-31)** — `ros2_ws/src/bringup/`
+
+```bash
+ros2 launch bringup sim.launch.py use_sim_time:=true
+```
+
+Split so the sim↔real claim survives: `control.launch.py` holds the controller alone —
+identical in sim and on the aircraft — and `sim.launch.py` wraps it with the simulator-only
+`/clock` bridge. A future `real.launch.py` includes the same file and adds the hardware
+transport, nothing else.
+
+**`on_exit=Shutdown()` is load-bearing.** Without it `ros2 launch` never returns after the
+flight lands: the clock bridge is still alive, so launch has no reason to stop. The first
+run exited **124 on a flight that had already succeeded** — the harness failing while the
+flight was fine. Now exit 0 in 47 s, which is what makes it usable from the runner.
 
 **What.** `ros2_ws/src/bringup/` — launch files composing the controller, `use_sim_time`,
 parameter files from `configs/`, and later the recorder. One entry point per lane, sharing
@@ -166,7 +206,31 @@ project goal this repo already committed to.
 
 ## P1-03a — `/clock` bridge, so `use_sim_time` actually works
 
-**Status:** `todo` · **Blocked by:** P1-03 · **Found:** 2026-07-30, while writing `P1-02`
+**Status:** ✅ **`done` (2026-07-31)** — `use_sim_time:=true` flies, verified end to end
+
+**The bridge cannot go in the image that runs Gazebo.** `ros-gz-bridge` pulls
+`gz_transport_vendor`, whose `libgz-transport13.so.13.5.0` lands on `LD_LIBRARY_PATH` when
+ROS is sourced and **shadows the system Harmonic library, breaking the `gz` CLI**:
+
+```
+gz sim --versions            -> 8.14.0
+. /opt/ros/jazzy/setup.bash
+gz sim --versions            -> prints help text; gz is broken
+```
+
+`px4-sitl` runs its command through `bash -lc`, which sources ROS — so with the bridge in
+the shared image PX4 could no longer launch its own simulator and sat in *"Waiting for
+Gazebo world"* until it timed out. Both packages install cleanly and nothing warns.
+
+Fixed by splitting the image: whatever runs Gazebo stays on plain `lane-a`, and the ROS 2
+side gets `docker/ros2.Dockerfile`. That is also the first real step of `D-06` — the
+flight-controller image and the companion image stop being one artifact.
+
+**Layer placement matters too.** Adding the package to the ROS block near the top of
+`lane-a.Dockerfile` invalidated every layer after it, including the 20–40 minute PX4 build,
+and blew a 10-minute budget. Group a Dockerfile by *rate of change*, not by subject.
+
+**Found:** 2026-07-30, while writing `P1-02`
 
 **What.** Publish Gazebo's clock onto ROS 2 `/clock` — `ros_gz_bridge`'s `parameter_bridge`
 on `/world/default/clock`, or an equivalent — and add the package to the Lane A image.
@@ -381,13 +445,22 @@ seeds visibly differ.
 
 ## P1-05 — MCAP recording
 
-**Status:** 🟡 **mostly done (2026-07-31)** — the runner records one MCAP per run, named
+**Status:** ✅ **`done` (2026-07-31)** — the runner records one MCAP per run, named
 `<scenario>-seed<n>`, written to `/out` so it survives `--rm`. 1.36 MB for a ~45 s flight;
 replays and contains the full trajectory (verified by reading 5,360 position samples back
 out of one). `rosbag2-storage-mcap` was already in the image.
 
-**Left to do:** a declared topic set rather than the two hard-coded in the runner, and
-attaching the artifact in CI (`P1-07`).
+**Topic set is now declared by the scenario** (`record_topics`), not baked into the harness
+— because what is worth recording is a property of the scenario: Phase 2 wants depth and the
+planner's trajectory, Phase 3 the VLM's target, and neither should require editing the
+runner. Topic names are validated before they reach the recorder.
+
+With `/mission/status` and `/mission/result` in the set (`P1-01`), **a bag now explains
+itself** — every state transition, the target the controller was aiming at, and the verdict.
+
+**CI artifact upload moved to `D-07`**, where the automated gate lives. It is not achievable
+while the gate is human-triggered, and pretending otherwise would leave a checkbox that
+never gets ticked.
 
 **Original definition:** ~~`todo` · Blocked by: P1-03~~
 
@@ -509,9 +582,40 @@ the argument for running a workflow's steps locally before trusting it:
   deferred). Failing on a known deliberate state makes a job people learn to ignore. It now
   asserts every conflict is *documented* instead.
 
-**Tier 2 — the SITL gate, still to do.** Needs a self-hosted runner (this box qualifies:
-the image is local and there are enough cores). Until it exists, `scripts/run_gate.py` is
-run by hand, and the workflow says so rather than implying coverage it does not have.
+**Tier 2 — DEFERRED to the backlog (decided 2026-07-31). Running the gate locally is
+accepted as having run it.**
+
+`./scripts/run_local_ci.sh --gate` runs the same tier-1 checks CI runs, then the 10-seed
+flight gate, and prints a result line meant to be pasted into a PR. One command, so the
+accepted practice is a thing you *do* rather than a sequence to remember.
+
+> **Rule deviation, recorded:** that script was **built before it was filed as a TODO**,
+> which inverts `.ai/AGENTS.md`'s plan-first rule. It implements a decision that is
+> documented here and in `D-07`, but the order was wrong.
+
+**Why deferred rather than built.** Two independent blockers, and the second is the one
+that decided it:
+
+1. **It cannot run on a GitHub-hosted runner.** 12.6 GB image against ~14 GB of disk,
+   20–40 min to build, and 2 vCPU against an aggregate-RTF floor of 0.95. That last one is
+   fatal even if the rest were solved: two cores would miss the floor **on the hardware,
+   not the code**, and the only way to make it green would be lowering the floor — which
+   destroys the assertion that caught the nested-Docker deficit in the first place.
+2. **A self-hosted runner on a PUBLIC repo is a security hazard.** By default any fork's
+   pull request executes on the runner — here, the workstation holding SSH keys, the
+   netbird tunnel and the external drive. Mitigations exist (`push`-to-`main` only,
+   approval for outside collaborators, a disposable runner), but each is a deliberate
+   posture choice, not a default to drift into.
+
+**What this costs, stated plainly.** The flight gate is human-triggered. A controller
+regression is caught when someone runs it, not when it lands. Tier 1 protects the pure
+logic — 25 tests, the parse checks, `compose config` — and that is genuinely automatic; the
+flight behaviour is not.
+
+**When to revisit.** If a regression reaches `main` unnoticed, or the project gains a
+second contributor, the calculus changes and option 1 (push-to-`main` plus nightly, no fork
+exposure) is the cheapest way in. Tracked in [`../docker/todo.md`](../docker/todo.md) as
+`D-07`.
 
 **What.** ~~CI that builds the Lane A image and runs the gate headless, under 10 minutes.~~
 Superseded by the two tiers above.

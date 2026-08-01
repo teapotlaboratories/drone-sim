@@ -60,31 +60,19 @@ docker build -f docker/qgc.Dockerfile   -t drone-sim/qgc:v1.16.0 .      # thin, 
 ```
 
 **Both images are required.** The second is not optional tooling: PX4 refuses to arm
-without a ground-station datalink, and QGroundControl is what provides it — so without
+without a ground-station datalink, and QGroundControl provides it — so without
 `drone-sim/qgc` the stack comes up and nothing can fly.
+
+QGC itself is **baked into that image**, pinned to 5.0.8 and SHA256-verified during the
+build, so there is nothing to download by hand and a checksum mismatch fails the build
+rather than surfacing later as a vehicle that will not arm.
 
 Pulls PX4 v1.16.0 + submodules, Gazebo Harmonic, ROS 2 Jazzy, the uXRCE-DDS agent and
 branch-matched `px4_msgs`, then **verifies every pin against its recorded SHA** and fails the
 build on a mismatch. Expect 20–40 minutes and ~11.6 GB; the pins land in
 `/etc/drone-sim-versions` inside the image.
 
-### 2. Fetch QGroundControl (required — it is what lets the vehicle arm)
-
-```bash
-./scripts/fetch-qgc.sh          # ~180 MB, pinned to QGC 5.0.8, SHA256-verified
-```
-
-> **This is not an optional viewer.** PX4 refuses to arm without a ground-station
-> datalink, and that safety check is deliberately left **enforced** — it is the link an
-> operator uses to take over. QGC is also the *only* component in this project that speaks
-> MAVLink over IP; everything else is on the ROS 2 graph. Without this file the `qgc`
-> service cannot start and nothing can arm.
->
-> The AppImage is git-ignored rather than committed, so the pin lives in
-> [`versions.lock`](versions.lock) and the script verifies it. A checksum mismatch is a
-> hard failure, not a warning — this binary is the arming datalink.
-
-### 3. Bring the stack up and prove it flies
+### 2. Bring the stack up and prove it flies
 
 ```bash
 docker compose -f docker/compose.yaml up -d                          # PX4 + Gazebo + XRCE agent + ROS 2
@@ -111,7 +99,7 @@ miss. Reference: **RTF 1.0000 native · 0.9967 host podman · 0.9767 nested Dock
 > **`--shm-size=2g` is required, not optional.** Docker defaults `/dev/shm` to 64 MB and
 > Fast-DDS uses shared memory as its default transport; at the default it starves.
 
-### 4. Poke at it interactively
+### 3. Poke at it interactively
 
 With the stack up:
 
@@ -128,7 +116,7 @@ docker compose -f docker/compose.yaml exec ros2 bash -lc 'ros2 topic list | grep
 > with a pipe or a `screen` pty it busy-spins its prompt — ~1.45 M writes/s, **4.1 GB of
 > escape codes per 300 s run** and a fully consumed CPU core.
 
-### 5. Watch it fly — record a video
+### 4. Watch it fly — record a video
 
 Lane A runs headless by design: the smoke test starts the Gazebo *server* only, and the
 interactive path gives you the PX4 shell but no windows. The `recording` profile renders
@@ -140,7 +128,7 @@ all four interfaces onto a virtual display and captures them.
 # one-time: the demo image adds ffmpeg, xterm, xdotool and openbox (~1 min, layers cached)
 docker build -f docker/demo/lane-a-video.Dockerfile -t drone-sim/lane-a-video:v1.16.0 .
 
-# with the stack already up (step 3), record a flight
+# with the stack already up (step 2), record a flight
 docker compose -f docker/compose.yaml --profile record run --rm recording
 ```
 
@@ -177,9 +165,6 @@ video of a simulator that never armed, and reported success. Check the exit stat
 > get an `.mp4`, not something you can click. Attaching a browser-reachable viewer
 > (x11vnc + noVNC on the same display) is `D-02b` in
 > [`docs/docker/todo.md`](docs/docker/todo.md).
-
-**QGroundControl itself is not baked into any image** (180 MB) — `./scripts/fetch-qgc.sh`
-from step 2 puts it where both the `qgc` and `recording` services expect it.
 
 Details and the gotchas that cost time: [`docker/demo/README.md`](docker/demo/README.md).
 
@@ -246,6 +231,7 @@ docs/                  bench briefing, reference designs, backlogs, worklogs
 
 | Doc | What it is |
 |---|---|
+| [`docs/roadmap.html`](docs/roadmap.html) | **Phases and timeline** — what is done, what is next, what is deferred and why |
 | [`docs/drone-sim-todo.md`](docs/drone-sim-todo.md) | Master backlog index — start here |
 | [`versions.lock`](versions.lock) | Every pin, its status, and how it was verified |
 | [`docs/lane-a/architecture.html`](docs/lane-a/architecture.html) | **What runs where and how it is wired** — container topology, ports, the traps |
@@ -254,6 +240,23 @@ docs/                  bench briefing, reference designs, backlogs, worklogs
 | [`docs/worklog/`](docs/worklog/) | Running record of each investigation, with evidence |
 
 ---
+
+## Local CI
+
+```bash
+./scripts/run_local_ci.sh          # fast checks, ~30 s
+./scripts/run_local_ci.sh --gate   # + the 10-seed flight gate, ~19 min
+```
+
+The fast checks are the same ones GitHub Actions runs on every push, so a local pass means
+the same thing. **The flight gate is not automated** — it cannot run on a hosted runner
+(12.6 GB image, 2 vCPU against an RTF floor of 0.95), and a self-hosted runner on a public
+repo would let fork pull requests execute on the machine. Running it here is accepted as
+having run it; see `P1-07` and `D-07`.
+
+Skipping `--gate` is fine for docs or tooling. It is **not** fine for the controller, the
+scenario runner, the overlay or the compose stack — nothing else in this repo would catch a
+regression there.
 
 ## Verifying changes
 
