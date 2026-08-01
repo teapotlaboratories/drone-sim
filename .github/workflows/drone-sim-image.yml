@@ -1,0 +1,91 @@
+name: Drone Sim image
+
+on:
+  push:
+    branches:
+      - main
+      - feat/image-builder
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: drone-sim-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out Drone Sim
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish Drone Sim image
+        id: image
+        shell: bash
+        env:
+          REVISION: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          image="${REGISTRY}/${IMAGE_NAME,,}"
+          immutable_ref="${image}:sha-${REVISION}"
+
+          tags=(--tag "${immutable_ref}")
+          if [[ "${BRANCH}" == "main" ]]; then
+            tags+=(--tag "${image}:main")
+          else
+            safe_branch="${BRANCH//\//-}"
+            tags+=(--tag "${image}:test-${safe_branch}")
+          fi
+
+          docker build \
+            --file docker/lane-a.Dockerfile \
+            "${tags[@]}" \
+            .
+
+          docker push "${immutable_ref}"
+          if [[ "${BRANCH}" == "main" ]]; then
+            docker push "${image}:main"
+          else
+            docker push "${image}:test-${safe_branch}"
+          fi
+
+          docker pull "${immutable_ref}"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${immutable_ref}")"
+          digest_ref="${image}@${digest#*@}"
+
+          {
+            echo "reference=${immutable_ref}"
+            echo "digest_reference=${digest_ref}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          {
+            echo "## Drone Sim image"
+            echo
+            echo "Published immutable image:"
+            echo
+            echo '```text'
+            echo '${{ steps.image.outputs.digest_reference }}'
+            echo '```'
+            echo
+            echo "Source branch: \`${GITHUB_REF_NAME}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
