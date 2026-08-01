@@ -415,3 +415,37 @@ single-container path for the CI smoke gate; do not make it the deployment shape
 - **Do not split and re-measure in one step.** Change the topology, re-run the gate, and
   compare against the recorded numbers — this area has produced several
   looks-fine-but-is-broken states already.
+
+---
+
+## D-07 — Automated flight gate (deferred)
+
+**Status:** `todo` · **Deferred 2026-07-31** — running it locally is accepted instead
+(`./scripts/run_local_ci.sh --gate`). **Related:** `../lane-a/todo.md` `P1-07`
+
+**What.** Run the 10-seed SITL flight gate automatically, rather than when someone
+remembers.
+
+**Why it is not done.** Not effort — two blockers:
+
+- **GitHub-hosted runners cannot do it.** 12.6 GB image against ~14 GB disk, 20–40 min to
+  build, and **2 vCPU against an aggregate-RTF floor of 0.95**. The CPU limit is fatal on
+  its own: the floor would fail on hardware, and the only fix would be lowering it, which
+  removes the assertion that caught this box's nested-Docker deficit.
+- **A self-hosted runner on a public repo lets fork PRs execute code on the machine** —
+  the one holding SSH keys, the netbird tunnel and the 7 TB drive.
+
+**The way in, when it is worth it.** Trigger on `push` to `main` plus a nightly schedule,
+never on `pull_request`. The runner then never executes fork code, and PRs keep tier 1. If
+PR gating is wanted later, "require approval for outside collaborators" layers on top
+without redoing anything.
+
+**Acceptance.** The gate runs unattended, uploads its MCAPs, and no workflow triggered by a
+fork can execute on the runner. Prove the second part, do not assume it.
+
+**Trap.** 19 minutes is fine nightly and painful per-push. Split the triggers deliberately
+rather than discovering it through a queue of stacked runs.
+
+**Also unverified:** GitHub's current defaults and setting names for fork-PR approval on
+self-hosted runners were not checked against live documentation — confirm them in the
+repository's Actions settings before wiring anything, rather than trusting a recollection.
