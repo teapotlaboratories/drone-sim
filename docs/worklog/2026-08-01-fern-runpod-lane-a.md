@@ -84,10 +84,18 @@ image rather than depending on runtime bind mounts.
 
 ## GHCR workflow
 
-`.github/workflows/drone-sim-image.yml` runs for `main` and the temporary `feat/image-builder` validation branch. It uses pinned actions,
-repository `GITHUB_TOKEN` package permission, commit-SHA base/runner tags, a human-facing
-`stack-main` channel, and an uploaded `image-manifest.json` containing the canonical
-digest reference. Fern must use the digest, not the moving channel tag.
+`.github/workflows/drone-sim-image.yml` runs on pushes to `main` and remains manually
+dispatchable for pre-merge validation. It uses pinned actions, repository `GITHUB_TOKEN`
+package permission, commit-SHA base/runner tags, a human-facing `stack-main` channel, and an
+uploaded `image-manifest.json` containing the canonical digest reference. Fern must use the
+digest, not the moving channel tag.
+
+The base now starts from the official ROS Jazzy `ros-base` image pinned by digest instead of
+reinstalling the ROS apt source and base packages from Ubuntu on every cold build. PX4,
+Gazebo, Micro XRCE-DDS Agent, QGC, repository ROS packages, and the runtime wrapper remain
+versioned in this repository. BuildKit's GitHub Actions cache is separated into base and
+stack scopes, and the workflow reads the pushed digest from BuildKit metadata without
+pulling the large image back onto the hosted runner.
 
 Package visibility is not changed automatically. The workflow authenticates its own push
 and pull; public visibility or a Runpod registry credential remains a maintainer deployment
@@ -119,6 +127,9 @@ not a replacement.
 6. Automatically making the GHCR package public was rejected as an unapproved visibility
    change. That mutation is not in the workflow.
 
+7. Rebuilding ROS Jazzy from a bare Ubuntu image made every publisher run pay for stable
+   upstream layers. The base now reuses the digest-pinned official ROS image and persistent
+   BuildKit caches while retaining the repository-owned PX4/Gazebo/XRCE/QGC stack.
 ## Verification completed in this PR
 
 ```text
@@ -126,3 +137,17 @@ PYTHONPATH=ros2_ws/src/control PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 ..........................................                               [100%]
 42 passed in 0.15s
 ```
+
+The first complete publisher run also passed:
+
+```text
+Workflow run: 30709124212
+Commit:       7ded0741a9c8c7cb1c53057935cb65f3332faa6b
+Result:       success
+Elapsed:      22m42s
+Output:       stack-7ded0741a9c8c7cb1c53057935cb65f3332faa6b
+```
+
+That run proved the flattened PX4 + Gazebo + XRCE + ROS 2 + QGC stack can build and push to
+the organization's private GHCR namespace. It preceded the official-ROS-base/cache
+optimization; a manually dispatched run validates that optimization before the PR opens.

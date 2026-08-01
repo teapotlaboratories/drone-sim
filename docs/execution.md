@@ -59,15 +59,17 @@ moving PX4 telemetry passed; it does not mean the five-minute acceptance run has
 
 ## Publish the image
 
-Pushes to `main` run `.github/workflows/drone-sim-image.yml`; the temporary
-`feat/image-builder` trigger validates the same build before merge. It publishes:
+Pushes to `main` run `.github/workflows/drone-sim-image.yml`; maintainers can also use its
+manual dispatch for pre-merge validation. It publishes:
 
 ```text
 ghcr.io/teapotlaboratories/drone-sim:stack-<main-sha>
 ghcr.io/teapotlaboratories/drone-sim:stack-main
 ```
 
-The workflow uploads `image-manifest.json` and prints the canonical digest reference. Fern
+The workflow builds from a digest-pinned official ROS Jazzy base, reuses GitHub Actions
+BuildKit caches, uploads `image-manifest.json`, and prints the canonical digest reference.
+Fern
 must use that digest, not the moving channel tag. The workflow authenticates with its
 repository `GITHUB_TOKEN`; making the package public is a separate maintainer decision. If
 the package remains private, configure the corresponding Runpod registry credential before

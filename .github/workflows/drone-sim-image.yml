@@ -2,9 +2,7 @@ name: Drone Sim stack image
 
 on:
   push:
-    branches:
-      - main
-      - feat/image-builder
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +25,9 @@ jobs:
       - name: Check out Drone Sim
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
@@ -44,7 +45,7 @@ jobs:
           set -euo pipefail
 
           image="${REGISTRY}/${IMAGE_NAME,,}"
-          base_ref="drone-sim-base:${REVISION}"
+          base_ref="${image}:base-${REVISION}"
           immutable_ref="${image}:stack-${REVISION}"
 
           tags=(--tag "${immutable_ref}")
@@ -56,25 +57,29 @@ jobs:
           fi
           tags+=(--tag "${channel_ref}")
 
-          docker build \
+          docker buildx build \
             --file docker/lane-a.Dockerfile \
             --tag "${base_ref}" \
+            --cache-from "type=gha,scope=drone-sim-base-v1" \
+            --cache-to "type=gha,mode=max,scope=drone-sim-base-v1" \
+            --push \
             .
 
-          docker build \
+          docker buildx build \
             --file docker/runpod/lane-a.Dockerfile \
             --build-arg "BASE_IMAGE=${base_ref}" \
             --build-arg "VCS_REF=${REVISION}" \
             --build-arg "IMAGE_VERSION=stack" \
             --build-arg "IMAGE_REFERENCE=${immutable_ref}" \
             "${tags[@]}" \
+            --cache-from "type=gha,scope=drone-sim-stack-v1" \
+            --cache-to "type=gha,mode=max,scope=drone-sim-stack-v1" \
+            --metadata-file stack-metadata.json \
+            --push \
             .
 
-          docker push "${immutable_ref}"
-          docker push "${channel_ref}"
-          docker pull "${immutable_ref}"
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${immutable_ref}")"
-          digest_ref="${image}@${digest#*@}"
+          digest="$(jq -er '."containerimage.digest"' stack-metadata.json)"
+          digest_ref="${image}@${digest}"
 
           jq -n \
             --arg image "${immutable_ref}" \

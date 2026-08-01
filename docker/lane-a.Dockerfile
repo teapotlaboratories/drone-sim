@@ -24,7 +24,10 @@
 #
 # No GPU required — Gazebo runs headless (server-only) and PX4 SITL is CPU-bound.
 
-FROM ubuntu:24.04
+ARG ROS_BASE_IMAGE=ros:jazzy-ros-base-noble@sha256:31daab66eef9139933379fb67159449944f4e2dcf2e22c2d12cc715f29873e0f
+FROM ${ROS_BASE_IMAGE}
+
+ARG ROS_BASE_IMAGE
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -51,27 +54,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake ninja-build python3 python3-pip python3-venv tini \
     && rm -rf /var/lib/apt/lists/*
 
-# --- ROS 2 Jazzy via the ros2-apt-source .deb ----------------------------------------
-# The old apt-key method was retired 2025-06-01 and will fail.
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
-    && add-apt-repository -y universe \
-    && ROS_APT_SOURCE_VERSION="$(curl -fsSL https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest \
-         | grep -F '"tag_name"' | awk -F\" '{print $4}')" \
-    && echo "ros-apt-source ${ROS_APT_SOURCE_VERSION}" \
-    && curl -fsSL -o /tmp/ros2-apt-source.deb \
-         "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb" \
-    && apt-get install -y /tmp/ros2-apt-source.deb \
-    && apt-get update \
+# --- ROS 2 Jazzy ---------------------------------------------------------------------
+# The pinned official ROS image supplies Ubuntu Noble, the ROS apt source, and ros-base.
+# Install only the additional desktop, development, bridge, and recording packages used
+# by the verified stack.
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-desktop ros-dev-tools \
         ros-${ROS_DISTRO}-ros-gz-bridge \
         ros-${ROS_DISTRO}-rosbag2-storage-mcap \
-    && rm -f /tmp/ros2-apt-source.deb \
     && rm -rf /var/lib/apt/lists/* \
     && test -f /opt/ros/${ROS_DISTRO}/setup.bash
 
 # Record what apt actually resolved, so the image can be compared against the native run.
-RUN dpkg -s ros-${ROS_DISTRO}-desktop | awk '/^Version:/{print "ros-desktop " $2}' > /etc/drone-sim-versions \
+RUN echo "ros-base-image ${ROS_BASE_IMAGE}" > /etc/drone-sim-versions \
+    && dpkg -s ros-${ROS_DISTRO}-desktop | awk '/^Version:/{print "ros-desktop " $2}' >> /etc/drone-sim-versions \
     && dpkg -s ros-${ROS_DISTRO}-ros-gz-bridge | awk '/^Version:/{print "ros-gz-bridge " $2}' >> /etc/drone-sim-versions \
     && dpkg -s ros-${ROS_DISTRO}-rosbag2-storage-mcap | awk '/^Version:/{print "rosbag2-storage-mcap " $2}' >> /etc/drone-sim-versions \
     && source /opt/ros/${ROS_DISTRO}/setup.bash \
