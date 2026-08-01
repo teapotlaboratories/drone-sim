@@ -80,6 +80,25 @@ jobs:
         # were caught before they shipped.
         run: docker compose -f docker/compose.yaml config --quiet
 
+      - name: .repos agrees with versions.lock
+        # .repos says it itself: versions.lock is the authority, .repos is the mechanism.
+        # On 2026-07-31 they disagreed in two places, and one reconstructed a BROKEN tree —
+        # the XRCE agent pinned at v2.4.2, which versions.lock records as genuinely
+        # unbuildable because upstream deleted the Fast-DDS branch its superbuild needs.
+        # `vcs import vendor < .repos` on a fresh machine would have checked out the
+        # version that cannot compile.
+        run: python3 scripts/check_repos_manifest.py
+
+      - name: Every worklog has an HTML render and an index card
+        # .ai/AGENTS.md requires one render per worklog plus a card in the index. The rule
+        # has been missed twice — once found by a CI audit, and again on 2026-07-31 when
+        # two same-day worklogs shipped unrendered. Both times it was invisible until
+        # someone went looking, which is exactly what a check is for.
+        #
+        # Shared with scripts/run_local_ci.sh rather than duplicated here, so a local pass
+        # and a CI pass mean the same thing.
+        run: python3 scripts/check_worklog_renders.py
+
       - name: No AI attribution
         # The project rule is that everything reads as the owner's work — enforced rather
         # than remembered.
