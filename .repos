@@ -25,7 +25,12 @@ repositories:
   Micro-XRCE-DDS-Agent:
     type: git
     url: https://github.com/eProsima/Micro-XRCE-DDS-Agent.git
-    version: v2.4.2
+    version: 73622810d984349b80bbac0ef55fc0b694d62222   # v2.4.3
+    # CORRECTED 2026-07-31: this said v2.4.2, which versions.lock records as
+    # GENUINELY UNBUILDABLE — upstream deleted the Fast-DDS branch its superbuild pins
+    # (`fatal: invalid reference: 2.12.x`). `vcs import` from the old value reconstructed
+    # a broken tree, which is precisely the failure this project has a rule against.
+    # Build with -DUAGENT_USE_SYSTEM_FASTDDS=ON.
 
   px4_msgs:
     type: git
@@ -36,7 +41,10 @@ repositories:
   px4_ros_com:
     type: git
     url: https://github.com/PX4/px4_ros_com.git
-    version: main   # TODO-verify: confirm the branch that matches release/1.16
+    version: 86e9aeb20e55a4673fa8a9f1c29ea06a6c5ad1af   # release/1.16
+    # CORRECTED 2026-07-31: this said `main`, mirroring the development plan's snippet,
+    # which branch-matches px4_msgs but NOT px4_ros_com. versions.lock resolved that
+    # asymmetry — upstream does publish release/1.16 and both are branch-matched here.
 
   # --- Phase 3 / Lane B: Isaac Sim 5.1 + Pegasus + PX4 v1.14.3 -----------------
   # Blocked pending the Isaac-vs-driver-610.43.03 verification (versions.lock).
@@ -64,9 +72,16 @@ repositories:
   #   url: https://github.com/ZJU-FAST-Lab/ego-planner-swarm.git
   #   version: TODO-verify   # ROS 2 branch, drone_id=0; port ships a code-map doc
 
-  # --- Phase 4 / Lane C: UE5.5 + Cosys-AirSim ---------------------------------
-  #
-  # Cosys-AirSim:
-  #   type: git
-  #   url: https://github.com/Cosys-Lab/Cosys-AirSim.git
-  #   version: TODO-verify   # pin a known-good UE5.5 commit, not a branch
+  # --- Phase 2+ / Lane C: UE5.8 + Cosys-AirSim — THE PRIMARY STACK ------------
+  # ACTIVATED 2026-07-31. Lane C is no longer a Phase 4 concern: it is the primary
+  # simulator from Phase 2 on. ~1.3 GB checked out — large, but not the tens of GB the
+  # header warns about (that is the UE5 engine IMAGE, 24 GB, which is Docker's problem
+  # and not vcstool's). Engine version is 5.8, not 5.5: UE5.5 and ROS 2 Jazzy cannot be
+  # had from one upstream tag. See versions.lock lane_c.cosys_airsim.
+
+  Cosys-AirSim:
+    type: git
+    url: https://github.com/Cosys-Lab/Cosys-AirSim.git
+    version: a552dd6cd517b8d5d26629ad88004356c3007326   # tag 5.8-v3.4.1, UE5.8
+    # A SHA, never a branch: there is no `5.5` branch upstream at all, and `main` has
+    # already migrated 5.5 -> 5.6dev -> 5.7pdev -> 5.8. Verified on checkout 2026-07-31.
