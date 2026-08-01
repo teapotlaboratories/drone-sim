@@ -57,3 +57,8 @@ secrets/
 .DS_Store
 # compose + demo run artifacts (root-anchored so it cannot swallow e.g. ros2_ws/src/*/out)
 /out/
+
+# Claude Code local settings — PERSONAL, not shared. `.claude/` is otherwise untracked and
+# would be swept up by `git add -A`; a permission allow-list is a per-operator choice and
+# must not ship to anyone cloning this repo.
+.claude/settings.local.json
