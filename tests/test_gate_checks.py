@@ -100,3 +100,18 @@ def test_worst_error_ignores_unusable_values_without_hiding_them():
     assert rg._worst([0.2, float("nan"), 0.5]) == 0.5
     assert rg._worst([]) == 0.0
     assert rg._worst(None) == 0.0
+
+
+def test_runner_clears_the_result_before_a_run():
+    """Pinned after a run whose controller never started reported `success 4/4`.
+
+    `run_flight` reads /out/<tag>.json after the flight. Without deleting it first, a
+    flight that fails to start is scored from whatever a previous run left behind — and the
+    gate calls run_flight for every seed, so that laundered a failure into a pass.
+    """
+    src = (REPO / "scripts" / "run_scenario.py").read_text()
+    body = src.split("def run_flight")[1].split("\ndef ")[0]
+    assert "result_in_container" in body.split("recorder = subprocess.Popen")[0], \
+        "the result file must be removed BEFORE the flight, not after"
+    assert "unlink(missing_ok=True)" in body, \
+        "the host-side copy must be cleared too"
