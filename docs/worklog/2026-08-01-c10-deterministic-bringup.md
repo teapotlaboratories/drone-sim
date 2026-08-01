@@ -52,6 +52,28 @@ Recording that because the tempting write-up — "we now start things in the rig
 be a claim the evidence does not support, and would make the next person delete the retry loop
 as redundant.
 
+### A second cold start sharpens this, and it is not what I assumed
+
+| run | offset caught | after repair |
+|---|---|---|
+| pre-`C-10`, no settle-wait | **35.167 m** | — (this is the bug that cost `C-09`) |
+| cold start 1, with settle-wait | **9.069 m** | 0.000 m |
+| cold start 2, with settle-wait | **9.090 m** | 0.000 m |
+
+Two things follow, and I had the first one wrong:
+
+1. **The settle-wait is not useless — it removes ~26 m of the offset.** I wrote it off as
+   "not sufficient", which was true but under-stated. It does most of the work; the retry loop
+   cleans up a residual.
+2. **The residual is not random — it is 9.069 vs 9.090 m, 21 mm apart across independent cold
+   starts.** A random race would not land twice within 21 mm. That reproducibility says there is
+   a *deterministic* second settling step happening after my wait returns and around when PX4
+   samples, which is a much more tractable target than "a race". Worth chasing: a settle
+   criterion that catches it would remove the restart entirely.
+
+**Two for two on unattended cold starts** (each self-repaired), which is progress on the
+done-when, though still short of a real N.
+
 ## The check reported OK on a NaN, and I only found it by running it
 
 First cold start printed:

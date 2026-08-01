@@ -661,7 +661,45 @@ rather than scored.
 
 ## C-04 — Camera/depth/LiDAR into the existing ROS 2 graph
 
-**Status:** `todo` · **Blocked by:** `C-03`
+**Status:** 🟡 **started 2026-08-01 — wrapper builds and connects, then crashes on first
+publish.** `C-03` unblocked it.
+
+### Where it actually stands
+
+`airsim_node` builds (both packages, 1 min 22 s — matching `C-06`), connects to AirSim, logs
+`Connected!` and `AirsimROSWrapper Initialized!` — **then dies before publishing anything:**
+
+```
+terminate called after throwing an instance of 'eprosima::fastcdr::exception::BadParamException'
+  what():  The string contains null characters
+[ros2run]: Aborted          ->  0 /airsim_node/* topics
+```
+
+A Fast-CDR serialisation fault, i.e. a string field carrying embedded NULs — the usual cause is
+a fixed-size char buffer published without trimming at the first NUL. **Next step is to find
+which message**; it aborts at first publish, so it is on the initial state or TF path.
+
+### Four build findings, none of them in the upstream docs
+
+1. **`geographic_msgs` and `mavros_msgs` are missing from `drone-sim/ros2:v1.16.0`.** Installed
+   with apt into the container to get moving; both need to move into the image (`D-01` rule),
+   or a fresh machine hits this immediately.
+2. **The wrapper must be built IN PLACE.** `airsim_ros_pkgs/CMakeLists.txt` reaches
+   `../../../cmake/{rpclib_wrapper,AirLib,MavLinkCom}` via `add_subdirectory`, so copying the
+   packages into a normal `src/` breaks it. The workspace must mirror `<root>/ros2/src/<pkg>`
+   with `<root>/cmake` alongside.
+3. **The build WRITES INTO ITS OWN SOURCE TREE** — `external/rpclib/.../include/rpc/version.h`
+   and `config.h` via `configure_file`. **So it cannot be built from a read-only mount.** Worked
+   around by symlinking the read-only parts (`cmake`, `AirLib`, `MavLinkCom`) and copying the
+   writable one (`external`, 15 MB).
+4. **The vendored tree carries 163 MB of build artifacts** (`ros2/build` 144 MB, `ros2/install`
+   19 MB) left by `C-06`'s in-tree build. Gitignored, so it never appeared in a diff — but it
+   contradicts the least-destructive-vendor-edits rule and it actively broke this build:
+   `cp -r` carried stale `CMakeCache.txt` files holding absolute host paths, which failed with
+   "current CMakeCache.txt directory is different than the directory where it was created".
+   **Clean it, and build out-of-tree from now on.**
+
+**Blocked by:** nothing — the crash is the work.
 
 **What.** Bring Cosys-AirSim's sensors up on the ROS 2 C++ wrapper: RGB, depth,
 GPU-LiDAR, and the annotation/segmentation cameras.

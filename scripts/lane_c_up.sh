@@ -137,8 +137,12 @@ join lane-c-px4  drone-sim/lane-a:v1.16.0 bash -lc \
 # refuses to arm without one, and Lane C keeps that on purpose -- so this is load-bearing,
 # not a convenience.
 join lane-c-qgc  drone-sim/qgc:v1.16.0
+# vendor/ is mounted read-only for C-04: the Cosys-AirSim ROS 2 wrapper (airsim_node) is
+# built from source here, and colcon compiles AirLib itself via add_subdirectory, so it needs
+# the whole tree rather than just ros2/src.
 docker run -d --name lane-c-ros2 --network "container:$SIM" --ipc "container:$SIM" \
-  -v "$REPO/ros2_ws:/ros2_ws_src" -v "$REPO/out:/out" drone-sim/ros2:v1.16.0 bash -lc '
+  -v "$REPO/ros2_ws:/ros2_ws_src" -v "$REPO/out:/out" \
+  -v "$REPO/vendor/Cosys-AirSim:/vendor/Cosys-AirSim:ro" drone-sim/ros2:v1.16.0 bash -lc '
     mkdir -p /ros2_ws/src; for p in interfaces control bringup; do cp -r "/ros2_ws_src/src/$p" "/ros2_ws/src/$p"; done
     cd /ros2_ws && colcon build --symlink-install --packages-skip px4_msgs px4_ros_com >/dev/null 2>&1 && echo BUILD_OK
     exec sleep infinity' >/dev/null
