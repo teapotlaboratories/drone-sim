@@ -564,6 +564,19 @@ images:
       and bind-mounted. See the qgroundcontrol entry above for its pin.
     status: LOCKED
 
+  ros2:
+    tag: drone-sim/ros2:v1.16.0
+    dockerfile: docker/ros2.Dockerfile
+    base: drone-sim/lane-a:v1.16.0
+    adds: ros-jazzy-ros-gz-bridge (the /clock bridge, P1-03a)
+    role: >-
+      The ROS 2 / companion-computer image. SEPARATE FROM lane-a ON PURPOSE:
+      ros-gz-bridge pulls gz_transport_vendor, whose libgz-transport13 shadows the system
+      Harmonic library once ROS is sourced and BREAKS the gz CLI — which stopped px4-sitl
+      from launching its own simulator. Whatever runs Gazebo stays on plain lane-a.
+    do_not: add anything here that needs to launch `gz`
+    status: LOCKED
+
   lane_a_video:
     tag: drone-sim/lane-a-video:v1.16.0
     dockerfile: docker/demo/lane-a-video.Dockerfile

@@ -92,7 +92,7 @@ clockwise-from-North, converted in the same adapter.
 
 ---
 
-## 4. Time — `use_sim_time: true` is the target, and is NOT yet reachable
+## 4. Time — `use_sim_time: true`, reachable since `P1-03a`
 
 **Intended rule:** every node runs with `use_sim_time: true` in sim. Gazebo owns the clock,
 and at RTF 0.9733 wall-clock and sim-clock diverge by ~2.7% — enough for a wall-clock
@@ -112,9 +112,16 @@ bridge is not installed in the Lane A image. Setting `use_sim_time:=true` today 
 node a clock frozen at zero — **timers never fire and the node hangs**, which looks exactly
 like a deadlocked controller.
 
-**So, for now: nodes run on wall clock, and say so.** Standing up the `/clock` bridge is
-`P1-03a`; `use_sim_time` flips on when that lands, which is why every node takes it as a
-parameter rather than assuming either answer.
+**Resolved 2026-07-31 (`P1-03a`).** `sim.launch.py` starts a `ros_gz_bridge` on
+`/world/<world>/clock`, remapped to `/clock`, and `use_sim_time:=true` now flies end to end.
+
+Two things that stay true and are easy to get wrong:
+
+- **`use_sim_time` still defaults to false.** Enabling it without a `/clock` publisher
+  freezes every timer, so a stack launched with `clock_bridge:=false` should fail visibly
+  rather than hang.
+- **The bridge must not live in the image that runs Gazebo.** Its vendored gz libraries
+  shadow the system Harmonic ones once ROS is sourced and break the `gz` CLI. See `P1-03a`.
 
 **The exception: `timestamp` fields on PX4 messages are PX4's own microsecond clock**, not
 a ROS `Time`. They are filled from the node clock in microseconds and must not be

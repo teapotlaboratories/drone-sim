@@ -204,6 +204,11 @@ services:
   # ---------------------------------------------------------------------------------
   ros2:
     <<: *lane-a
+    # Its own image, NOT the shared one. ros-gz-bridge pulls gz_transport_vendor, whose
+    # libgz-transport13 shadows the system Harmonic library once ROS is sourced and BREAKS
+    # the `gz` CLI — which stopped px4-sitl from launching its own simulator. Whatever runs
+    # Gazebo stays on plain lane-a; the ROS 2 side gets the bridge. See docker/ros2.Dockerfile.
+    image: drone-sim/ros2:v1.16.0
     container_name: lane-a-ros2
     network_mode: "service:px4-sitl"
     ipc: "service:px4-sitl"          # shared /dev/shm — see xrce-agent
@@ -215,6 +220,15 @@ services:
       - ../out:/out
       - ../ros2_ws:/ros2_ws_src:ro
       - rosbags:/rosbags
+    # Healthy only once the workspace has BUILT, not merely once the container is up.
+    # Without this the runner execs into a container whose build is still running and flies
+    # before `control` exists — which then looked like a flight failure rather than a race.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /ros2_ws/.build-ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
     command:
       - bash
       - -lc
@@ -223,12 +237,24 @@ services:
         # the container filesystem, so `compose down` discards it — without this it has to
         # be rebuilt by hand before every run, which is exactly the undocumented manual
         # step the reproducibility goal exists to remove.
-        mkdir -p /ros2_ws/src && rm -rf /ros2_ws/src/control
-        cp -r /ros2_ws_src/src/control /ros2_ws/src/control 2>/dev/null || true
-        if [ -d /ros2_ws/src/control ]; then
-          (cd /ros2_ws && colcon build --packages-select control --symlink-install) \
-            && echo "ros2: control package built" || echo "ros2: WARNING - control build failed"
-        fi
+        # Copy and build the WHOLE workspace, not one package. Naming `control`
+        # explicitly meant drone_interfaces was never built, and because an ament_python
+        # build does not check imports, colcon reported success while the node died at
+        # import when it ran.
+        mkdir -p /ros2_ws/src
+        for pkg in interfaces control bringup; do
+          rm -rf "/ros2_ws/src/$$pkg"
+          cp -r "/ros2_ws_src/src/$$pkg" "/ros2_ws/src/$$pkg" 2>/dev/null || true
+        done
+        # --packages-skip, not --packages-select: OUR packages are picked up automatically
+        # as they are added, while px4_msgs and px4_ros_com — already built into the image —
+        # are not rebuilt. A plain `colcon build` rebuilds px4_msgs, which takes minutes and
+        # left the runner flying before `control` existed.
+        rm -f /ros2_ws/.build-ok
+        (cd /ros2_ws && colcon build --symlink-install \
+            --packages-skip px4_msgs px4_ros_com) \
+          && { touch /ros2_ws/.build-ok; echo "ros2: workspace built"; } \
+          || echo "ros2: WARNING - workspace build failed"
         echo "ros2: ready — try  docker compose exec ros2 bash -lc 'ros2 topic list'"
         exec sleep infinity
 
