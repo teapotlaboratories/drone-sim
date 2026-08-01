@@ -605,9 +605,37 @@ magnitude — restarted PX4, re-verified at 0.000 m apart, and the stack then fl
   This repo already had `test_nan_error_must_not_pass` for the same class; the lesson was not
   applied to new code.
 
-**Still open:** wire the check into `run_gate.py` so a void run is *excluded* from the success
-rate rather than scored; run the cold start N times; the 5-reads-at-0.05 m settle heuristic was
-chosen, not derived.
+**Gate integration landed 2026-08-01.** `run_gate.py` now asserts the EKF origin before each
+run. A void run is **excluded from the success rate** (it never measured the flight code) and
+**separately blocks the criterion** — excluding without blocking would let a gate where 9 of 10
+runs were void report 100%. Scoring moved into a pure `score()` so the semantics are unit-tested:
+all-void is not a pass, an empty run list is not a pass, and a real failure is still a failure.
+The pre-existing `--reuse` caveat survives the rework. `--no-origin-check` exists as an escape
+hatch for stacks without `/fmu/out/vehicle_gps_position`.
+
+**One bug caught before it shipped:** the first version ran the checker with `sys.executable` on
+the gate host — where `ros2` does not exist — which would have made **every** run void and left
+the gate permanently INCONCLUSIVE. A check that fails closed on its own plumbing disables a gate
+as surely as one that fails open. It now execs into the `ros2` service the same way
+`run_scenario.py` does, piped over stdin rather than assuming a mount path, and an AST test pins
+the call site.
+
+**Still open:**
+
+- ~~The live Lane A gate run is UNVERIFIED.~~ **Verified 2026-08-01.** I had written the port
+  collision up as if it blocked this; it does not. The lanes only conflict when run
+  *simultaneously*, and running them one at a time is the same sequencing already used to capture
+  the `C-03` parity diff. Tore Lane C down, freed all five ports, ran the Lane A gate: seed 1
+  **PASS, worst 0.375 m, `void: false`** — the origin check exec'd into the `ros2` service and
+  correctly did **not** void a healthy run, which is the exact regression that mattered. Report
+  carries `valid_total`, `voids: 0`, and the updated criterion string.
+  **Full 10-seed gate then re-run under the new code: 10/10, SR 100%, `met: true`,
+  `voids: 0`, worst error 0.555 m across all seeds, 1350 s wall.** So the origin check adds a
+  per-run assertion without disturbing the Phase 1 result.
+
+  **Lesson: "blocked by a resource conflict" deserves one second of thought about whether the
+  conflict is concurrent or absolute.** It was concurrent, and the work was twenty minutes away.
+- Run the cold start N times; the 5-reads-at-0.05 m settle heuristic was chosen, not derived.
 
 `C-09` proved the vehicle only flies when PX4 initialises its EKF origin **after** the sim
 vehicle has settled. Today that is achieved by restarting `lane-c-px4` by hand once the sim is

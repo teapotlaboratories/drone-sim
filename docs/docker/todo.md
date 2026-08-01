@@ -578,6 +578,83 @@ real link `D-06` wants standing in for a machine boundary. See `D-04`.
 
 ---
 
+## D-08 — The runtime substrate itself is not captured
+
+**Status:** `todo` · **Raised:** 2026-08-01, from `C-10`.
+
+**Directly against the project goal** that "a fresh machine must reach a working stack from the
+repo alone." It does not, and the gap is a whole layer below anything currently written down.
+
+**What is actually running here** — established by inspection, not assumption:
+
+```
+host (Bazzite, immutable)
+└── podman 5.8.4, rootless               <- runs the distrobox
+    └── distrobox "drone-sim"            <- ubuntu 24.04, hostname drone-sim.carbonite
+        └── dockerd (PID 6033) + containerd
+            └── lane-c-sim / -px4 / -xrce / -qgc / -ros2
+```
+
+**Every image, container, and flight test in this project lives at the bottom of that stack.**
+`dockerd` runs *inside* the distrobox — `/var/lib/docker` is the distrobox's own storage, and
+the daemon self-reports `Name=drone-sim.carbonite`. So the containers die with the distrobox,
+and `scripts/lane_c_up.sh` assumes a daemon that nothing in the repo creates.
+
+**What is missing:** how the `drone-sim` distrobox is created (image, flags, GPU passthrough),
+and how Docker is installed and started inside it. Both were done by hand before any of this was
+written down. `D-01` captured the *Lane A install* as a Dockerfile; nothing captured the thing
+the Dockerfile is built by.
+
+**Second, subtler gap — the data is NOT inside the distrobox.** `/home/deck` is the host home
+(`/dev/nvme0n1p6[/home/deck]`, btrfs) passed through by distrobox's default home mount, so every
+bind mount in the bring-up — `sim/ue5/settings.json`, `vendor/Cosys-AirSim`, `ros2_ws`, `out/` —
+resolves to host-filesystem paths. The processes are nested; the working tree is not. Worth
+stating because "it all runs in the container" is the natural assumption and is only half true.
+
+### DECIDED 2026-08-01 by the owner: distrobox is NOT the target
+
+**The target is Docker on a native machine.** The distrobox is scaffolding on this development
+box only — an accident of how `carbonite` was set up, not the intended substrate.
+
+That *shrinks* this task rather than growing it: there is no need to capture
+`distrobox create`, because a fresh machine should never make one. What is needed instead is an
+audit that nothing in the stack has quietly come to depend on the distrobox or on this host.
+
+**Good news first:** `scripts/lane_c_up.sh` is plain `docker run` throughout and should port to
+native Docker unchanged. The nesting was never load-bearing for the bring-up logic.
+
+**The real risk is host-specific workarounds baked into portable-looking images:**
+
+1. **The Vulkan ICD symlink in `docker/lane-c.Dockerfile` is a Bazzite/Fedora workaround.** It
+   exists solely because *this* host's CDI spec injects an ICD naming `/usr/lib64/…` into an
+   Ubuntu container. On a native Ubuntu host with `nvidia-container-toolkit` the multiarch path
+   is already correct and the symlink is dead weight — harmless, but it encodes a foreign host's
+   layout into an image that is meant to be portable, and it would mask a genuine ICD problem on
+   the target machine. **Audit it before it is mistaken for a general fix.**
+2. **The CDI device reference `nvidia.com/gpu=0`** comes from this host's CDI spec. Confirm the
+   native target uses CDI too, or fall back to `--gpus all`.
+3. **`/home/deck/...` bind paths** are the host home passed through by distrobox. On the target
+   these are ordinary paths, but nothing should assume that prefix.
+
+**Do:**
+
+1. **State the target substrate explicitly** — native Docker, no distrobox — wherever a fresh
+   machine's setup is described, so nobody reproduces the nesting by imitation.
+2. **Audit the three host-specific items above** and mark each as either genuinely required or a
+   `carbonite`-only workaround, in the file where it lives.
+3. **Re-scope `D-03`.** It was framed around "the two nested-Docker workarounds"; if nesting is
+   not the target, some of it may dissolve rather than need solving.
+
+**Related housekeeping:** `out/lane-c` already holds 21 MB of flight video on the host home. It
+is gitignored, but the project rule keeps big data out of `~` and on the 7 TB drive. Small now,
+grows with every recording — decide a destination before it is a problem.
+
+**Done when:** a fresh machine running **native Docker** can reach a flying Lane C stack from
+documented steps alone, and no image carries a `carbonite`-specific workaround without it being
+labelled as one.
+
+---
+
 ## D-07 — Automated flight gate (deferred)
 
 **Status:** `todo` · **Deferred 2026-07-31** — running it locally is accepted instead

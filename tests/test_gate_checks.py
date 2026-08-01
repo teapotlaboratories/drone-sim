@@ -271,3 +271,81 @@ def test_non_finite_origin_is_never_a_pass(ref_alt, gps_alt):
     ok, why = ekf.origin_is_sane(ref_alt, gps_alt)
     assert not ok, "a non-finite origin must never read as sane"
     assert "not finite" in why
+
+
+# ---------------------------------------------------------------------------------------
+# C-10: VOID runs are excluded from the rate AND block the criterion.
+
+
+def _runs(*specs):
+    """specs: (passed, void) tuples."""
+    return [{"seed": i, "passed": p, "void": v} for i, (p, v) in enumerate(specs, 1)]
+
+
+def test_void_runs_are_not_counted_as_failures():
+    """A void run did not measure the flight code, so it must not drag the rate down.
+    Counting it would blame a controller byte-identical to the one passing 10/10."""
+    v = rg.score(_runs((True, False), (True, False), (False, True)), reuse=False)
+    assert v["success_rate"] == 1.0, "the void run must be excluded from the denominator"
+    assert v["valid_total"] == 2 and v["voids"] == 1
+
+
+def test_voids_still_block_the_criterion():
+    """Excluding voids without blocking would let a gate that was almost entirely void
+    report a perfect rate and claim a pass."""
+    v = rg.score(_runs((True, False), (True, False), (False, True)), reuse=False)
+    assert v["sr_perfect"] is True
+    assert v["met"] is False, "any void must make the gate inconclusive, not passed"
+
+
+def test_a_mostly_void_gate_cannot_claim_success():
+    v = rg.score(_runs(*([(True, False)] + [(False, True)] * 9)), reuse=False)
+    assert v["success_rate"] == 1.0 and v["valid_total"] == 1
+    assert v["met"] is False
+
+
+def test_all_void_is_never_a_pass():
+    """Zero valid runs must not divide-by-zero into a pass, nor report 100%."""
+    v = rg.score(_runs((False, True), (False, True)), reuse=False)
+    assert v["valid_total"] == 0
+    assert v["success_rate"] == 0.0
+    assert v["sr_perfect"] is False
+    assert v["met"] is False
+
+
+def test_empty_run_list_is_not_a_pass():
+    v = rg.score([], reuse=False)
+    assert v["met"] is False and v["sr_perfect"] is False
+
+
+def test_clean_sweep_with_no_voids_passes():
+    v = rg.score(_runs((True, False), (True, False), (True, False)), reuse=False)
+    assert v["met"] is True and v["voids"] == 0
+
+
+def test_reuse_still_blocks_the_criterion_even_with_no_voids():
+    """The pre-existing --reuse caveat must survive the void rework."""
+    v = rg.score(_runs((True, False), (True, False)), reuse=True)
+    assert v["sr_perfect"] is True and v["met"] is False
+
+
+def test_a_real_failure_is_still_a_failure_not_a_void():
+    v = rg.score(_runs((True, False), (False, False)), reuse=False)
+    assert v["voids"] == 0 and v["valid_total"] == 2
+    assert v["success_rate"] == 0.5 and v["met"] is False
+
+
+def test_origin_check_runs_inside_the_ros2_service_not_on_the_host():
+    """`ros2` does not exist on the host that runs the gate. An earlier version invoked the
+    checker with sys.executable locally, which would have made EVERY run VOID and left the
+    gate permanently INCONCLUSIVE -- a check that fails closed on its own plumbing disables
+    the gate just as surely as one that fails open. Pin the call site."""
+    import ast as _ast
+    src = (REPO / "scripts" / "run_gate.py").read_text()
+    fn = next(n for n in _ast.walk(_ast.parse(src))
+              if isinstance(n, _ast.FunctionDef) and n.name == "_origin_void_reason")
+    body = _ast.dump(fn)
+    assert "COMPOSE" in body, "the checker must be exec'd into the ros2 service"
+    assert "sys.executable" not in body, (
+        "the origin checker must NOT run on the gate host - there is no ros2 there"
+    )
