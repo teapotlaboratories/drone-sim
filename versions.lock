@@ -388,10 +388,14 @@ lane_b:
 # uses Isaac — all evaluate on Unreal/AirSim-family simulators — and this lane is
 # driver-agnostic, so the Isaac blocker does not apply here.
 #
-# NOTHING IN THIS SECTION IS BUILT YET. Every entry below is `pinned` or `TODO-verify`;
-# not one has a passing smoke test. This lane is rated HIGH LIKELIHOOD / MED IMPACT for
-# BUILD FRAGILITY, and being declared primary does not change that — it raises the cost of
-# it. Pin a SHA, never a branch.
+# WHAT IS AND IS NOT BUILT HERE (corrected 2026-08-01 — this header previously said
+# "NOTHING IN THIS SECTION IS BUILT YET", which the same branch then contradicted):
+#   BUILT   cosys_airsim_ros2_wrapper — colcon build on Jazzy, exit 0, artifacts asserted
+#           (C-06). This is the ROS 2 bridge ONLY.
+#   NOT     everything else. No engine image pulled, no UE build, no simulator run, no
+#           flight. The wrapper has never talked to a real Cosys-AirSim server.
+# This lane is rated HIGH LIKELIHOOD / MED IMPACT for BUILD FRAGILITY, and being declared
+# primary does not change that — it raises the cost of it. Pin a SHA, never a branch.
 # ---------------------------------------------------------------------------
 lane_c:
   lane_status: PRIMARY   # promoted 2026-07-29; made primary 2026-07-31

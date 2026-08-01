@@ -18,7 +18,7 @@ repositories:
   PX4-Autopilot-v1.16:
     type: git
     url: https://github.com/PX4/PX4-Autopilot.git
-    version: v1.16.0
+    version: 6ea3539157ca358c70a515878b77077af7d4611d   # v1.16.0
     # Recursive submodules required: git submodule update --init --recursive
     # Also serves REAL hardware (Pixhawk 6C).
 
@@ -35,8 +35,14 @@ repositories:
   px4_msgs:
     type: git
     url: https://github.com/PX4/px4_msgs.git
-    version: release/1.16
+    version: 392e831c1f659429ca83902e66820d7094591410   # release/1.16
     # MUST stay branch-matched to PX4-Autopilot-v1.16. A mismatch is silent.
+    # CORRECTED 2026-08-01: this was pinned to the live `release/1.16` BRANCH while
+    # versions.lock carried the resolved SHA and marked the entry LOCKED on a smoke test at
+    # that commit. docker/lane-a.Dockerfile checks out the SHA, so the two reconstruction
+    # mechanisms this repo ships resolved to different trees. Caught by the merge-gate
+    # review, along with the fact that the first version of check_repos_manifest.py was
+    # written to ACCEPT a branch where a SHA existed.
 
   px4_ros_com:
     type: git
