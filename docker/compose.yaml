@@ -175,9 +175,8 @@ services:
       px4-sitl:
         condition: service_started
     volumes:
-      # QGroundControl is 180 MB and is NOT baked into the image. Fetch it with
-      # ./scripts/fetch-qgc.sh — see the README.
-      - ../vendor/tools/QGroundControl.AppImage:/qgc.AppImage:ro
+      # No AppImage mount: QGroundControl is baked into drone-sim/qgc at build time,
+      # pinned and checksum-verified, so a stack that comes up can always fly.
       # This service OWNS the virtual display. Sharing the X socket lets the `recording`
       # service (D-02c) draw its panes on the SAME display and capture QGC's window,
       # instead of starting a second QGC that would fight over PX4's learned remote

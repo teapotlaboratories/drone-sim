@@ -11,13 +11,17 @@ DISPLAY_NUM="${DISPLAY_NUM:-:99}"
 # it is what gets captured to video. A smaller default would silently cap recording
 # resolution.
 RES="${RES:-1920x1080}"
-QGC_APPIMAGE="${QGC_APPIMAGE:-/qgc.AppImage}"
+# Baked into the image at build time, pinned and checksum-verified. QGC_APPRUN can point
+# elsewhere to try a different build without rebuilding — the pinned one stays the default
+# so a stack that comes up can always fly.
+QGC_APPRUN="${QGC_APPRUN:-/opt/qgc/squashfs-root/AppRun}"
 
-if [ ! -r "$QGC_APPIMAGE" ]; then
-  echo "qgc: $QGC_APPIMAGE not found or unreadable." >&2
-  echo "qgc: QGroundControl is 180 MB and is NOT baked into the image. Fetch it:" >&2
-  echo "qgc:   ./scripts/fetch-qgc.sh      (pinned to versions.lock, SHA256-verified)" >&2
-  echo "qgc: then bring the stack up again. Without it nothing can arm." >&2
+if [ ! -x "$QGC_APPRUN" ]; then
+  echo "qgc: $QGC_APPRUN missing or not executable." >&2
+  echo "qgc: QGroundControl is baked into drone-sim/qgc at build time, so this normally" >&2
+  echo "qgc: cannot happen — rebuild the image:" >&2
+  echo "qgc:   docker build -f docker/qgc.Dockerfile -t drone-sim/qgc:v1.16.0 ." >&2
+  echo "qgc: Without it PX4 has no datalink and nothing can arm." >&2
   exit 1
 fi
 
@@ -94,11 +98,8 @@ else
 fi
 chown -R qgcuser:qgcuser "$QGC_CONF"
 
-# QGC refuses to run as root, so drop privileges. It also needs a writable HOME for its
-# settings and a writable TMPDIR for --appimage-extract-and-run.
-cp "$QGC_APPIMAGE" /home/qgcuser/qgc.AppImage
-chmod +x /home/qgcuser/qgc.AppImage
-chown qgcuser:qgcuser /home/qgcuser/qgc.AppImage
+# QGC refuses to run as root, so privileges are dropped at exec below. Nothing is copied
+# or unpacked here any more: the image already holds the extracted tree at $QGC_APPRUN.
 
 # A window manager is required or Qt apps misbehave (and nothing can be tiled later).
 # Started here rather than in `recording` because this service owns the display.
@@ -111,4 +112,4 @@ echo "qgc: starting QGroundControl on $DISPLAY_NUM (headless datalink)"
 exec setpriv --reuid=qgcuser --regid=qgcuser --clear-groups \
   env HOME=/home/qgcuser TMPDIR=/home/qgcuser/tmp DISPLAY="$DISPLAY_NUM" \
       QT_QUICK_BACKEND=software LIBGL_ALWAYS_SOFTWARE=1 \
-      /home/qgcuser/qgc.AppImage --appimage-extract-and-run
+      "$QGC_APPRUN"

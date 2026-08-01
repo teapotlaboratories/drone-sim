@@ -17,9 +17,23 @@
 # needed to hold a datalink. This image carries only what QGC needs to run, so the core
 # stack does not depend on demo tooling.
 #
-# QGC ITSELF IS NOT BAKED IN (180 MB). Bind-mount it:
-#   -v ./vendor/tools/QGroundControl.AppImage:/qgc.AppImage:ro
+# QGC IS BAKED INTO THIS IMAGE, pinned and checksum-verified at build time.
+#
+# It used to be a 180 MB bind mount the user had to fetch first, on the reasoning that CI
+# has no use for it. That reasoning was wrong: PX4 will not arm without the datalink, so
+# QGC is a functional dependency of every flight, and a stack that cannot fly until someone
+# runs a download script is not "reproducible from the repo alone".
+#
+# The pin still lives in versions.lock; the difference is that the build enforces it rather
+# than a script the user has to remember. A checksum mismatch fails the BUILD, which is the
+# earliest and loudest place to catch a swapped binary that decides whether the aircraft
+# can arm.
 FROM drone-sim/lane-a:v1.16.0
+
+# Keep these in step with the qgroundcontrol entry in versions.lock.
+ARG QGC_VERSION=5.0.8
+ARG QGC_SHA256=06969c67ef58ea063def0a8271447a1cc385438c4a7df36813315b4475146737
+ARG QGC_URL=https://github.com/mavlink/qgroundcontrol/releases/download/v5.0.8/QGroundControl-x86_64.AppImage
 
 # xvfb        — a virtual display; QGC is a Qt GUI app and will not start without one,
 #               even when nobody is looking at it. This service OWNS the display; the
@@ -41,11 +55,37 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && echo "qgc runtime (xvfb + Qt xcb deps)" >> /etc/drone-sim-versions
 
+# Fetch QGC, VERIFY IT, and extract it once at build time.
+#
+# Extracting here rather than at every start is deliberate: --appimage-extract-and-run
+# unpacks ~180 MB on each launch, which is wasted seconds on every single run and every
+# recording. The compressed AppImage is deleted afterwards so only the extracted tree
+# ships.
+#
+# The checksum is checked BEFORE extraction. A mismatch fails the build with the version
+# and both hashes, because this binary is the arming datalink — a silent swap changes
+# whether the vehicle can fly.
+RUN curl -fL --retry 3 --retry-delay 2 -o /tmp/qgc.AppImage "$QGC_URL" \
+    && actual="$(sha256sum /tmp/qgc.AppImage | cut -d" " -f1)" \
+    && if [ "$actual" != "$QGC_SHA256" ]; then \
+         echo "QGroundControl $QGC_VERSION checksum MISMATCH"; \
+         echo "  expected $QGC_SHA256"; \
+         echo "  actual   $actual"; \
+         echo "  this binary is the arming datalink — refusing to build"; \
+         exit 1; \
+       fi \
+    && chmod +x /tmp/qgc.AppImage \
+    && mkdir -p /opt/qgc \
+    && cd /opt/qgc && /tmp/qgc.AppImage --appimage-extract >/dev/null \
+    && rm -f /tmp/qgc.AppImage \
+    && test -x /opt/qgc/squashfs-root/AppRun \
+    && echo "qgroundcontrol $QGC_VERSION $QGC_SHA256" >> /etc/drone-sim-versions
+
 # QGC REFUSES TO RUN AS ROOT — it exits with a dialog. Discovered the hard way while
 # recording the Phase 0 demo video.
 RUN useradd -m -s /bin/bash qgcuser \
     && mkdir -p /home/qgcuser/tmp \
-    && chown -R qgcuser:qgcuser /home/qgcuser
+    && chown -R qgcuser:qgcuser /home/qgcuser /opt/qgc
 
 COPY docker/qgc-entrypoint.sh /usr/local/bin/qgc-entrypoint.sh
 RUN chmod +x /usr/local/bin/qgc-entrypoint.sh
