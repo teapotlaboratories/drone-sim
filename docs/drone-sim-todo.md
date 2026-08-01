@@ -27,7 +27,7 @@ See `P1-07` and `D-07`.
 Phase 0 remains at **4 of 5 exit criteria** — the outstanding one is Isaac Sim, which is
 deferred with `P0-09`; see [`lane-b/isaac-driver-decision.md`](lane-b/isaac-driver-decision.md).
 
-## Next: Lane C bring-up — decided 2026-07-31
+## Lane C — decided 2026-07-31, and FLYING as of 2026-08-01
 
 **The project is going all-in on Lane C.** Cosys-AirSim on UE5.5 is now the **primary**
 simulator, and **Phase 2 (perception + obstacle avoidance) is built there, not in Gazebo.**
@@ -43,6 +43,39 @@ Three questions that doc left open were settled at the same time:
 | Adopt `04`'s weeks-based Phase 0–3? | **Map, don't renumber.** Our phases are capabilities with measured exit criteria; `04`'s are calendar weeks. The mapping table lives in `04`. |
 | **UE5.5 (per `04`) or UE5.8?** *(surfaced by research, same day)* | **UE5.8, tag `5.8-v3.4.1`.** UE5.5 and Jazzy cannot be had from one upstream tag — the last UE5.5 release predates the Jazzy fix and its branch is end-of-life. Measured here: `ros-jazzy-cv-bridge 4.1.0` ships no `cv_bridge.h`, so that tag is unbuildable on this machine. ✅ **Cesium gate cleared same day** — Cesium v2.28.0 supports UE5.8, and v2.29.0 *drops* UE5.5, so the fallback inverted: UE5.8 is now the only forward-supported path. |
 
+### Status 2026-08-01 — **Lane C flies.** This supersedes the "next task is `C-06`" line below.
+
+**The unmodified Lane A `offboard_control` node reaches 4/4 waypoints in Lane C** — max error
+0.79 m, reproduced three times including once from a cold start. The controller was **never
+patched**; only the transport was swapped. That is the sim-to-real parity claim demonstrated
+end to end rather than argued.
+
+| Task | State |
+|---|---|
+| `C-06` wrapper on Jazzy · `C-01` pin · `C-02` UE5.8 image · `C-03` `/fmu/*` parity | ✅ done |
+| `C-09` make Lane C fly | ✅ done — a stale PX4 EKF origin, not lockstep |
+| `C-10` deterministic bring-up | 🟡 built, verified once; gate now voids mis-ordered stacks |
+| **`C-04` sensors into the ROS 2 graph** | 🟡 **in progress — the current work.** `airsim_node` runs and publishes 14 topics after fixing an upstream data race |
+
+**Three facts worth carrying into any Lane C session:**
+
+- **Lockstep is confirmed dead code** in Cosys-AirSim — `initialize()` sets the flag and
+  `openAllConnections()` clears it twice. So `"LockStep": true` is silently ineffective and
+  **every Lane C timing number is free-running**. Never quote a Lane C RTF as deterministic.
+- **A stale EKF origin makes the vehicle report tens of metres of altitude while grounded**, and
+  it looks exactly like a control bug. Bring the stack up with `scripts/lane_c_up.sh`, which
+  verifies and repairs it; `run_gate.py` VOIDs such runs rather than failing them.
+- **The Cosys-AirSim fix is not in the tree.** `vendor/` is pristine and must stay so — it needs
+  a recorded patch plus `docs/vendor/cosys-airsim.md`.
+
+**Next work: `C-04`'s trap list**, now checkable against a running node — NWU-vs-ENU frames (the
+upstream docs are wrong), `/clock` on the wrong topic, polled-IMU cadence, and the `camera_info`
+frame_id mismatch. All four unverified.
+
+---
+
+<details><summary>Original 2026-07-31 framing (kept — the reasoning still stands)</summary>
+
 **The immediate next task is `C-06` — build the Cosys-AirSim ROS 2 wrapper against Jazzy** —
 chosen first because it is the cheapest test that can invalidate the distro decision, and it
 needs no Unreal Engine, no GPU and no simulator to run.
@@ -53,6 +86,8 @@ likelihood / Med impact** for build fragility. Making it primary does not lower 
 it removes the fallback lane, which is why Lane A stays alive.
 
 ---
+
+</details>
 
 ## Project goals
 
