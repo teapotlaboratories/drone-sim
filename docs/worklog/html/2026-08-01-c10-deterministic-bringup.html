@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C-10 — A Deterministic Bring-Up, and a Check That Nearly Lied</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-01 · C-10</span>
+  <nav><a href="#result">Result</a><a href="#nan">The NaN</a><a href="#void">Void vs fail</a><a href="#notproved">Not proved</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-01 · C-10 · Lane C · SITL only, nothing real armed or flown</span>
+  <h1>A Deterministic Bring-Up,<br>and a Check That Nearly Lied</h1>
+  <p class="sub">Cold start to flying in 83 seconds, unattended &mdash; and the origin check caught a real stale origin on its first honest run. It also reported <code>OK</code> on a <code>NaN</code>, which is the one state it existed to catch.</p>
+  <div class="mastmeta"><span>Cold start <b>83 s</b></span><span>Mission <b>4/4</b></span><span>Caught <b>9.069 m</b></span><span>Tests <b>30</b></span></div>
+</header>
+
+<h2 id="result"><span class="secnum">01</span> Result</h2>
+
+<pre class="mono">[lane-c] removing any previous stack
+[lane-c] waiting for the vehicle to settle (5 reads within 0.05 m)
+[lane-c] waiting for /fmu/out telemetry and a FINITE EKF origin
+VOID: EKF origin is STALE: ref_alt 114.210 m vs GPS 123.279 m = 9.069 m apart
+[lane-c] origin stale; restarting PX4 (attempt 1/2)
+OK:   EKF origin sane: ref_alt 123.279 m vs GPS 123.279 m = 0.000 m apart
+[lane-c] stack up and origin verified -- safe to fly</pre>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Cold start</div><div class="v">83 s</div><div class="n">rm -f to verified, unattended</div></div>
+<div class="stat ok"><div class="k">Then flew</div><div class="v">4/4</div><div class="n">third consecutive success</div></div>
+<div class="stat"><div class="k">Caught live</div><div class="v">9.069 m</div><div class="n">a fresh race, not a replay</div></div>
+</div>
+
+<div class="callout ok"><p style="margin:0">The stale origin above is <strong>not</strong> a replay
+of <code>C-09</code>&rsquo;s 35.167 m &mdash; it is 9.069 m, from a fresh race. The failure is
+genuinely order-dependent and recurs at a different magnitude each time, which is why a fixed
+workaround would not have held and why the check has to be a <em>measurement</em>. <strong>The
+retry path executed for real</strong> &mdash; the part of error handling that usually ships
+untested.</p></div>
+
+<h2 id="settle"><span class="secnum">02</span> The settle-wait was necessary but not sufficient</h2>
+
+<div class="callout warn"><p style="margin:0">The script waits for AirSim&rsquo;s ground-truth z to
+hold still before starting PX4. <strong>That was not enough on its own</strong> &mdash; the origin
+still came up 9 m stale. What saves the run is the verify-then-restart loop <em>after</em> the
+fact. So the honest description is <strong>&ldquo;verify and repair&rdquo;</strong>, not
+&ldquo;order it correctly&rdquo;. Recorded because the tempting write-up would be a claim the
+evidence does not support &mdash; and would invite the next person to delete the retry loop as
+redundant.</p></div>
+
+<h2 id="nan"><span class="secnum">03</span> The check reported OK on a NaN</h2>
+
+<p>First cold start printed:</p>
+
+<pre class="mono">OK: EKF origin sane: ref_alt nan m vs GPS 123.280 m = nan m apart (tolerance 1 m)</pre>
+
+<div class="callout stop"><p style="margin:0"><code>abs(nan - 123.28)</code> is <code>nan</code>,
+and <code>nan &gt; 1.0</code> is <strong>False</strong>, so the comparison fell straight through to
+&ldquo;sane&rdquo;. <strong>PX4 publishes <code>ref_alt</code> as NaN until the EKF has established
+an origin at all</strong> &mdash; so the single most dangerous state, no origin whatsoever, was the
+one state the check green-lit.</p></div>
+
+<p>This repo already had <code>test_nan_error_must_not_pass</code> in the gate tests, for the same
+class of bug in the same kind of numeric guard. I did not apply the lesson to new code. Now
+guarded explicitly, with a regression test carrying the observed string, and the exit code
+distinguishes <strong>UNKNOWN</strong> (no origin yet &mdash; wait and retry) from
+<strong>STALE</strong> (ordering already wrong &mdash; restart).</p>
+
+<p><code>wait_for_fmu</code> had the same defect independently: it treated <em>any</em> published
+<code>ref_alt</code> as &ldquo;telemetry ready&rdquo;, NaN included. It now requires a finite value.</p>
+
+<div class="callout warn"><p style="margin:0"><strong>A checker that passes on garbage is worse
+than no checker</strong>, because it converts &ldquo;unknown&rdquo; into &ldquo;verified&rdquo;.
+Same class as the Dockerfile layer that recorded empty versions while the build succeeded, and the
+capture overlay that silently printed <code>...</code> for a whole video.</p></div>
+
+<h2 id="void"><span class="secnum">04</span> Why VOID and not FAIL</h2>
+
+<div class="callout"><p style="margin:0">A run against a mis-initialised origin must be
+<strong>void, not failed</strong>. Scoring it would blame the flight code for a bring-up defect
+&mdash; and that flight code is byte-identical to the one scoring 10/10 in Lane A. Poisoning a
+success-rate gate with void runs makes the gate actively misleading. Same distinction
+<code>P1-08</code> draws for Lane A, now built for Lane C.</p></div>
+
+<h2 id="config"><span class="secnum">05</span> Configuration recovered from evidence, not docs</h2>
+
+<p>The container invocations existed nowhere in the repo &mdash; only in worklog prose. They were
+recovered with <code>docker inspect</code> <strong>from the stack that had just flown 4/4</strong>,
+so the script reproduces something observed working rather than something the docs describe.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Detail</th><th>Why it is load-bearing, not style</th></tr></thead>
+<tbody>
+<tr><td><code>--ipc shareable</code> + <code>--ipc container:lane-c-sim</code></td><td>Fast-DDS discovers over UDP but <em>delivers</em> over shared memory; a joiner with its own <code>/dev/shm</code> sees silence on a healthy stack (<code>D-02</code>)</td></tr>
+<tr><td><code>--qos-reliability best_effort</code></td><td><code>/fmu/out/*</code> publishers are BEST_EFFORT; a default RELIABLE subscription matches nothing and also reads as silence (<code>P1-02</code>)</td></tr>
+<tr><td>QGC in the stack</td><td>Supplies the GCS datalink. Lane C deliberately leaves <code>NAV_DLL_ACT</code> enforced because a real Pixhawk refuses to arm without one</td></tr>
+</tbody></table></div>
+
+<h2 id="notproved"><span class="secnum">06</span> Not proved</h2>
+
+<div class="tw"><table>
+<thead><tr><th>Claim</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>&ldquo;N times in a row&rdquo; cold start</td><td><span class="pill p-warn">one run</span> the done-when asks for repeated unattended cold starts</td></tr>
+<tr><td>A mis-ordered start is <em>failed by the gate</em></td><td><span class="pill p-stop">not wired</span> the check voids correctly in isolation; <code>run_gate.py</code> integration is open</td></tr>
+<tr><td>The settle heuristic is right</td><td><span class="pill p-warn">chosen, not derived</span> 5 reads at 0.05 m</td></tr>
+</tbody></table></div>
+
+<div class="panel"><p style="margin:0"><strong>Next:</strong> wire
+<code>check_ekf_origin.py</code> into <code>run_gate.py</code> so a void run is excluded from the
+success rate rather than counted as a failure; then run the cold start N times and record the
+distribution of the initial offset.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

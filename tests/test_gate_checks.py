@@ -19,6 +19,11 @@ _spec = importlib.util.spec_from_file_location("run_gate", REPO / "scripts" / "r
 rg = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(rg)
 
+_ospec = importlib.util.spec_from_file_location(
+    "check_ekf_origin", REPO / "scripts" / "check_ekf_origin.py")
+ekf = importlib.util.module_from_spec(_ospec)
+_ospec.loader.exec_module(ekf)
+
 SCENARIO = {"tolerances": {"accept_radius_m": 1.0}}
 
 
@@ -188,3 +193,81 @@ def test_self_attributes_used_as_defaults_actually_exist():
         f"offboard_control.py _write_result uses self.{{{', '.join(unknown)}}} as a "
         ".get() default, but it is never assigned - AttributeError on the fallback path."
     )
+
+
+# ---------------------------------------------------------------------------------------
+# C-10: a stale EKF origin must VOID a run, not fail it.
+#
+# The numbers below are the ones actually observed in C-09, not invented. PX4 froze its
+# local origin at 88.113 m while GPS read 123.280 m throughout, so every reported altitude
+# was 35.167 m high and the vehicle "was" 35 m up while sitting on the ground. The failure
+# is silent, order-dependent, and looks exactly like a control bug.
+
+
+def test_the_real_c09_offset_is_caught():
+    ok, why = ekf.origin_is_sane(88.113, 123.280)
+    assert not ok
+    assert "STALE" in why and "35.167" in why
+
+
+def test_the_real_c09_fixed_state_passes():
+    # After restarting PX4 so the origin re-initialised.
+    ok, _ = ekf.origin_is_sane(123.280, 123.28)
+    assert ok
+
+
+def test_live_sensor_noise_does_not_trip_it():
+    # Measured on a healthy stack: ref_alt 123.280 vs GPS 123.195. A tolerance that flagged
+    # this would make the check flaky, which is worse than not having it.
+    ok, _ = ekf.origin_is_sane(123.280, 123.195)
+    assert ok
+
+
+@pytest.mark.parametrize("ref_alt,gps_alt", [
+    (None, 123.28),
+    (123.28, None),
+    (None, None),
+])
+def test_missing_telemetry_is_never_a_pass(ref_alt, gps_alt):
+    """Absence of evidence must not read as evidence of sanity -- silent /fmu/out topics
+    are a documented failure here (P1-02 BEST_EFFORT, D-02 shared /dev/shm), so an
+    unreadable origin has to be VOID rather than OK."""
+    ok, why = ekf.origin_is_sane(ref_alt, gps_alt)
+    assert not ok
+    assert "could not read" in why
+
+
+def test_tolerance_boundary_is_exclusive_not_inclusive():
+    tol = 1.0
+    assert ekf.origin_is_sane(100.0, 101.0, tol)[0], "exactly at tolerance should pass"
+    assert not ekf.origin_is_sane(100.0, 101.001, tol)[0], "just beyond should void"
+
+
+def test_sign_of_the_offset_does_not_matter():
+    # An origin set too HIGH is just as broken as one set too low.
+    assert not ekf.origin_is_sane(123.280, 88.113)[0]
+
+
+def test_void_exit_codes_are_distinct_from_success():
+    """Callers must be able to tell 'void' from 'ran and failed'. If these ever collide
+    with 0, a mis-ordered stack starts silently counting as a scored run."""
+    assert ekf.VOID_STALE != 0 and ekf.VOID_UNKNOWN != 0
+    assert ekf.VOID_STALE != ekf.VOID_UNKNOWN
+
+
+@pytest.mark.parametrize("ref_alt,gps_alt", [
+    (float("nan"), 123.28),
+    (123.28, float("nan")),
+    (float("nan"), float("nan")),
+    (float("inf"), 123.28),
+    (123.28, float("-inf")),
+])
+def test_non_finite_origin_is_never_a_pass(ref_alt, gps_alt):
+    """PX4 publishes ref_alt as NaN before the EKF has an origin at all. Because
+    abs(nan - x) is nan and `nan > tol` is False, a naive comparison reports SANE for the
+    single most dangerous state. The first version of this check did exactly that on a real
+    cold start -- "OK: ref_alt nan m ... = nan m apart" -- and would have green-lit flying
+    against a vehicle with no origin."""
+    ok, why = ekf.origin_is_sane(ref_alt, gps_alt)
+    assert not ok, "a non-finite origin must never read as sane"
+    assert "not finite" in why

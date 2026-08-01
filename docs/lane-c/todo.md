@@ -585,7 +585,29 @@ the lockstep question is answered with a measurement, not an inference.
 
 ## C-10 — Make the EKF-origin ordering deterministic
 
-**Status:** 🔴 **open.** Filed 2026-08-01 from `C-09`.
+**Status:** 🟡 **built and verified once (2026-08-01); "N times in a row" not yet run.**
+Evidence: [`../worklog/2026-08-01-c10-deterministic-bringup.md`](../worklog/2026-08-01-c10-deterministic-bringup.md)
+
+`scripts/lane_c_up.sh` cold-starts the stack in 83 s unattended and `scripts/check_ekf_origin.py`
+asserts the origin before anything flies. On its first honest cold start the check **caught a real
+stale origin at 9.069 m** — not a replay of `C-09`'s 35.167 m but a fresh race at a different
+magnitude — restarted PX4, re-verified at 0.000 m apart, and the stack then flew **4/4**
+(errors 0.772 / 0.786 / 0.773 / 0.773).
+
+**Two things recorded against the obvious write-up:**
+
+- **The settle-wait alone was NOT sufficient** — the origin still came up 9 m stale. What saves
+  the run is the verify-then-restart loop. The honest description is *"verify and repair"*, not
+  *"order it correctly"*; deleting the retry loop as redundant would break it.
+- **The check reported `OK` on a `NaN`.** `abs(nan - x)` is `nan` and `nan > tol` is False, so it
+  green-lit the one state it existed to catch — PX4 publishes `ref_alt` as NaN until the EKF has
+  any origin. Guarded, regression-tested, and `UNKNOWN` now differs from `STALE` in the exit code.
+  This repo already had `test_nan_error_must_not_pass` for the same class; the lesson was not
+  applied to new code.
+
+**Still open:** wire the check into `run_gate.py` so a void run is *excluded* from the success
+rate rather than scored; run the cold start N times; the 5-reads-at-0.05 m settle heuristic was
+chosen, not derived.
 
 `C-09` proved the vehicle only flies when PX4 initialises its EKF origin **after** the sim
 vehicle has settled. Today that is achieved by restarting `lane-c-px4` by hand once the sim is
