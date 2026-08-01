@@ -184,8 +184,90 @@ an oversight.
 - **Sensor data is unverified.** `sensor_combined` publishes; nobody has checked the values
   are physically sensible or that IMU–camera timestamps align.
 
+## Flying the Lane A controller against Lane C — arms, does not climb
+
+Ran the **unmodified** `offboard_control` node from Lane A, same package built from the same
+source, only the simulator underneath changed.
+
+```
+FCU alive; home ENU=(0.00, 0.00) waypoints=[(10,0,10), (10,10,10), (0,10,10), (0,0,10)]
+wait_for_fcu -> stream_setpoints -> request_offboard -> armed        ✓
+FAILED: timeout in state takeoff                                     ✗   0/4 waypoints
+```
+
+**Arming works, and that is a real result.** `NAV_DLL_ACT` was deliberately left enforced
+rather than disabled as upstream's example does, so PX4 refused to arm without a GCS datalink
+— QGC supplied it, exactly as on the real aircraft. The offboard handshake also succeeded:
+AirSim logs `MavLinkVehicle: confirmed offboard mode`.
+
+### The first failure was my config bug, and it was actively misleading
+
+Initially the controller reported `armed` then `timeout in state takeoff`, which reads like a
+control bug — wrong setpoint, bad handshake, a frame error. It was none of those:
+
+```
+PX4:    Preflight Fail: ekf2 missing data
+PX4:    Preflight Fail: height estimate not stable
+PX4:    Ready for takeoff!  ->  Disarmed by auto preflight disarming
+```
+
+**An AirSim `Sensors` block REPLACES the defaults, it does not extend them.**
+`AirSimSettings.hpp:1874` — *"creates default sensor list when none specified in json"*. I had
+listed only a barometer, to attach the `PressureFactorSigma` tweak, which left the vehicle
+with **no IMU, no GPS and no magnetometer**. PX4 armed on a partly-satisfied preflight,
+produced no thrust for want of a height estimate, and auto-disarmed via `COM_DISARM_PRFLT`
+while the controller correctly waited out its own timeout.
+
+Fixed by listing all four defaults explicitly. The whole failure signature is now written into
+`sim/ue5/settings.json` so the next person seeing "armed then takeoff timeout" does not go
+hunting in the controller.
+
+### After the fix: better, still not flying
+
+```
+before:  Preflight Fail: ekf2 missing data / height estimate not stable
+after:   Preflight: GPS Vertical Pos Drift too high
+         Ready for takeoff!  ->  Disarmed by auto preflight disarming
+```
+
+The complaint moved from *missing data* to *drift* — the difference between having no GPS and
+having one that will not settle. Confirms the sensor diagnosis. **But the vehicle still never
+climbs**, PX4 still auto-disarms, and the controller still times out at 60 s. Reproduced twice.
+
+### Where to look next, in order
+
+1. **Lockstep.** The strongest hypothesis. If AirSim is free-running while PX4's
+   `lockstep_scheduler` is active, sensor cadence and sim time diverge and GPS vertical drift
+   is exactly what an EKF would report. This is also the `resetState()` warning from the
+   research — `initialize()` sets `lock_step_enabled_`, `openAllConnections()` clears it — and
+   it would explain the **intermittent bring-up deadlock** seen earlier just as well.
+   **Settle this before anything else; several symptoms hang off it.**
+2. **`OriginGeopoint`** is unset in `settings.json`, so AirSim's GPS origin and PX4's
+   `LPE_LAT`/`LPE_LON` may disagree. `04` flags this as where AirSim+Cesium coordinate
+   mismatches bite.
+3. **Whether AirSim physics steps at all** — command the vehicle through AirSim's own RPC with
+   PX4 out of the loop. If it does not move there either, the problem is upstream of PX4
+   entirely. Requires publishing 41451.
+
+### Two process notes
+
+- **The result artifact went stale between runs.** `out/lane-c-flight.json` from the previous
+  attempt was still on disk and read as if it were the new one. That is exactly the `P1-01`
+  bug — `run_flight` scoring a seed from a twenty-minute-old file. Caught by checking mtime;
+  the real fix is clearing the artifact before each run, as `run_flight` now does.
+- Two bad probes of my own: `/fmu/out/actuator_motors` does not exist (it is `/fmu/in/`), and
+  a `ConnectionRefused` on the RPC meant only that I had stopped publishing port 41451.
+
+## Status
+
+**`C-03`'s stated criterion is met** — topic parity, proved by diff. **The controller does not
+yet fly in Lane C**, which the criterion did not ask for and which is now the next task rather
+than a retroactive widening of this one.
+
 ## Next
 
+- Settle the lockstep question — it plausibly explains both the GPS drift and the intermittent
+  bring-up deadlock.
 - Arm and fly the Lane A controller unchanged against Lane C — the real parity test, since
   identical *names* is necessary but not sufficient.
 - Characterise lockstep properly and settle the `resetState()` question.
