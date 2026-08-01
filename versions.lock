@@ -826,6 +826,28 @@ lane_c:
       integration; a future PX4 point release can break it silently. This is an argument
       for pinning an exact PX4 tag — which we already do — and for keeping Lane A, which
       does have first-class PX4 support, as the baseline.
+    PARITY_PROVED: >-
+      2026-08-01 (C-03). `ros2 topic list | grep ^/fmu/` diffs IDENTICAL between Lane A and
+      Lane C: 51 topics each, 24 /fmu/out each, byte-identical names. Evidence kept at
+      out/lane-c/fmu-topics-lane-{a,c}.txt. The MAVLink SITL link came up
+      ("Simulator connected on TCP port 4560"), PX4's lockstep_scheduler initialised, and
+      uxrce_dds_client published the same topic set Lane A produces. The sim-to-real claim
+      is now demonstrated for Lane C rather than argued.
+      CAPTURED SEQUENTIALLY, of necessity — see the port collision below.
+    PORT_COLLISION_LANE_A_VS_LANE_C: >-
+      Lane A publishes 4560, 8888, 14540, 14550 and 18570 on the host; Lane C needs the same
+      ones. `Bind for 127.0.0.1:4560 failed: port is already allocated`. THE TWO LANES CANNOT
+      RUN SIMULTANEOUSLY with published host ports on this box, so the parity diff had to be
+      taken one lane at a time. This bites C-07, whose purpose is comparing a Lane C run
+      against a Lane A baseline. Fix with distinct ROS_DOMAIN_IDs plus non-overlapping
+      published ports, or accept sequential comparison and document it.
+    still_unproved_after_C03: >-
+      NOTHING HAS FLOWN. No arming, no takeoff, no waypoints, no motion. /fmu/out/vehicle_status
+      was silent in the sample while three other topics carried data (probably a slower rate
+      than the sample window, not chased down). Lockstep initialises and the clock advances,
+      but the measurement was too coarse to distinguish true lockstep from free-running — DO
+      NOT QUOTE AN RTF FROM IT — and the resetState() warning stands. Sensor values have not
+      been checked for physical sanity, and IMU-camera timestamp alignment is unmeasured.
     uxrce_dds_parity: >-
       REQUIRED, and it is the entire sim-to-real claim: PX4 SITL must ALSO run
       uxrce_dds_client so the ROS 2 graph sees the SAME /fmu/out/* topics the real

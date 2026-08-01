@@ -346,7 +346,36 @@ of mismatch that deferred Lane B.
 
 ## C-03 — PX4 ↔ Cosys-AirSim, and `/fmu/*` parity
 
-**Status:** `todo` · **Blocked by:** `C-02`
+**Status:** 🟡 **link + parity done (2026-08-01); nothing has flown.** Evidence:
+[`../worklog/2026-08-01-c03-px4-airsim-link.md`](../worklog/2026-08-01-c03-px4-airsim-link.md)
+
+```
+Lane A: 51 /fmu/ topics (24 /fmu/out)
+Lane C: 51 /fmu/ topics (24 /fmu/out)
+diff  : IDENTICAL          out/lane-c/fmu-topics-lane-{a,c}.txt
+```
+
+**The acceptance criterion as written is met** — identical topic names, transport swapped
+only, verified by diffing rather than inspection. `Simulator connected on TCP port 4560`,
+`lockstep_scheduler` initialised, `uxrce_dds_client` publishing.
+
+**What the criterion did NOT ask for, and is therefore still open:** the vehicle has never
+armed, taken off or moved. Identical *names* is necessary, not sufficient — the real test is
+flying the Lane A controller unchanged against Lane C. Filed as the next step rather than
+folded into this task, because the stated bar was met and moving the bar retroactively hides
+what was actually proved.
+
+**Also unresolved here:** `/fmu/out/vehicle_status` was silent in the sample; lockstep
+initialises but was not characterised (do not quote an RTF from this run); sensor values are
+unchecked for physical sanity.
+
+> **Port collision, found the hard way.** Lane A publishes 4560, 8888, 14540, 14550 and 18570
+> — exactly what Lane C needs. **The two lanes cannot run simultaneously**, so the parity
+> diff had to be captured sequentially. This blocks `C-07`, whose purpose is comparing a Lane
+> C run against a Lane A baseline. Fix with distinct `ROS_DOMAIN_ID`s plus non-overlapping
+> published ports, or accept sequential comparison and document it.
+
+**Original definition:** ~~`todo` · Blocked by: `C-02`~~
 
 **What.** Connect Cosys-AirSim to PX4 SITL via the Simulator MAVLink API (TCP 4560),
 external-autopilot mode, **with PX4 also running `uxrce_dds_client`**.

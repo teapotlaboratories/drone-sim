@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C-03 — PX4 ↔ Cosys-AirSim, /fmu/* Parity Proved — 2026-08-01</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-01 · C-03</span>
+  <nav><a href="#result">Result</a><a href="#failures">Five failures</a><a href="#outlive">Findings</a><a href="#notproved">Not proved</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-01 · C-03 · Lane C · SITL only, nothing flown</span>
+  <h1>PX4 &harr; Cosys-AirSim,<br>and Parity Proved</h1>
+  <p class="sub">The sim-to-real claim stops being an argument and becomes a diff: 51 <code>/fmu/</code> topics, 24 <code>/fmu/out</code>, byte-identical between Gazebo and Unreal. Five failures on the way — four of them already written down in this repo.</p>
+  <div class="mastmeta"><span>Topics <b>51 = 51</b></span><span>Diff <b>IDENTICAL</b></span><span>Failures fixed <b>5</b></span><span>Flown <b>nothing</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Acceptance</div><div class="v">MET</div><div class="n">diffed, not inspected</div></div>
+<div class="stat"><div class="k">MAVLink link</div><div class="v">TCP 4560</div><div class="n">lockstep scheduler initialised</div></div>
+<div class="stat stop"><div class="k">Flown</div><div class="v">NOTHING</div><div class="n">no arming, no motion</div></div>
+</div>
+
+<h2 id="result"><span class="secnum">01</span> Result first</h2>
+<pre>Lane A: 51 /fmu/ topics   (24 /fmu/out)
+Lane C: 51 /fmu/ topics   (24 /fmu/out)
+<b>diff  : IDENTICAL</b></pre>
+<p><code>C-03</code> asked for <em>"identical topic names, transport swapped only &mdash; verified
+by diffing, not by inspection."</em> Evidence kept at
+<code>out/lane-c/fmu-topics-lane-{a,c}.txt</code>.</p>
+<div class="callout ok"><p><strong>This is the sim-to-real parity claim, proved rather than
+asserted.</strong> The controller written for Lane A subscribes to the same names against Unreal
+as against Gazebo &mdash; and the same names the real Pixhawk 6C will produce.</p></div>
+<pre>INFO [simulator_mavlink] using TCP on remote host 127.0.0.1 port 4560
+INFO [simulator_mavlink] <b>Simulator connected on TCP port 4560.</b>
+INFO [lockstep_scheduler] setting initial absolute time to 1785599227656109 us
+INFO [uxrce_dds_client] init UDP agent IP:127.0.0.1, port:8888</pre>
+<p>MAVLink drives the sim physics handshake; XRCE-DDS drives the autonomy code. Exactly the
+division doc 04 describes.</p>
+
+<h2 id="failures"><span class="secnum">02</span> Five failures, four already in this repo's notes</h2>
+
+<h3>1 &middot; The renderer could not start &mdash; Vulkan ICD path mismatch</h3>
+<pre>LogVulkanRHI: Error: vpCreateInstance(...) failed, VkResult=-9   <span class="c">(INCOMPATIBLE_DRIVER)</span>
+exit 139   <span class="c">(SIGSEGV)</span></pre>
+<p>Asked the loader directly rather than guessing, and it said so plainly:</p>
+<pre>ERROR: [Loader Message] /usr/lib64/libGLX_nvidia.so.0: cannot open shared object file</pre>
+<div class="tw"><table>
+<thead><tr><th>ICD file</th><th>library_path</th><th>api</th></tr></thead>
+<tbody>
+<tr><td><code>nvidia_icd.json</code></td><td class="mono">libGLX_nvidia.so.0</td><td>1.3.204.1</td></tr>
+<tr><td><code>nvidia_icd.x86_64.json</code> <em>(CDI-injected)</em></td><td class="mono">/usr/lib64/libGLX_nvidia.so.0</td><td>1.4.341</td></tr>
+</tbody></table></div>
+<p>The host is <strong>Bazzite (Fedora-family)</strong>, so its CDI spec names the Fedora path;
+this container is Ubuntu, where the driver lives under multiarch. A symlink in
+<code>docker/lane-c.Dockerfile</code> fixes it &mdash; <code>vulkaninfo</code> shows zero usable
+devices before, <strong>RTX 3080 / DISCRETE_GPU / 1.4.341 / driver 610.43.03</strong> after.</p>
+<div class="callout warn"><p><strong>This is a PATH mismatch, not the too-new-driver
+incompatibility that deferred Lane B.</strong> 610.43.03 works fine once the loader can find it.
+Worth stating clearly, because the superficial resemblance to <code>P0-09</code> invites the
+wrong conclusion.</p></div>
+
+<h3>2 &middot; <code>--settings /path</code> silently became a map name</h3>
+<pre>LogUObjectGlobals: Warning: LoadPackage can't find package /settings.json.
+LogLoad: Error: Failed to enter /settings.json</pre>
+<p>Unreal took the space-separated argument as a level to load. <code>SimHUD.cpp:369</code>
+documents the real form: <strong><code>-settings=</code></strong> &mdash; single dash,
+<code>=</code>-joined. With it, <code>listVehicles</code> returns <code>['PX4']</code> rather than
+the default <code>['SimpleFlight']</code>, which is how you can tell the file was read at all.</p>
+
+<h3>3 &middot; "Port 41451 is bound" was not evidence of anything</h3>
+<div class="callout stop"><p>I reported the host port as proof AirSim was up. It was not:
+<strong><code>docker -p</code> makes the host listen via docker-proxy immediately</strong>, whether
+or not anything inside the container is. The connection reset gave it away. Real evidence is an
+RPC response:</p>
+<pre style="margin-bottom:0">getServerVersion -> 4      ping -> True      listVehicles -> ['PX4']</pre>
+<p style="margin-top:8px">Note <code>getServerVersion</code> returning <strong>4</strong> against
+the client minimum of 4 &mdash; the same handshake that <em>failed</em> against CARLA, which
+reported version 1.</p></div>
+
+<h3>4 &amp; 5 &middot; Silent <code>/fmu/out/*</code> &mdash; both causes already documented here</h3>
+<div class="grid g2">
+<div class="callout warn"><span class="lbl">D-02 · shared netns is not enough</span>
+<p>Fast-DDS discovers over UDP but <em>delivers</em> over shared memory, and each container has
+its own <code>/dev/shm</code>. Docker confirmed it with the exact error <code>D-02</code> records:
+<code>failed to join IPC namespace: non-shareable IPC</code>.</p></div>
+<div class="callout warn"><span class="lbl">P1-02 · BEST_EFFORT publishers</span>
+<p>A default RELIABLE subscription matches nothing and sees zero messages <strong>on a healthy
+stack</strong> &mdash; so <code>ros2 topic hz</code> without a QoS override was never a valid
+probe.</p></div>
+</div>
+<pre>/fmu/out/sensor_combined         DATA
+/fmu/out/timesync_status         DATA
+/fmu/out/vehicle_local_position  DATA
+sim clock: +5016 ms over ~4 s wall</pre>
+<div class="callout ok"><p><strong>Four of the five failures were already written down in this
+repo.</strong> Lane A's lessons transferred to Lane C essentially unchanged &mdash; a concrete
+argument that keeping Lane A alive as the reference was right.</p></div>
+
+<h2 id="outlive"><span class="secnum">03</span> Two findings that outlive this task</h2>
+<div class="callout stop"><span class="lbl">Lane A and Lane C collide on ports</span>
+<p>Lane A publishes <strong>4560, 8888, 14540, 14550, 18570</strong> &mdash; exactly what Lane C
+needs. Found via <code>Bind for 127.0.0.1:4560 failed: port is already allocated</code> when the
+flight gate had left Lane A running.</p>
+<p><strong>They cannot both run with published host ports on this box</strong>, so the parity diff
+had to be captured <em>sequentially</em>. That bites <code>C-07</code>, whose whole purpose is
+comparing a Lane C run against a Lane A baseline. Either give them distinct
+<code>ROS_DOMAIN_ID</code>s and non-overlapping ports, or accept sequential comparison and say
+so.</p></div>
+<div class="callout"><span class="lbl">The DDC does not survive container recreation</span>
+<p>First launch spent <strong>~3 minutes compiling shaders</strong>; the cache lives in the
+container's writable layer, so <code>docker rm</code> threw it away. A named volume at
+<code>/home/ue4/.config/Epic</code> cut startup to <strong>9 seconds</strong>.</p></div>
+
+<h2><span class="secnum">04</span> A deliberate divergence from upstream</h2>
+<div class="callout warn">
+<p>Upstream's PX4 example sets <code>NAV_RCL_ACT=0</code> and <code>NAV_DLL_ACT=0</code>, disabling
+the RC-loss and datalink-loss failsafes. <strong>Not done here.</strong></p>
+<p>Lane A leaves the GCS-datalink check <strong>enforced</strong> and satisfies it with a real
+QGroundControl service, because PX4 refusing to arm without a datalink is a property of the real
+aircraft too. Disabling it in Lane C would make the lanes diverge exactly where sim-to-real parity
+matters, and hide an arming failure the real Pixhawk 6C would still have.</p>
+<p style="margin-bottom:0"><strong>Consequence: arming in Lane C will need a datalink the same way
+Lane A does.</strong> Intended, not an oversight.</p></div>
+
+<h2 id="notproved"><span class="secnum">05</span> What is NOT proved</h2>
+<div class="tw"><table>
+<thead><tr><th>Claim</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Anything has flown</td><td><span class="pill p-stop">no</span> no arming, no takeoff, no motion</td></tr>
+<tr><td><code>/fmu/out/vehicle_status</code> publishes</td><td><span class="pill p-warn">silent</span> in the sample; probably a slower rate than the window, but that is a guess</td></tr>
+<tr><td>Lockstep is genuinely engaged</td><td><span class="pill p-warn">unclear</span> scheduler initialises and the clock advances, but +5016 ms over ~4 s wall is too coarse to distinguish lockstep from free-running. <strong>Do not quote an RTF from it.</strong></td></tr>
+<tr><td>Sensor values are sane</td><td><span class="pill p-stop">unchecked</span> topics publish; nobody verified the numbers or IMU&ndash;camera timestamp alignment</td></tr>
+</tbody></table></div>
+<div class="panel"><p style="margin:0"><strong>Next:</strong> fly the Lane A controller unchanged
+against Lane C &mdash; identical <em>names</em> is necessary but not sufficient. Then characterise
+lockstep properly, and resolve the port collision before <code>C-07</code>.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+{
+  "SeeDocsAt": "https://cosys-lab.github.io/Cosys-AirSim/settings/",
+  "SettingsVersion": 2.0,
+
+  "_comment_purpose": [
+    "Lane C, C-03: put Cosys-AirSim into PX4 EXTERNAL-AUTOPILOT mode so PX4 SITL flies the",
+    "vehicle over the MAVLink Simulator API, while PX4's own uxrce_dds_client exposes the",
+    "SAME /fmu/* topics Lane A produces. MAVLink drives the sim physics handshake; XRCE-DDS",
+    "drives the autonomy code. Coupling: lane-c-topic-parity.",
+    "Passed with --settings rather than dropped in ~/Documents/AirSim/, so the config is a",
+    "reviewable repo artifact instead of per-machine state."
+  ],
+
+  "SimMode": "Multirotor",
+
+  "_comment_clocktype": [
+    "SteppableClock is required for lockstep: AirSim advances the clock one step per sensor",
+    "update, so PX4's clock tracks the sim regardless of render latency. Without it a slow",
+    "UE frame trips PX4 SITL timeouts - the documented fragility of this integration.",
+    "CAUTION, unverified here: research found initialize() sets lock_step_enabled_ and then",
+    "openAllConnections() -> resetState() clears it, which would mean every documented",
+    "LockStep setup actually runs FREE-RUNNING. Verify empirically before trusting any",
+    "timing result - see versions.lock lane_c.px4.THREE_DEFECTS_TO_EXPECT."
+  ],
+  "ClockType": "SteppableClock",
+
+  "Vehicles": {
+    "PX4": {
+      "VehicleType": "PX4Multirotor",
+
+      "_comment_transport": [
+        "TCP, not serial: PX4 dials OUT as a TCP client to 4560+instance while AirSim is the",
+        "server. TCP support was added to PX4 in 1.9.2 specifically because lockstep needs",
+        "guaranteed delivery. Verified present in PX4 v1.16.0 at",
+        "src/modules/simulation/simulator_mavlink/SimulatorMavlink.cpp."
+      ],
+      "UseSerial": false,
+      "UseTcp": true,
+      "TcpPort": 4560,
+      "LockStep": true,
+
+      "ControlPortLocal": 14540,
+      "ControlPortRemote": 14580,
+
+      "Sensors": {
+        "Barometer": {
+          "SensorType": 1,
+          "Enabled": true,
+          "_comment": [
+            "PressureFactorSigma tweak from upstream's PX4 docs: reduces barometer drift so",
+            "GPS lock and EKF2 convergence happen quickly instead of stalling the run."
+          ],
+          "PressureFactorSigma": 0.0001825
+        }
+      },
+
+      "_comment_params_deliberately_absent": [
+        "Upstream's PX4 example sets NAV_RCL_ACT=0 and NAV_DLL_ACT=0 to disable the RC-loss",
+        "and datalink-loss failsafes. NOT done here, deliberately.",
+        "Lane A leaves the GCS-datalink check ENFORCED (NAV_DLL_ACT=2, set by the x500",
+        "airframe) and satisfies it with a real QGroundControl service, because PX4 refusing",
+        "to arm without a datalink is a property of the real aircraft too. Disabling it in",
+        "Lane C would make the two lanes diverge exactly where sim-to-real parity matters,",
+        "and would hide an arming failure that the real Pixhawk 6C would still have.",
+        "Consequence: arming in Lane C will need a datalink the same way Lane A does. That is",
+        "the intended behaviour, not an oversight."
+      ]
+    }
+  }
+}
