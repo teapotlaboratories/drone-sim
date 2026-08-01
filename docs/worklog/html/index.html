@@ -115,8 +115,19 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-01-c03-px4-airsim-link.html">
+    <span class="k">2026-08-01 · C-03 · newest</span>
+    <h3>PX4 &harr; Cosys-AirSim, and Parity Proved</h3>
+    <p>The sim-to-real claim stops being an argument and becomes a diff: <strong>51 <code>/fmu/</code> topics, 24 <code>/fmu/out</code>, byte-identical</strong> between Gazebo and Unreal. Five failures on the way and <strong>four were already written down in this repo</strong> — a Vulkan ICD naming a Fedora path on an Ubuntu container, <code>-settings=</code> parsed as a map name, a bound port that proved nothing, and both documented causes of silent <code>/fmu/out</code>. Nothing has flown.</p>
+    <div class="tags">
+      <span class="pill p-ok">parity proved</span>
+      <span class="pill p-warn">port collision found</span>
+      <span class="pill p-stop">nothing flown</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-01-c02-ue58-engine-image.html">
-    <span class="k">2026-08-01 · C-02 · newest</span>
+    <span class="k">2026-08-01 · C-02</span>
     <h3>The UE5.8 Engine Image</h3>
     <p>Pulled in <strong>9m05s</strong>; the digest is <strong>byte-identical</strong> to the registry query from <code>C-01</code>, so the pin reproduces. <strong>57.4 GB extracted</strong> against 24 GB compressed — the storage decision was taken on the compressed figure. Ubuntu 22.04 confirmed a third time, now from inside a running container, and it is a real promoted UE 5.8.0. <strong>No system clang exists in the image</strong>, which makes <code>--ue-root</code> mandatory rather than advisory. Stays <code>observed</code>, not <code>LOCKED</code> — nothing has been compiled against it.</p>
     <div class="tags">

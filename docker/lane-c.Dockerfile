@@ -72,6 +72,33 @@ RUN set -eux; \
       "$ue_engine" "$ue_toolchain" "$base_os" "$cmake_v" "$rsync_v" \
       > /etc/drone-sim-lane-c-versions
 
+# ---------------------------------------------------------------------------------------
+# VULKAN ICD PATH COMPAT — without this, UE's renderer cannot start at all.
+#
+# The host is Bazzite (Fedora-family), so its CDI spec injects an ICD that names the
+# Fedora library path:
+#
+#   /etc/vulkan/icd.d/nvidia_icd.x86_64.json -> "library_path": "/usr/lib64/libGLX_nvidia.so.0"
+#
+# This container is Ubuntu, where that library lives under multiarch at
+# /lib/x86_64-linux-gnu/. The loader therefore cannot open the driver:
+#
+#   ERROR: [Loader Message] /usr/lib64/libGLX_nvidia.so.0: cannot open shared object file
+#   LogVulkanRHI: Error: vpCreateInstance(...) failed, VkResult=-9   (INCOMPATIBLE_DRIVER)
+#   -> UnrealEditor segfaults, exit 139
+#
+# A symlink makes the Fedora path resolve. Verified with vulkaninfo: before, zero usable
+# devices; after, "NVIDIA GeForce RTX 3080 / DISCRETE_GPU / 1.4.341 / driver 610.43.03".
+#
+# NOTE this is a PATH mismatch, NOT the too-new-driver incompatibility that deferred Lane B.
+# The 610.43.03 driver works fine here once the loader can find it.
+#
+# The link target is itself a symlink that CDI creates at RUN time, so this dangles at build
+# time and resolves at run time. That is intended - do not "fix" it by pointing at the
+# versioned .so.610.43.03, which would break on a host driver update.
+RUN mkdir -p /usr/lib64 \
+ && ln -sf /lib/x86_64-linux-gnu/libGLX_nvidia.so.0 /usr/lib64/libGLX_nvidia.so.0
+
 USER ue4
 WORKDIR /src
 
