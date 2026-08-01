@@ -806,12 +806,29 @@ lane_c:
           model". Upstream's multi-vehicle docs also reference Tools/sitl_multiple_run.sh,
           which 404s at v1.16.0. Lane C will need its own launch scripts, which suits the
           bringup package we already have.
-      (2) LOCKSTEP MAY BE DEAD CODE. initialize() sets lock_step_enabled_
-          (MavLinkMultirotorApi.hpp:66) and then openAllConnections() -> resetState()
-          clears it back to false. If so, every "LockStep: true" setup actually runs
-          free-running — precisely the mode that degrades under LiDAR + multi-camera + VLM
-          load, i.e. our target workload. VERIFY THIS EMPIRICALLY before trusting any
-          timing result; the fix is a small patch, the danger is not knowing.
+      (2) LOCKSTEP IS DEAD CODE — **CONFIRMED 2026-08-01**, by source AND at runtime.
+          Was filed here as "may be"; it is not a maybe. In the vendored tree at a552dd6c,
+          MavLinkMultirotorApi.hpp has only FOUR mentions of lock_step_enabled_:
+            :66   initialize()      lock_step_enabled_ = connection_info.lock_step;   SET
+            :1613 handleLockStep()  if (!lock_step_active_ && lock_step_enabled_)      READ
+            :1916 resetState()      lock_step_enabled_ = false;                        CLEAR
+            :1993                   bool lock_step_enabled_ = false;                   DECL
+          initialize() sets it at :66 and calls openAllConnections() at :68, which clears
+          it TWICE before returning — once via close() -> disconnect() -> resetState()
+          (:957) and once directly (:992). Nothing ever sets it again. So the :1613 guard
+          can never pass, lock_step_active_ never becomes true, and the "Enabling lockstep
+          mode" status message can never be emitted.
+          RUNTIME CONFIRMATION: zero occurrences of "Enabling lockstep mode" in the sim log
+          across a full session, while OTHER addStatusMessage output from the same code path
+          ("Waiting for mavlink vehicle") appears — so the channel works and the message
+          genuinely never fires. Measured sim clock = 10.960 s over 11.922 s wall, RTF
+          0.9193, i.e. smoothly tracking wall time rather than being driven step-by-step.
+          CONSEQUENCE: `"LockStep": true` in sim/ue5/settings.json is SILENTLY INEFFECTIVE.
+          Every timing number this project takes from Lane C is a free-running number until
+          this is patched. Do not quote an RTF or a latency from Lane C as deterministic.
+          The fix is small — stop resetState() clobbering config state, e.g. restore from
+          connection_info_ rather than forcing false — but it lands in vendored C++ and so
+          needs a recorded patch plus a plugin rebuild. Tracked as C-09.
       (3) The "disabling lockstep" docs point at boards/px4/sitl/default.cmake, which 404s
           in v1.16.0 — it is sitl.cmake now.
     known_defect_upstream: >-

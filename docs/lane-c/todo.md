@@ -1,4 +1,4 @@
-# Lane C — UE5.5 + Cosys-AirSim — backlog
+# Lane C — UE5.8 + Cosys-AirSim — backlog
 
 **Area:** the project's **primary simulator**. Photorealistic perception, obstacle
 avoidance, and benchmark reproduction.
@@ -94,10 +94,12 @@ separate question, and it changed:
 | 2 | `C-01` Harden the pin (Cesium-on-UE5.8 gate) | Release chosen; the gate blocks `pinned` status, not the work. |
 | 3 | `C-02` UE5.8 base image + source build | The expensive one — hours, and tens of GB. |
 | 4 | `C-03` PX4 ↔ Cosys-AirSim + `/fmu/*` parity | Where the sim-to-real claim is proved or lost. |
-| 5 | `C-04` Sensors into the ROS 2 graph | What Lane B was for. |
-| 6 | `C-07` Lane C flight gate | Lane C earns its own success rate. |
-| 7 | `C-05` Isaac ROS perception on Lane C imagery | Phase 2 proper begins. |
-| 8 | `C-08` Scenes, Cesium, actors | Mostly Phase 4; scoped here so it is not smuggled in early. |
+| 5 | ~~**`C-09`** Make Lane C actually fly~~ ✅ | **Done 2026-08-01 — 4/4 waypoints.** |
+| 6 | **`C-10`** Deterministic EKF-origin ordering | `C-09`'s fix is a manual restart. Until the bring-up enforces it, Lane C flies by luck of container start order. |
+| 7 | `C-04` Sensors into the ROS 2 graph | What Lane B was for. |
+| 8 | `C-07` Lane C flight gate | Lane C earns its own success rate. |
+| 9 | `C-05` Isaac ROS perception on Lane C imagery | Phase 2 proper begins. |
+| 10 | `C-08` Scenes, Cesium, actors | Mostly Phase 4; scoped here so it is not smuggled in early. |
 
 **Why `C-06` moved to the front.** The stay-on-Jazzy decision rests entirely on the
 Cosys-AirSim ROS 2 wrapper building against Jazzy, and the wrapper is *an ordinary colcon
@@ -346,7 +348,9 @@ of mismatch that deferred Lane B.
 
 ## C-03 — PX4 ↔ Cosys-AirSim, and `/fmu/*` parity
 
-**Status:** 🟡 **link + parity done (2026-08-01); nothing has flown.** Evidence:
+**Status:** ✅ **`done` (2026-08-01)** — parity proved. **The vehicle arms but does not
+climb; that is [`C-09`](#c-09--make-lane-c-actually-fly-lockstep-first), not a reopening of
+this task.** Evidence:
 [`../worklog/2026-08-01-c03-px4-airsim-link.md`](../worklog/2026-08-01-c03-px4-airsim-link.md)
 
 ```
@@ -449,6 +453,159 @@ design — do not assume both are on the same clock.
   may not work with current versions of PX4". No upstream regression test protects this
   integration. That is an argument for the exact tag pin we already have — and for keeping
   Lane A, which *does* have first-class PX4 support, as the baseline.
+
+---
+
+## C-09 — Make Lane C actually fly (lockstep first)
+
+**Status:** ✅ **`done` (2026-08-01) — LANE C FLIES.** The unmodified Lane A controller reached
+4/4 waypoints (errors 0.78 / 0.79 / 0.78 / 0.78 m), landed and disarmed. Filed from `C-03`'s
+evidence: [`../worklog/2026-08-01-c03-px4-airsim-link.md`](../worklog/2026-08-01-c03-px4-airsim-link.md)
+
+**Symptom, reproduced twice.** The *unmodified* Lane A `offboard_control` node arms against
+Lane C and then never climbs:
+
+```
+wait_for_fcu -> stream_setpoints -> request_offboard -> armed     ✓
+FAILED: timeout in state takeoff                                  ✗   0/4 waypoints
+PX4:  Preflight: GPS Vertical Pos Drift too high
+PX4:  Ready for takeoff!  ->  Disarmed by auto preflight disarming
+```
+
+**What is already ruled out.** The first version of this failure was a `settings.json` bug —
+a `Sensors` block *replaces* the defaults rather than extending them, so listing only the
+barometer left the vehicle with no IMU, GPS or magnetometer. Fixed; the complaint moved from
+`ekf2 missing data` to `GPS Vertical Pos Drift too high`, which is the difference between
+having no GPS and having one that will not settle. **The controller is not at fault** — it is
+byte-identical to the one that scores 10/10 in Lane A.
+
+### Diagnosed 2026-08-01 — root cause found. Evidence: [`../worklog/2026-08-01-c09-lockstep-dead-and-the-35m-offset.md`](../worklog/2026-08-01-c09-lockstep-dead-and-the-35m-offset.md)
+
+**Two real defects; only one causes the failure.**
+
+**(a) Lockstep is dead code — CONFIRMED, and NOT the cause.** `initialize()` sets
+`lock_step_enabled_` (`:66`) and `openAllConnections()` (`:68`) clears it *twice* before
+returning — `close()`→`disconnect()`→`resetState()` (`:957`) and directly (`:992`). Nothing
+sets it again, so the `:1613` guard can never pass. Runtime confirms: **zero** `"Enabling
+lockstep mode"` across a full session while another message from the *same* `addStatusMessage`
+path does appear; measured RTF 0.9193 tracks wall time. **`"LockStep": true` is silently
+ineffective, so every Lane C timing number is free-running** — recorded in `versions.lock` and
+`sim/ue5/settings.json`. It does not explain the takeoff failure; free-running SITL flies fine.
+
+**(b) The vehicle thinks it is already at 35 m — THIS is the cause.**
+
+```
+z (NED, negative = up):  min=-35.168  max=-35.166  samples=9415   <- 2 mm spread
+ref_alt          88.113 m   (EKF local origin)
+altitude_msl_m  123.280 m   (GPS)          difference = 35.167 m  <- exactly the stuck z
+dist_bottom       0.0999 m  z_valid true  fix_type 3  sats 15     <- it is ON THE GROUND
+```
+
+The EKF's local origin sits 35.17 m below where GPS says the vehicle is. Nothing is drifting;
+`GPS Vertical Pos Drift too high` is that 35 m disagreement under a misleading name.
+
+**Why it stops the flight:** `offboard_control.py:344` captures home as **x,y only (z dropped)**
+and `:395` targets **absolute** ENU z = 10 m. In Lane A the vehicle rests at z ≈ 0 so that is
+10 m AGL; in Lane C it reports +35.17 m, so **the controller commands a 25 m descent into the
+ground**. `_reached()` measures 25.17 m against a 1 m radius, never passes, times out — and PX4,
+having armed without taking off, auto-disarms via `COM_DISARM_PRFLT`. Every symptom accounted for.
+
+**The controller is not at fault and must not be patched.** It is byte-identical to the one
+scoring 10/10 in Lane A and correct for any sim whose origin is at ground level. The fix belongs
+in the sim — a controller needing per-lane altitude fudging is not the same controller, which is
+the whole parity claim.
+
+**Open question, deliberately not silently fixed:** capturing `cur[2]` at `:344` would make the
+controller origin-agnostic, but it changes what `takeoff_altitude` means (AGL vs local-frame
+absolute). Decide it; do not patch it mid-diagnosis.
+
+**(c) CORRECTION — the sensor diagnosis above was inferred, and measuring refuted it.**
+Querying directly: `getBarometerData` → 122.883 m, `getGpsData` → 123.280 m. **They agree.**
+There is no sensor disagreement; the 35 m lives entirely in PX4's `ref_alt`, an origin set at
+88.113 m and never revised while both sensors read ~123 m throughout. So it is a **stale EKF
+origin**, i.e. a **startup-ordering** problem, not a sensor one — and `OriginGeopoint` would
+have fixed nothing.
+
+**Confirmed by restarting `lane-c-px4` alone, sim untouched:**
+
+```
+before:   ref_alt  88.113 m    z = -35.167 m
+after:    ref_alt 123.280 m    z =  -0.0002 m     <- matches GPS exactly; no config change
+```
+
+**This also explains the intermittent bring-up** that `C-03` recorded and could not pin down —
+an order-dependent origin works some runs and not others. Same root, two symptoms.
+
+**(d) RESULT — it flies.**
+
+```
+reached takeoff altitude 10.0 m
+waypoint 1/4 (0.78 m)  2/4 (0.79 m)  3/4 (0.78 m)  4/4 (0.78 m)
+landed and disarmed          outcome: success   4/4
+```
+
+Peak −10.233 m NED against a 10 m target; AirSim truth and PX4 EKF tracked within 0.8 m.
+Video: `out/lane-c/lane-c-flight-SUCCESS-2026-08-01.mp4`. **The controller was never patched**,
+which is what makes the parity claim mean anything.
+
+**Remaining work:**
+
+1. **Make the ordering deterministic in the bring-up** so this cannot regress — PX4 must
+   initialise its EKF origin only after the vehicle has settled. The restart is the *diagnosis*,
+   not the fix; the launch layer should enforce it, and a gate should assert `ref_alt` matches
+   GPS before a run counts. **Filed as `C-10`.**
+2. **Patch lockstep separately** — restore `lock_step_enabled_` from `connection_info_` rather
+   than forcing false in `resetState()`, which also survives reconnects. Vendored C++: needs a
+   recorded patch plus a plugin rebuild, and **two** copies of the header exist
+   (`AirLib/…` and `Unreal/Plugins/AirSim/Source/AirLib/…`) — both must be patched.
+3. **Decide the AGL-vs-absolute question** above.
+
+<details><summary>Original hypotheses as filed (kept — 1 and 2 both proved real)</summary>
+
+1. **Settle whether lockstep is actually engaged.** Highest-value question in the lane.
+   `initialize()` sets `lock_step_enabled_`; `openAllConnections()` → `resetState()` appears
+   to clear it. If AirSim free-runs while PX4's `lockstep_scheduler` is active, sensor cadence
+   and sim time diverge — and GPS vertical drift is exactly what an EKF would then report.
+   **The same defect would explain the intermittent bring-up deadlock already observed**, so
+   two open symptoms may have one cause. Measure it; do not read it off the config.
+2. **Set `OriginGeopoint`.** Currently unset, so AirSim's GPS origin and PX4's `LPE_LAT`/
+   `LPE_LON` may disagree — `04` flags this as where AirSim+Cesium coordinate mismatches bite.
+3. **Confirm AirSim physics steps at all**, by commanding the vehicle over AirSim's own RPC
+   with PX4 out of the loop. If it does not move there either, the problem is upstream of PX4
+   entirely.
+
+</details>
+
+**Done when:** the Lane A controller, unchanged, reaches all four waypoints in Lane C — and
+the lockstep question is answered with a measurement, not an inference.
+
+**Blocks:** `C-07` (a flight gate needs a flight), and therefore `C-05`.
+
+---
+
+## C-10 — Make the EKF-origin ordering deterministic
+
+**Status:** 🔴 **open.** Filed 2026-08-01 from `C-09`.
+
+`C-09` proved the vehicle only flies when PX4 initialises its EKF origin **after** the sim
+vehicle has settled. Today that is achieved by restarting `lane-c-px4` by hand once the sim is
+up — a diagnosis, not a fix. Left as is, Lane C flies or does not depending on container start
+order, which is exactly the intermittency `C-03` could not pin down.
+
+**Do:**
+
+1. **Enforce the ordering in the bring-up** rather than relying on luck or a manual restart —
+   PX4 waits until AirSim reports the vehicle settled before connecting.
+2. **Assert it in the gate.** A run must not count unless `ref_alt` agrees with
+   `vehicle_gps_position.altitude_msl_m` to within a metre at start. The failure mode is silent
+   and looks like a control bug, so it needs a check that names it. This is the Lane C analogue
+   of `P1-08` — distinguishing a void run from a real one.
+
+**Done when:** cold-starting the whole stack from nothing produces a flyable vehicle N times in
+a row with no manual intervention, and a deliberately mis-ordered start is *failed by the gate*
+rather than scored.
+
+**Blocks:** `C-07` — a flight gate that can silently score a mis-ordered stack is worse than none.
 
 ---
 
