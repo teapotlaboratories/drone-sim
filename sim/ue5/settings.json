@@ -17,10 +17,17 @@
     "SteppableClock is required for lockstep: AirSim advances the clock one step per sensor",
     "update, so PX4's clock tracks the sim regardless of render latency. Without it a slow",
     "UE frame trips PX4 SITL timeouts - the documented fragility of this integration.",
-    "CAUTION, unverified here: research found initialize() sets lock_step_enabled_ and then",
-    "openAllConnections() -> resetState() clears it, which would mean every documented",
-    "LockStep setup actually runs FREE-RUNNING. Verify empirically before trusting any",
-    "timing result - see versions.lock lane_c.px4.THREE_DEFECTS_TO_EXPECT."
+    "CONFIRMED DEAD 2026-08-01: the LockStep flag below IS SILENTLY INEFFECTIVE. In the",
+    "vendored tree, initialize() sets lock_step_enabled_ (MavLinkMultirotorApi.hpp:66) and",
+    "then openAllConnections() clears it TWICE before returning - via close()->disconnect()",
+    "->resetState() (:957) and directly (:992) - and nothing sets it again. So the guard at",
+    ":1613 can never pass and 'Enabling lockstep mode' can never be logged. It never was:",
+    "zero occurrences across a full session, while other addStatusMessage output from the",
+    "same path did appear. Measured RTF 0.9193 (10.960 s sim over 11.922 s wall), i.e.",
+    "tracking wall time rather than stepping. LockStep is left true deliberately - it states",
+    "the INTENT and will start working the moment the vendor patch lands (C-09). Until then,",
+    "treat every Lane C timing number as free-running. See versions.lock",
+    "lane_c.px4.THREE_DEFECTS_TO_EXPECT (2)."
   ],
   "ClockType": "SteppableClock",
 
@@ -42,8 +49,24 @@
       "ControlPortLocal": 14540,
       "ControlPortRemote": 14580,
 
+      "_comment_sensors_MUST_BE_COMPLETE": [
+        "A Sensors block REPLACES the defaults, it does not extend them - AirSimSettings.hpp",
+        "createDefaultSensorSettings is only called 'when none specified in json'. An earlier",
+        "version of this file listed ONLY the barometer, which left the vehicle with no IMU,",
+        "no GPS and no magnetometer. PX4 armed anyway and then auto-disarmed:",
+        "  Preflight Fail: ekf2 missing data",
+        "  Preflight Fail: height estimate not stable",
+        "  Ready for takeoff!",
+        "  Disarmed by auto preflight disarming",
+        "The controller saw 'armed' and then timed out in takeoff, which looks like a control",
+        "bug and is not one. All four multirotor defaults are therefore listed explicitly.",
+        "SensorType: 1=Barometer 2=Imu 3=Gps 4=Magnetometer (SensorBase::SensorType)."
+      ],
       "Sensors": {
-        "Barometer": {
+        "imu":          { "SensorType": 2, "Enabled": true },
+        "gps":          { "SensorType": 3, "Enabled": true },
+        "magnetometer": { "SensorType": 4, "Enabled": true },
+        "barometer": {
           "SensorType": 1,
           "Enabled": true,
           "_comment": [

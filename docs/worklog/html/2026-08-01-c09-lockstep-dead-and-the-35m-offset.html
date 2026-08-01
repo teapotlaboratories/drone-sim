@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C-09 — A Stale EKF Origin, and Lane C Flies</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-01 · C-09</span>
+  <nav><a href="#two">Two findings</a><a href="#lockstep">Lockstep</a><a href="#offset">The 35 m</a><a href="#next">Next</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-01 · C-09 · Lane C · SITL only, nothing real armed or flown</span>
+  <h1>A Stale Origin,<br>and Lane C Flies</h1>
+  <p class="sub">The vehicle believed it was 35 m up while parked on the ground. Not lockstep (dead, but innocent), and not the sensors (they agree) &mdash; a PX4 EKF origin set before the vehicle settled. One container restart, no config change, and the <em>unmodified</em> Lane A controller flew all four waypoints.</p>
+  <div class="mastmeta"><span>Outcome <b>4/4 SUCCESS</b></span><span>Max wp error <b>0.79 m</b></span><span>Offset was <b>35.167 m</b></span><span>Fix <b>ordering</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Lane C flight</div><div class="v">4/4</div><div class="n">unmodified Lane A controller</div></div>
+<div class="stat ok"><div class="k">Max waypoint error</div><div class="v">0.79 m</div><div class="n">against a 1 m accept radius</div></div>
+<div class="stat"><div class="k">Fix</div><div class="v">ORDERING</div><div class="n">not config, not sensors</div></div>
+</div>
+
+<h2 id="two"><span class="secnum">01</span> Two findings, and only one is the cause</h2>
+
+<div class="callout"><p style="margin:0">Both were on <code>C-09</code>&rsquo;s list. Both turned
+out to be real defects. <strong>They are not the same bug, and the loud one is not the
+culprit</strong> &mdash; worth stating plainly, because I went in expecting lockstep to explain
+everything and it does not.</p></div>
+
+<div class="tw"><table>
+<thead><tr><th>Finding</th><th>Real?</th><th>Causes the takeoff failure?</th></tr></thead>
+<tbody>
+<tr><td><code>LockStep: true</code> is silently ineffective</td><td><span class="pill p-stop">yes</span> confirmed twice over</td><td><strong>no</strong></td></tr>
+<tr><td>Vehicle reports 35.17 m altitude while grounded</td><td><span class="pill p-stop">yes</span></td><td><strong>yes &mdash; this is it</strong></td></tr>
+</tbody></table></div>
+
+<h2 id="lockstep"><span class="secnum">02</span> Lockstep is dead code &mdash; confirmed, but a red herring</h2>
+
+<p>Filed in <code>versions.lock</code> as <em>&ldquo;LOCKSTEP MAY BE DEAD CODE&rdquo;</em> from
+reading. It is not a maybe. The header has exactly <strong>four</strong> mentions of the flag:</p>
+
+<pre class="mono">:66    initialize()       lock_step_enabled_ = connection_info.lock_step;   SET
+:1613  handleLockStep()   if (!lock_step_active_ &amp;&amp; lock_step_enabled_)     READ
+:1916  resetState()       lock_step_enabled_ = false;                       CLEAR
+:1993                     bool lock_step_enabled_ = false;                  DECL</pre>
+
+<p><code>initialize()</code> sets it at <code>:66</code>, then calls
+<code>openAllConnections()</code> at <code>:68</code> &mdash; which clears it <strong>twice</strong>
+before returning, once via <code>close()</code>&nbsp;&rarr;&nbsp;<code>disconnect()</code>&nbsp;&rarr;&nbsp;<code>resetState()</code>
+(<code>:957</code>) and once directly (<code>:992</code>). Nothing sets it again. The
+<code>:1613</code> guard can never pass.</p>
+
+<div class="callout stop"><p style="margin:0"><strong>Runtime agrees &mdash; and the control is
+what makes this evidence rather than inference.</strong></p>
+<pre class="mono">"Enabling lockstep mode"        0 occurrences across a full session
+"Waiting for mavlink vehicle"   present   &lt;- SAME addStatusMessage path, so the channel works
+sim clock 10.960 s / 11.922 s wall  -&gt;  RTF 0.9193</pre>
+<p style="margin-bottom:0">Another message from the <em>same</em> logging path does appear, so the
+silence is real and not a swallowed log. And an RTF that smoothly tracks wall time is what
+free-running looks like, not stepping.</p></div>
+
+<div class="callout warn"><p style="margin:0"><strong>Consequence: every timing number Lane C
+produces is a free-running number.</strong> <code>"LockStep": true</code> is left in place
+deliberately &mdash; it states the intent and starts working the moment the patch lands &mdash; but
+nothing may quote a Lane C RTF or latency as deterministic until then.</p></div>
+
+<h2 id="offset"><span class="secnum">03</span> The vehicle thinks it is already at 35 m</h2>
+
+<p>Instrumented a run instead of inferring from the controller&rsquo;s timeout. The altitude
+channel settled it in one line:</p>
+
+<pre class="mono">z (NED, negative = up):  min=-35.168  max=-35.166  samples=9415</pre>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">Reported altitude</div><div class="v">35.17 m</div><div class="n">while on the ground</div></div>
+<div class="stat"><div class="k">Samples</div><div class="v">9,415</div><div class="n">spread 2 mm &mdash; rock steady</div></div>
+<div class="stat"><div class="k">dist_bottom</div><div class="v">0.0999 m</div><div class="n">it is sitting on the ground</div></div>
+</div>
+
+<p>One query pinned the arithmetic exactly:</p>
+
+<pre class="mono">ref_alt            88.113 m     &lt;- EKF local-origin altitude
+altitude_msl_m    123.280 m     &lt;- GPS
+                  -------
+difference         35.167 m     &lt;- exactly the stuck z</pre>
+
+<div class="callout"><p style="margin:0">The EKF&rsquo;s local origin sits 35.17 m below where GPS
+says the vehicle is. Nothing is drifting and nothing is broken in the estimator&rsquo;s own terms
+&mdash; <code>z_valid</code> is true and the value is rock steady. The <strong>origin is simply in
+the wrong place</strong>, and <code>GPS Vertical Pos Drift too high</code> is that same 35 m
+disagreement wearing a misleading name.</p></div>
+
+<h3>Why that stops the flight, exactly</h3>
+
+<pre class="mono">offboard_control.py:344   self.home_enu = (cur[0], cur[1])                 &lt;- x, y only; z DROPPED
+offboard_control.py:395   self.target_enu = (home[0], home[1], self.alt)   &lt;- z = 10.0 ABSOLUTE
+offboard_control.py:425   _reached()  -&gt;  proximity, accept_radius = 1.0 m</pre>
+
+<div class="callout stop"><p style="margin:0">The takeoff target is <strong>absolute</strong> ENU
+z&nbsp;=&nbsp;10&nbsp;m, not <em>current&nbsp;+&nbsp;10</em>. In Lane A the vehicle rests at
+z&nbsp;&asymp;&nbsp;0, so that is 10 m above ground and correct. In Lane C it reports
++35.17&nbsp;m, so <strong>the controller is commanding a 25 m descent into the ground.</strong>
+The proximity test measures a 25.17 m error against a 1 m radius, never passes, and times out
+&mdash; while PX4, having armed and not taken off, auto-disarms via <code>COM_DISARM_PRFLT</code>.</p></div>
+
+<p>Every symptom is now accounted for, including the two that looked like control bugs.</p>
+
+<h3>Ground truth settles it: the vehicle is on the ground, PX4 is wrong</h3>
+
+<p><code>dist_bottom</code> read 0.0999 m but with <code>dist_bottom_valid: false</code>, which
+left one thing genuinely open: is the vehicle <em>actually</em> parked 35 m up, or on the ground
+with a bad origin? AirSim&rsquo;s ground truth answers it independently of PX4&rsquo;s estimator:</p>
+
+<pre class="mono">simGetGroundTruthKinematics -&gt; position z = +0.620 m   (NED: on the ground at spawn)
+getHomeGeoPoint             -&gt; altitude   = 123.279 m
+PX4 vehicle_gps_position    altitude_msl_m = 123.28  m   &lt;- AGREES with AirSim
+PX4 vehicle_local_position  ref_alt        =  88.113 m   &lt;- 35.17 m TOO LOW</pre>
+
+<div class="callout"><p style="margin:0"><strong>The vehicle is not spawned high &mdash; it is on
+the ground, and PX4&rsquo;s GPS input is correct.</strong> AirSim&rsquo;s home altitude and
+PX4&rsquo;s GPS agree to 1 mm. The error is isolated to PX4&rsquo;s local-origin altitude, 35.17 m
+below its own GPS.</p></div>
+
+<h3>I inferred the wrong cause from that, and measuring refuted it</h3>
+
+<p>From the above I concluded the EKF had anchored height to the <strong>barometer</strong>, and
+that baro and GPS disagreed by 35 m. That was an inference, not a measurement, and it was
+<strong>wrong</strong>. Querying the sensors directly:</p>
+
+<pre class="mono">getBarometerData -&gt; altitude 122.883 m   pressure 99856.85   qnh 1013.25
+getGpsData       -&gt; altitude 123.280 m
+                    the two AGREE, within 0.4 m</pre>
+
+<div class="callout stop"><p style="margin:0"><strong>Both AirSim sensors are correct and
+consistent.</strong> There is no sensor disagreement. The 35 m lives entirely in PX4&rsquo;s
+<code>ref_alt</code> &mdash; an origin established at 88.113 m and never revised, while both
+sensors reported ~123 m throughout. That reframes it: not a <em>sensor</em> problem but a
+<strong>stale EKF origin</strong>, and therefore a <strong>startup-ordering</strong> problem. An
+EKF origin is set once.</p></div>
+
+<h3>Confirmed by restarting PX4 alone</h3>
+
+<p>The sim kept running untouched; only <code>lane-c-px4</code> restarted:</p>
+
+<pre class="mono">before:   ref_alt  88.113 m    z = -35.167 m
+after:    ref_alt 123.280 m    z =  -0.0002 m</pre>
+
+<div class="callout ok"><p style="margin:0"><strong>One container restart, no config change,
+offset gone.</strong> <code>ref_alt</code> now matches GPS and AirSim exactly, and z is zero
+because the vehicle is on the ground &mdash; which it always was. <code>OriginGeopoint</code> was
+the wrong fix and would have changed nothing.</p></div>
+
+<div class="callout warn"><p style="margin:0">Worth recording plainly: I reasoned from
+<code>ref_alt</code> to a sensor cause <em>without querying the sensors</em>, and one RPC call
+caught it. <strong>Measure the thing, do not infer it from the thing downstream of it</strong>
+&mdash; the same lesson as the bound port that proved nothing in <code>C-03</code>.</p></div>
+
+<div class="callout"><p style="margin:0"><strong>This also explains the intermittent
+bring-up.</strong> An order-dependent origin is exactly the shape of a defect that works some runs
+and not others &mdash; which <code>C-03</code> recorded and could not pin down. Same root, two
+symptoms.</p></div>
+
+<h3>It flies</h3>
+
+<pre class="mono">reached takeoff altitude 10.0 m
+waypoint 1/4 reached (error 0.78 m)
+waypoint 2/4 reached (error 0.79 m)
+waypoint 3/4 reached (error 0.78 m)
+waypoint 4/4 reached (error 0.78 m)
+landed and disarmed
+outcome: success   waypoints_reached 4/4</pre>
+
+<div class="callout ok"><p style="margin:0">Peak altitude &minus;10.233 m NED against a 10 m
+target; AirSim ground truth and PX4&rsquo;s EKF tracked each other to within 0.8 m through the
+flight. <strong><code>C-09</code>&rsquo;s done-when is met: the Lane A controller, byte-unchanged,
+reaches all four waypoints in Lane C.</strong> Not having patched the controller is what makes
+that mean anything. Recorded: <code>out/lane-c/lane-c-flight-SUCCESS-2026-08-01.mp4</code>, 88.6 s.</p></div>
+
+<h3>Video evidence</h3>
+
+<p>Recorded the run &mdash; <code>out/lane-c/lane-c-flight-2026-08-01.mp4</code>, 30.8 s, SITL only.
+<code>front_center</code> and <code>bottom_center</code> side by side, with the comparison that
+matters burned into a telemetry band:</p>
+
+<pre class="mono">AirSim TRUTH  z =  +0.620 m   (on the ground)
+PX4 EKF       z = -35.167 m   -&gt; believes it is 35.2 m UP   (off by 35.8 m)</pre>
+
+<p><code>bottom_center</code> shows the vehicle&rsquo;s own arms against ground a fraction of a
+metre away, for the whole 30 s, while the band reports 35 m altitude. <strong>The bug is legible
+without reading a single log line.</strong></p>
+
+<div class="callout warn"><p><strong>Two silent bugs in my own capture.</strong>
+<code>ros2 topic echo</code> redirected to a file is block-buffered, so the overlay read an empty
+file (fixed with <code>stdbuf -oL</code>); and the echo interleaves <code>---</code> separators,
+which pass a naive &ldquo;starts with <code>-</code> so it is a number&rdquo; test and then raise
+inside a <code>try</code> wrapping the whole loop &mdash; printing <code>...</code> for an entire
+recording rather than failing.</p>
+<p style="margin-bottom:0">The first video came out looking fine and showed no EKF value at all.
+<strong>A capture that silently degrades to blank is the same class as the version-recording layer
+that wrote empty values while the build passed.</strong></p></div>
+
+<h3>The controller is not at fault, and should not be patched</h3>
+
+<div class="callout ok"><p style="margin:0">It is byte-identical to the one that scores 10/10 in
+Lane A, and correct for any simulator whose local origin is at ground level. <strong>The fix
+belongs in the sim</strong> &mdash; and keeping it there is the whole point of the parity claim.
+A controller that needs per-lane altitude fudging is not the same controller.</p></div>
+
+<div class="callout warn"><p style="margin:0"><strong>Latent coupling worth naming:</strong>
+dropping z at <code>:344</code> while treating the z target as absolute is an unstated assumption
+that ground&nbsp;&asymp;&nbsp;z&nbsp;0. It holds in Lane A by convention, not by construction, and
+Lane C is what surfaced it. Capturing <code>cur[2]</code> would make the controller
+origin-agnostic &mdash; but that is a <strong>deliberate open question, not a silent fix</strong>:
+it changes what <code>takeoff_altitude</code> means (AGL vs local-frame absolute).</p></div>
+
+<h2 id="next"><span class="secnum">04</span> Next</h2>
+
+<div class="grid g3">
+<div class="panel"><p class="eyebrow">1 &mdash; <code>C-10</code></p><p style="margin:0"><strong>Make
+the ordering deterministic in the bring-up.</strong> A restart is the <em>diagnosis</em>, not the
+fix. The launch layer must enforce that PX4 initialises its origin after the vehicle settles, and
+a gate must assert <code>ref_alt</code> matches GPS before a run counts.</p></div>
+<div class="panel"><p class="eyebrow">2 &mdash; separately</p><p style="margin:0">Patch lockstep:
+restore <code>lock_step_enabled_</code> from <code>connection_info_</code> rather than forcing
+false, which also survives reconnects. Vendored C++ &mdash; recorded patch plus a plugin rebuild,
+and <strong>two</strong> copies of the header must both be patched.</p></div>
+<div class="panel"><p class="eyebrow">3 &mdash; decide</p><p style="margin:0">Settle the
+AGL-vs-absolute question before touching the controller.</p></div>
+</div>
+
+<div class="panel"><p style="margin:0"><strong>Process note:</strong> cleared
+<code>res.json</code> before this run rather than trusting mtime &mdash; the <code>P1-01</code>
+stale-artifact trap that already bit this investigation once.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
