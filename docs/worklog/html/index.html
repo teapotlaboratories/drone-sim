@@ -115,8 +115,19 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-01-c10-deterministic-bringup.html">
+    <span class="k">2026-08-01 · C-10 · newest</span>
+    <h3>A Deterministic Bring-Up, and a Check That Nearly Lied</h3>
+    <p>Cold start to a verified stack in <strong>83 s unattended</strong>, then <strong>4/4 waypoints</strong> — third consecutive success, first from a genuine cold start. The new origin check earned itself immediately, catching a <strong>real 9.069 m stale origin</strong> (not a replay of C-09&rsquo;s 35.167 — a fresh race, different magnitude) and repairing it. Two admissions kept in: the settle-wait alone was <em>not</em> sufficient, so the honest description is &ldquo;verify and repair&rdquo;, not &ldquo;order it correctly&rdquo;; and the check first reported <code>OK</code> on a <code>NaN</code> — <code>nan &gt; tol</code> is False — green-lighting the one state it existed to catch.</p>
+    <div class="tags">
+      <span class="pill p-ok">cold start works</span>
+      <span class="pill p-warn">settle-wait insufficient</span>
+      <span class="pill p-stop">the check nearly lied</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-01-c09-lockstep-dead-and-the-35m-offset.html">
-    <span class="k">2026-08-01 · C-09 · newest</span>
+    <span class="k">2026-08-01 · C-09</span>
     <h3>A Stale Origin, and Lane C Flies</h3>
     <p>The vehicle believed it was <strong>35 m up while parked on the ground</strong> — <code>&minus;35.167 m</code>, constant to 2 mm across 9,415 samples — so the controller, which targets <em>absolute</em> z&nbsp;=&nbsp;10 m, was commanding a 25 m descent into the ground. Not lockstep: that <em>is</em> confirmed dead code (the flag is set once and cleared twice, and <code>"Enabling lockstep mode"</code> never fires), so every Lane C timing number is free-running — but it is innocent here. Not the sensors either: baro 122.883 and GPS 123.280 <strong>agree</strong>, refuting my own inference. The 35 m was a PX4 EKF origin set before the vehicle settled. <strong>One container restart, no config change — and the unmodified Lane A controller flew 4/4 waypoints, max error 0.79 m.</strong></p>
     <div class="tags">
