@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C-02 — The UE5.8 Engine Image — 2026-08-01</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-01 · C-02</span>
+  <nav><a href="#prove">What it proves</a><a href="#pull">The pull</a><a href="#probe">Inside</a><a href="#toolchain">Toolchain</a><a href="#plugin">It builds</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-01 · C-02 · Lane C · nothing flies here</span>
+  <h1>The UE5.8<br>Engine Image</h1>
+  <p class="sub">Pulled, run and probed. The digest reproduces, the base really is jammy, the engine really is a promoted 5.8.0 — and there is no system clang, which makes one build flag mandatory rather than advisory.</p>
+  <div class="mastmeta"><span>Pull <b>9m05s</b></span><span>Extracted <b>57.4 GB</b></span><span>Digest <b>matched</b></span><span>Status <b>observed, not LOCKED</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Digest</div><div class="v">MATCHED</div><div class="n">byte-identical to the C-01 registry query</div></div>
+<div class="stat warn"><div class="k">On disk</div><div class="v">57.4 GB</div><div class="n">2.4&times; the compressed 24 GB</div></div>
+<div class="stat stop"><div class="k">Built against</div><div class="v">NOTHING</div><div class="n">so it stays <code>observed</code></div></div>
+</div>
+
+<h2 id="prove"><span class="secnum">01</span> What this task had to prove</h2>
+<p><code>C-01</code> established the tag <em>exists</em> by querying the registry for ~17 KB. That
+is not the same claim as the image <em>works</em>, and the distinction is written into
+<code>versions.lock</code> deliberately. Two things were carried as unverified:</p>
+<ul>
+<li><strong>The Ubuntu 22.04 base</strong> — read from the registry's config blob, never from a
+pulled image. It is architecturally load-bearing: ROS 2 Jazzy has no jammy packages, so it forces
+Lane C into at least two containers.</li>
+<li><strong>The size</strong> — measured compressed. The <code>D-04</code> storage decision
+(internal NVMe, because the 7 TB external is a 7200 RPM spinning disk) was made on that figure.</li>
+</ul>
+
+<h2 id="pull"><span class="secnum">02</span> The pull</h2>
+<pre>start 05:34:52Z  &rarr;  end 05:43:57Z   (9m05s)
+Digest: sha256:daac02628ea880513e18ccd1364b1cac949d40609b24c040d73872d8214a0c46</pre>
+<div class="callout ok"><p><strong>Byte-identical to the digest recorded from the registry query
+in <code>C-01</code>.</strong> The pin reproduces.</p></div>
+
+<figure>
+<div class="figscroll">
+<svg viewBox="0 0 1080 210" role="img" aria-label="Bars to scale: 24 GB compressed expands to 57.4 GB extracted, of which 54 GB is the engine; internal NVMe falls from 270 GB to 215 GB free">
+  <text class="axl" x="16" y="20">SIZE AND DISK — BARS TO SCALE (270 GB = full width)</text>
+  <line class="e" x1="16" y1="30" x2="1060" y2="30"/>
+
+  <text class="mn" x="16" y="56">compressed (manifest)</text>
+  <rect x="250" y="42" width="87" height="18" fill="var(--chrome)" opacity=".5"/>
+  <text class="mn" x="345" y="56">24.0 GB / 30 layers</text>
+
+  <text class="mn" x="16" y="84">extracted on disk</text>
+  <rect x="250" y="70" width="208" height="18" fill="var(--ground)" opacity=".6"/>
+  <text class="mn" x="466" y="84">57.4 GB &mdash; a 2.4&times; expansion</text>
+
+  <text class="mn" x="16" y="112">of which the engine</text>
+  <rect x="250" y="98" width="196" height="18" fill="var(--ground)" opacity=".35"/>
+  <text class="mn" x="454" y="112">54 GB at /home/ue4/UnrealEngine</text>
+
+  <line class="e" x1="16" y1="130" x2="1060" y2="130"/>
+  <text class="mn" x="16" y="154">NVMe free BEFORE</text>
+  <rect x="250" y="140" width="800" height="18" fill="var(--ok)" opacity=".45"/>
+  <text class="mn" x="258" y="154" style="fill:var(--ink)">270 GB</text>
+
+  <text class="mn" x="16" y="182">NVMe free AFTER</text>
+  <rect x="250" y="168" width="637" height="18" fill="var(--stop)" opacity=".40"/>
+  <text class="mn" x="258" y="182" style="fill:var(--ink)">215 GB &mdash; and that is BEFORE any build output, plugin or packaged project</text>
+</svg>
+</div>
+<figcaption>The D-04 decision was taken on the compressed figure; this is the real cost</figcaption>
+</figure>
+<p>Still comfortable, but worth restating: <code>D-04</code>'s watch item — revisit below ~100 GB
+free — is <strong>one large build closer than it looks</strong>.</p>
+
+<h2 id="probe"><span class="secnum">03</span> Inside the image</h2>
+<div class="grid g2">
+<div class="callout ok"><span class="lbl">Ubuntu 22.04 — confirmed a third time</span>
+<pre style="margin:8px 0 0">os : Ubuntu 22.04.2 LTS (jammy)</pre>
+<p>Read from <code>/etc/os-release</code> in a running container. Previously this rested on the
+registry config blob, and before that on a research agent's report. <strong>All three agree.</strong>
+The consequence stands: Jazzy has no jammy packages, so Lane C is &ge;2 containers with the
+AirSim&harr;ROS 2 boundary as a socket. Not a preference.</p></div>
+<div class="callout ok"><span class="lbl">A real, promoted UE 5.8.0</span>
+<pre style="margin:8px 0 0">{ "MajorVersion": 5,
+  "MinorVersion": 8,
+  "PatchVersion": 0,
+  "IsPromotedBuild": 1 }</pre>
+<p>Not a preview, not a nightly.</p></div>
+</div>
+
+<h2 id="toolchain"><span class="secnum">04</span> The finding that changes the build command</h2>
+<pre>bundled   Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/<b>v26_clang-20.1.8-rockylinux8</b>
+UnrealBuildTool.dll      present
+system clang / clang++   <b>ABSENT</b>        <span class="c">(gcc 11 and g++ are present)</span>
+Setup.sh / GenerateProjectFiles.sh   <b>ABSENT</b>  <span class="c">— pre-built engine, not a source tree</span></pre>
+
+<div class="grid g2">
+<div class="callout stop"><span class="lbl">1 · --ue-root is mandatory, not advisory</span>
+<p>Cosys-AirSim's <code>build.sh</code> on the 5.8 line supports it and uses the engine's bundled
+clang. <strong>There is no system clang in this image</strong>, so a build that omits
+<code>--ue-root</code> has no compatible compiler at all — it will not degrade gracefully.</p>
+<p>The bundled toolchain is <strong>clang 20.1.8</strong>, exactly what upstream is documented to
+have built v3.4.1 with — so the ABI-mismatch risk that made the UE5.5 line awkward does not arise
+here, <em>provided the flag is used</em>.</p></div>
+<div class="callout warn"><span class="lbl">2 · dev-slim ships an installed engine</span>
+<p><code>Setup.sh</code> and <code>GenerateProjectFiles.sh</code> are absent;
+<code>UnrealBuildTool.dll</code> is present. Plugin builds go through UBT. Any upstream
+instruction that assumes a source checkout needs translating.</p></div>
+</div>
+
+<h2 id="plugin"><span class="secnum">05</span> The plugin build &mdash; and the one-second failure that produced D-04</h2>
+<p><code>./build.sh --ue-root</code> on the <strong>stock</strong> engine image died in
+<strong>one second</strong>:</p>
+<pre>++ which cmake
++  CMAKE=
+exit=1</pre>
+<div class="callout warn"><span class="lbl">The tempting move, and why it was wrong</span>
+<p><code>apt install cmake</code> in a running container would have worked and been
+<em>unreproducible</em> &mdash; exactly what the reproducibility goal exists to prevent. So every
+tool the scripts invoke was enumerated in one pass rather than one crash at a time.</p></div>
+<div class="tw"><table>
+<thead><tr><th></th><th>Tools</th></tr></thead>
+<tbody>
+<tr><td>needed by <code>build.sh</code>/<code>setup.sh</code></td><td class="mono">clang cmake gcc make rsync unzip wget zip</td></tr>
+<tr><td>already in <code>dev-slim</code></td><td class="mono">make unzip zip gcc g++ git curl python3 tar patch pkg-config</td></tr>
+<tr><td><strong>missing, added</strong></td><td class="mono"><strong>cmake &nbsp; rsync &nbsp; wget</strong></td></tr>
+</tbody></table></div>
+<p>That is <code>docker/lane-c.Dockerfile</code> &mdash; engine pinned <strong>by digest</strong>
+(not the moving <code>dev-slim-5.8</code> alias), plus those three, <strong>+33 MB</strong> on a
+57.4 GB base. <strong><code>clang</code> is deliberately not installed</strong>: a system clang
+would recreate the ABI mismatch against UE's linker that the UE5.5 line documented, and
+<code>build.sh</code> itself refuses <code>--ue-root</code> with <code>--gcc</code> because the
+bundled toolchain is Clang-only.</p>
+
+<div class="callout stop"><span class="lbl">A version-recording layer that silently recorded nothing</span>
+<p>The Dockerfile's first version extracted the engine version with an inline Python f-string
+containing escaped quotes &mdash; a <code>SyntaxError</code> here. <strong>The layer succeeded
+anyway</strong>, because the redirect still created the file, and wrote <code>ue_engine=</code>
+empty.</p>
+<p>A version-recording step that silently records nothing is worse than none: <em>it looks like
+evidence</em>. Same class as the build script that printed <code>BUILD OK</code> after
+<code>make</code> exited 2. Fixed with <code>set -eux</code> and non-empty assertions, and
+<strong>verified by breaking it</strong> &mdash; the guard fires with <code>FATAL: a version probe
+produced an empty value</code>.</p></div>
+
+<h3>RESULT &mdash; it builds</h3>
+<pre>Cosys-AirSim airlib c++ plugin is built!      <b>exit=0</b>, warnings only</pre>
+<p>Upstream prints a success banner and this repo has been lied to by one before, so the
+artifacts were asserted:</p>
+<div class="tw"><table>
+<thead><tr><th>Assertion</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>libAirLib.a</code></td><td><strong>4.8 MB</strong></td></tr>
+<tr><td><code>libMavLinkCom.a</code> / <code>librpc.a</code></td><td>1.9 MB / 1.2 MB</td></tr>
+<tr><td><code>Unreal/Plugins/AirSim/Source/AirLib</code></td><td><strong>1,226 files</strong> (deps 1,042)</td></tr>
+<tr><td><code>AirLib/src</code> stripped as intended</td><td>yes</td></tr>
+<tr><td><code>readelf -p .comment libAirLib.a</code></td><td><strong>clang version 20.1.8</strong></td></tr>
+</tbody></table></div>
+<div class="callout ok"><p><strong>That last row is the decisive one.</strong> It is the artifact
+naming its own compiler &mdash; the engine's bundled clang, <em>not</em> the image's system gcc 11.
+<code>--ue-root</code> genuinely took effect, which is the whole reason UE5.8 was chosen over
+backporting onto UE5.5.</p></div>
+
+<h2><span class="secnum">06</span> Status</h2>
+<div class="panel">
+<div class="tw"><table>
+<thead><tr><th>Entry</th><th>Was</th><th>Now</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>unreal_engine</code></td><td><code>TODO-verify</code></td><td><span class="pill p-ok">LOCKED</span></td><td>pulled, probed, and something real compiled against it</td></tr>
+<tr><td><code>cosys_airsim</code></td><td><code>TODO-verify</code></td><td><span class="pill p-warn">observed</span></td><td>the AirLib plugin library builds</td></tr>
+<tr><td><code>cosys_airsim_ros2_wrapper</code></td><td>&mdash;</td><td><span class="pill p-ok">LOCKED</span></td><td>from <code>C-06</code></td></tr>
+</tbody></table></div>
+<p style="margin:0"><strong><code>cosys_airsim</code> is deliberately not LOCKED.</strong> The
+plugin <em>library</em> builds. Nothing has compiled the UE plugin through UnrealBuildTool,
+nothing has packaged a project, and the simulator has never run &mdash; no PX4 link, no
+<code>/fmu/*</code> parity, no frames measured. <strong>Building is not running.</strong></p>
+</div>
+
+<div class="callout"><span class="lbl">Recorded on the way in</span>
+<p><code>docker login ghcr.io</code> wrote a credential to <code>~/.docker/config.json</code>,
+which was previously absent. <code>D-04</code> calls the Epic credential a reproducibility hazard;
+this is the moment it stops being a note about CI and becomes state on this machine.</p>
+<p>Also: <code>.claude/</code> appeared untracked after a permission rule was added, with no
+<code>.gitignore</code> entry — so the next <code>git add -A</code> would have committed a
+per-operator permission allow-list into a shared repo. Ignored.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
