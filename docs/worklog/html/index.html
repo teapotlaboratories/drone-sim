@@ -115,8 +115,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-07-31-lane-c-primary.html">
+    <span class="k">2026-07-31 · Lane C · newest</span>
+    <h3>Lane C Becomes the Primary Stack</h3>
+    <p>Cosys-AirSim on Unreal replaces Gazebo for Phase 2 onward; Lane A is <strong>demoted to a regression baseline, not retired</strong>. Three open questions settled — and a fourth surfaced from research within the hour: <strong>UE5.5 and ROS 2 Jazzy cannot be had from one upstream tag</strong>. One command decided it — <code>ros-jazzy-cv-bridge 4.1.0</code> ships no <code>cv_bridge.h</code>, so the last UE5.5 release is <em>measurably unbuildable here</em>. Pin moved to <code>5.8-v3.4.1</code>. Nothing built, nothing flown.</p>
+    <div class="tags">
+      <span class="pill p-stop">Lane C primary</span>
+      <span class="pill p-ok">Lane A demoted</span>
+      <span class="pill p-warn">UE5.5 &rarr; UE5.8</span>
+      <span class="pill p-chrome">Jazzy confirmed</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-07-31-ci-and-self-contained-qgc.html">
-    <span class="k">2026-07-31 · P1-07 / D-07 · newest</span>
+    <span class="k">2026-07-31 · P1-07 / D-07</span>
     <h3>Automating What Can Be Automated</h3>
     <p>Tier-1 CI runs in <strong>24 s</strong> on every push; the flight gate cannot run on a hosted runner (12.6 GB image, 2 vCPU against an RTF floor of 0.95) and a self-hosted one on a public repo would execute fork code on this machine — so it is deferred and running it locally is accepted. Review of the CI found the job holding a <strong>write</strong> token. QGroundControl is now baked into its image, checksum-verified, proven by deleting the host copy and flying.</p>
   </a>

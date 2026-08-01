@@ -12,7 +12,37 @@ flying GPS waypoint missions in lockstep, recorded to MCAP, CI run under 10 minu
 
 **Exit criterion (the one that matters).** An automated test takes off, flies a 4-waypoint
 square, lands — **SR = 100% over 10 seeded runs**, with the MCAP artifact uploaded. A
-single green run is not a pass.
+single green run is not a pass. **Met 2026-07-31 — SR 10/10.**
+
+---
+
+## Lane A is now the regression baseline — 2026-07-31
+
+**Phase 1 is closed and Lane A is demoted, not retired.** Lane C (UE5.5 + Cosys-AirSim) is
+the project's primary simulator from Phase 2 on — see
+[`../reference/04_ue5_stack_architecture.md`](../reference/04_ue5_stack_architecture.md) and
+[`../lane-c/todo.md`](../lane-c/todo.md). That report's own Fallback #2 keeps Gazebo as "the
+always-on PX4 sim-to-real ground-truth baseline", which is exactly this lane's new job.
+
+**What stays here, permanently:**
+
+- **Tier-1 CI** (`.github/workflows/checks.yml`) — 25 off-target tests, parse checks,
+  `compose config`, the attribution check, the `versions.lock` conflict check. Runs on every
+  push in ~24 s and `main` requires it.
+- **The `P1-06` flight gate** — `./scripts/run_local_ci.sh --gate`. It is the only working
+  flight gate the project has, and it stays that way until `C-07` lands.
+- **Controls and sim-to-real ground truth.** A Lane C result is compared against a Lane A
+  run for the same mission. **This is the reason the lane survives.**
+- **The real-hardware PX4 tree.** The Pixhawk 6C runs `v1.16.0` — this exact tree. Nothing
+  about the lane switch touches that.
+
+**What does not:** new capability work. Depth, LiDAR, EGO-Planner, the VLM client and
+everything downstream are built in Lane C. Do not add Phase 2 features here — if a change
+seems to need one, that is a signal the Lane C bring-up is blocked and should be unblocked,
+not routed around.
+
+**Maintenance bar.** Lane A is frozen in scope, not abandoned: it must keep passing its own
+gate. A green tier-1 CI is not evidence the lane still flies — only the gate is.
 
 ---
 
@@ -569,8 +599,22 @@ physics gate into a runner-capacity gate — a red build that says nothing about
 
 **Tier 1 — hosted, every push, ~1 min.** Everything checkable without a simulator: the 25
 off-target tests, `bash -n` and `py_compile` over every tracked script, `compose config`
-(which is how the inert `FOLLOW_*` knobs were caught), an AI-attribution check, and an
-assertion that every `versions.lock` `CONFLICT` carries a summary.
+(which is how the inert `FOLLOW_*` knobs were caught), an AI-attribution check, an
+assertion that every `versions.lock` `CONFLICT` carries a summary, and — **added
+2026-07-31** — `scripts/check_worklog_renders.py`.
+
+**Why that last one exists.** `.ai/AGENTS.md` requires an HTML render per worklog plus a
+card in the index, and the rule has now been missed **twice**: once found during the CI
+audit above, and again the same day, when two worklogs written that morning shipped
+unrendered and were only caught by a rules re-read. Both times the gap was invisible until
+someone went looking — which is the definition of a check worth automating. It is shared
+between CI and `run_local_ci.sh` rather than duplicated, so a local pass and a CI pass mean
+the same thing, and it is filesystem-based rather than `git ls-files`-based so a missing
+render fails *before* it is committed rather than after.
+
+> **Rule deviation, recorded:** like `run_local_ci.sh` before it, this check was **built
+> before it was filed** here. Same inversion of the plan-first rule, noted rather than
+> tidied away.
 
 Two of those checks were **wrong on the first attempt and fixed before pushing**, which is
 the argument for running a workflow's steps locally before trusting it:
