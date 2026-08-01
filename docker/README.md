@@ -19,7 +19,6 @@ an 11.6 GB rebuild.
 ## Bring-up
 
 ```bash
-./scripts/fetch-qgc.sh                                               # required: the arming datalink
 docker compose -f docker/compose.yaml up -d                          # the stack
 docker compose -f docker/compose.yaml --profile test run --rm verify # the gate
 docker compose -f docker/compose.yaml down -v

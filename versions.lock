@@ -264,11 +264,16 @@ lane_a:
     source_url: https://github.com/mavlink/qgroundcontrol/releases/download/v5.0.8/QGroundControl-x86_64.AppImage
     sha256: 06969c67ef58ea063def0a8271447a1cc385438c4a7df36813315b4475146737
     size_bytes: 180816376
-    path: vendor/tools/QGroundControl.AppImage   # git-ignored; fetched, never committed
-    fetch: scripts/fetch-qgc.sh                  # pins version + verifies sha256
+    baked_into: drone-sim/qgc:v1.16.0            # downloaded + sha256-verified AT BUILD TIME
+    path_in_image: /opt/qgc/squashfs-root        # extracted once at build, not per start
     downloaded: 2026-07-28
     repinned: 2026-07-30
     status: LOCKED
+    enforced_by: >-
+      docker/qgc.Dockerfile — the build downloads this exact URL, compares the sha256, and
+      FAILS with both hashes on a mismatch. Verified by building with a deliberately wrong
+      hash: exit 1, "checksum MISMATCH". Previously the pin was only enforced by a script
+      the user had to remember to run.
     why_locked: >-
       QGC is a FUNCTIONAL DEPENDENCY OF FLIGHT, not an optional viewer. PX4 refuses to arm
       without a GCS datalink (NAV_DLL_ACT=2, set by the x500 airframe at
@@ -560,8 +565,10 @@ images:
       the `recording` service draws on.
     adds: xvfb, openbox, x11-utils, libfuse2t64, Qt xcb deps, fonts-dejavu-core, qgcuser
     note: >-
-      QGroundControl itself is NOT baked in (180 MB) — it is fetched by scripts/fetch-qgc.sh
-      and bind-mounted. See the qgroundcontrol entry above for its pin.
+      QGroundControl IS baked in: downloaded from the pinned URL, sha256-verified, and
+      extracted once at build time (452 MB extracted, against 180 MB compressed — the
+      trade buys back per-start unpacking, which the gate pays ten times per run).
+      A mismatch fails the build.
     status: LOCKED
 
   ros2:
