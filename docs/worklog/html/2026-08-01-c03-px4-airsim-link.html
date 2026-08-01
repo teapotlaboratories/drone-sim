@@ -285,14 +285,98 @@ Lane A does.</strong> Intended, not an oversight.</p></div>
 <div class="tw"><table>
 <thead><tr><th>Claim</th><th>Status</th></tr></thead>
 <tbody>
-<tr><td>Anything has flown</td><td><span class="pill p-stop">no</span> no arming, no takeoff, no motion</td></tr>
+<tr><td>Anything has flown</td><td><span class="pill p-warn">arms, does not climb</span> see &sect;06 &mdash; filed as <code>C-09</code></td></tr>
 <tr><td><code>/fmu/out/vehicle_status</code> publishes</td><td><span class="pill p-warn">silent</span> in the sample; probably a slower rate than the window, but that is a guess</td></tr>
 <tr><td>Lockstep is genuinely engaged</td><td><span class="pill p-warn">unclear</span> scheduler initialises and the clock advances, but +5016 ms over ~4 s wall is too coarse to distinguish lockstep from free-running. <strong>Do not quote an RTF from it.</strong></td></tr>
 <tr><td>Sensor values are sane</td><td><span class="pill p-stop">unchecked</span> topics publish; nobody verified the numbers or IMU&ndash;camera timestamp alignment</td></tr>
 </tbody></table></div>
-<div class="panel"><p style="margin:0"><strong>Next:</strong> fly the Lane A controller unchanged
-against Lane C &mdash; identical <em>names</em> is necessary but not sufficient. Then characterise
-lockstep properly, and resolve the port collision before <code>C-07</code>.</p></div>
+<h2 id="flight"><span class="secnum">06</span> Flying the controller: arms, does not climb</h2>
+
+<p>Ran the <strong>unmodified</strong> Lane A <code>offboard_control</code> node &mdash; same package,
+same source, only the simulator underneath changed.</p>
+
+<div class="grid g3">
+<div class="stat ok"><span class="n">&#10003;</span><span class="lbl">armed</span></div>
+<div class="stat ok"><span class="n">&#10003;</span><span class="lbl">offboard confirmed</span></div>
+<div class="stat stop"><span class="n">0/4</span><span class="lbl">waypoints reached</span></div>
+</div>
+
+<div class="callout ok"><p style="margin:0"><strong>Arming is a real result.</strong>
+<code>NAV_DLL_ACT</code> was deliberately left enforced rather than disabled as upstream's example
+does (&sect;04), so PX4 refused to arm without a GCS datalink &mdash; QGC supplied it, exactly as on
+the real aircraft. AirSim logs <code class="mono">MavLinkVehicle: confirmed offboard mode</code>.</p></div>
+
+<h3>The first failure was my config bug, and it actively misled</h3>
+
+<p>The run reported <code>armed</code> then <code>timeout in state takeoff</code>, which reads like a
+control bug &mdash; wrong setpoint, bad handshake, a frame error. It was none of those:</p>
+
+<pre class="mono">PX4:  Preflight Fail: ekf2 missing data
+PX4:  Preflight Fail: height estimate not stable
+PX4:  Ready for takeoff!  -&gt;  Disarmed by auto preflight disarming</pre>
+
+<div class="callout stop"><p style="margin:0"><strong>An AirSim <code>Sensors</code> block REPLACES
+the defaults, it does not extend them.</strong> <code>AirSimSettings.hpp:1874</code> &mdash;
+<em>&ldquo;creates default sensor list when none specified in json&rdquo;</em>. I had listed only a
+barometer, to attach a <code>PressureFactorSigma</code> tweak, which left the vehicle with
+<strong>no IMU, no GPS and no magnetometer</strong>. PX4 armed on a partly-satisfied preflight,
+produced no thrust for want of a height estimate, and auto-disarmed via <code>COM_DISARM_PRFLT</code>
+while the controller correctly waited out its own timeout.</p></div>
+
+<p>Fixed by listing all four defaults explicitly. The whole failure signature is now written into
+<code>sim/ue5/settings.json</code>, so the next person seeing &ldquo;armed then takeoff timeout&rdquo;
+does not go hunting in the controller.</p>
+
+<h3>After the fix: better, still not flying</h3>
+
+<div class="tw"><table>
+<thead><tr><th>&nbsp;</th><th>PX4 preflight complaint</th></tr></thead>
+<tbody>
+<tr><td class="k">before</td><td><code>ekf2 missing data</code> / <code>height estimate not stable</code></td></tr>
+<tr><td class="k">after</td><td><code>GPS Vertical Pos Drift too high</code></td></tr>
+</tbody></table></div>
+
+<p>The complaint moved from <em>missing data</em> to <em>drift</em> &mdash; the difference between
+having no GPS and having one that will not settle. That confirms the sensor diagnosis.
+<strong>But the vehicle still never climbs</strong>, PX4 still auto-disarms, and the controller still
+times out at 60&nbsp;s. Reproduced twice.</p>
+
+<h3>Where to look next, in order</h3>
+
+<div class="grid g3">
+<div class="panel"><p class="eyebrow">1 &mdash; strongest</p><p style="margin:0"><strong>Lockstep.</strong>
+If AirSim free-runs while PX4's <code>lockstep_scheduler</code> is active, sensor cadence and sim time
+diverge &mdash; and GPS vertical drift is exactly what an EKF would then report. This is also the
+<code>resetState()</code> question from &sect;05, and it would explain the <strong>intermittent
+bring-up deadlock</strong> just as well. Two symptoms, possibly one cause.</p></div>
+<div class="panel"><p class="eyebrow">2</p><p style="margin:0"><strong><code>OriginGeopoint</code>
+is unset</strong>, so AirSim's GPS origin and PX4's <code>LPE_LAT</code>/<code>LPE_LON</code> may
+disagree. <code>04</code> flags this as where AirSim+Cesium coordinate mismatches bite.</p></div>
+<div class="panel"><p class="eyebrow">3</p><p style="margin:0"><strong>Does AirSim physics step at
+all?</strong> Command the vehicle over AirSim's own RPC with PX4 out of the loop. If it does not move
+there either, the problem is upstream of PX4 entirely.</p></div>
+</div>
+
+<h3>Two process notes</h3>
+
+<div class="callout warn">
+<p><strong>The result artifact went stale between runs.</strong> <code>out/lane-c-flight.json</code>
+from the previous attempt was still on disk and read as if it were the new one &mdash; exactly the
+<code>P1-01</code> bug, <code>run_flight</code> scoring a seed from a twenty-minute-old file. Caught
+by checking mtime; the real fix is clearing the artifact before each run, as <code>run_flight</code>
+now does.</p>
+<p style="margin-bottom:0">Two bad probes of my own: <code>/fmu/out/actuator_motors</code> does not
+exist (it is <code>/fmu/in/</code>), and a <code>ConnectionRefused</code> on the RPC meant only that
+I had stopped publishing port 41451.</p></div>
+
+<div class="callout ok"><p style="margin:0"><strong><code>C-03</code>'s stated criterion is met</strong>
+&mdash; topic parity, proved by diff. <strong>The controller does not yet fly in Lane C</strong>,
+which the criterion did not ask for and which is now filed as <code>C-09</code> rather than a
+retroactive widening of this task.</p></div>
+
+<div class="panel"><p style="margin:0"><strong>Next:</strong> settle the lockstep question &mdash; it
+plausibly explains both the GPS drift and the intermittent bring-up deadlock. Then resolve the Lane A
+/ Lane C port collision before <code>C-07</code>.</p></div>
 
 </div>
 <script>
