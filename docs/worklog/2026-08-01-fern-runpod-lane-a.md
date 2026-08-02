@@ -21,8 +21,8 @@ The sibling Fern repository was inspected rather than guessed from its README al
 - `fern deploy --profile drone-sim-stack --image <ref> --duration 300 --dry-run` prints the
   billable request;
 - `--yes` creates the Pod;
-- the built-in Lane A profile is CPU-only, requests 8 vCPUs, maps no ports, mounts
-  `/workspace`, and accepts an image override;
+- the built-in stack profile requests one selectable Runpod GPU, maps no ports, mounts
+  `/workspace`, and accepts image and GPU overrides;
 - current Fern lifecycle commands are deploy, list, get, and stop; wait, artifact download,
   and guarded destroy remain planned;
 - Fern's earlier image wrapped an upstream Drone Sim image and forced Fast DDS to `UDPv4`
@@ -231,7 +231,7 @@ GitHub Actions ──build/push──► GHCR digest
                      fern deploy --image <digest>
                                   │
                                   ▼
-                    Runpod CPU Pod, no mapped ports
+                    Runpod GPU Pod, no mapped ports
                     ├─ PX4 + Gazebo
                     ├─ Micro XRCE-DDS Agent
                     ├─ ROS 2 graph / MCAP
@@ -322,11 +322,16 @@ not a replacement.
    upstream layers. The base now reuses the digest-pinned official ROS image and persistent
    BuildKit caches while retaining the repository-owned PX4/Gazebo/XRCE/QGC stack.
 ## Verification completed in this PR
+8. Rebasing exposed main's measured ROS/Gazebo library conflict. The flattened runner no
+   longer sources ROS in its entrypoint: PX4/Gazebo run with ROS library paths removed,
+   while XRCE and ROS graph commands source the overlay in isolated scopes. Static contract
+   tests protect that boundary.
+
 
 ```text
 PYTHONPATH=ros2_ws/src/control PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 ..........................................                               [100%]
-42 passed in 0.15s
+45 passed in 0.22s
 ```
 
 After the live lifecycle failure, D-08a added Tini subreaper mode and current/legacy
@@ -366,5 +371,58 @@ Output:       stack-7ded0741a9c8c7cb1c53057935cb65f3332faa6b
 ```
 
 That run proved the flattened PX4 + Gazebo + XRCE + ROS 2 + QGC stack can build and push to
-the organization's private GHCR namespace. It preceded the official-ROS-base/cache
-optimization; a manually dispatched run validates that optimization before the PR opens.
+the organization's private GHCR namespace. The optimized publisher then passed separately:
+
+```text
+Workflow run: 30710634371
+Commit:       3c0a809daed75af72905a48e97a6bd65dd4d18eb
+Result:       success
+Elapsed:      20m45s
+Digest:       sha256:ac33899dd5a8b7544d13dcf99fd67bd8345a45132564fc42f97c7903e977fa13
+```
+
+That second run validates the digest-pinned official ROS base, scoped BuildKit caches,
+main-only push trigger, private GHCR push, and manifest artifact.
+
+## Live acceptance gate — fresh GPU Pod (2026-08-02)
+
+The D-08g head is the first image to pass the required 300-second Fern acceptance gate on
+a fresh GPU Pod.
+
+```text
+Workflow run 30761343309
+Commit:       be2fc68924f8db00e56bdcb1acc4159c1b0c617b
+Result:       success
+Digest:       ghcr.io/teapotlaboratories/drone-sim@sha256:a19b012620ca844e589784fbc81fd2ad0cc719ecdbeb2620d0d53e771c285cea
+```
+
+`--dry-run` first printed the billable request (one GPU on the ordered fallback list);
+`fern deploy --profile drone-sim-stack --image <digest> --duration 300 --yes` created Pod
+`hy19vgho00t7mb` on one **NVIDIA RTX 2000 Ada Generation** at **$0.24/hour** (SECURE, 40 GB container disk, 20 GB
+`/workspace`, no published ports). Run `20260802T190008Z-be2fc68924f8db00e56bdcb1acc4159c1b0c617b` started 2026-08-02T19:00:09.023217Z and reached
+terminal `succeeded` (exit 0) at 2026-08-02T19:07:13.157273Z.
+
+Preflight passed in 0.16 s: writable `/workspace`, Fast-DDS UDPv4 shared-memory fallback,
+all six loopback ports free, executable PX4 / XRCE / QGC AppRun, one NVIDIA RTX 2000 Ada Generation with
+driver 580.159.04 (16 GB). PX4 booted in ~12 s; ROS 2 discovered 24 topics
+under `/fmu/out`; telemetry moved; declared topics at 100.006 Hz.
+
+The 300-second sample produced aggregate RTF 1.0 (`RTF AGGREGATE     : 1.0033            (native 1.0000 · host podman 0.9967)`) with sample min 0.974 / mean
+1.000 / max 1.002 and **0 of 2923 instantaneous samples below 0.95**. The MCAP recorder
+flushed under the bounded Term escalation; `status.json` reached `succeeded`; the Pod
+self-stopped with no external cleanup.
+
+`metrics.json` is passed: `fmu_out_topic_count 24`, `telemetry_moving true`,
+`sensor_timeout 0`, `px4_total_error_count 4`, `px4_qgc_ack_loss_count 4`, and
+**`px4_error_count 0`**. The four raw lines are the anchored QGC-startup signature
+`ERROR [mavlink] vehicle_command_ack lost, generation 5 -> 26` (pre-takeoff), classified as compatibility-only and persisted in `px4-errors.log`;
+no actionable PX4 error remains.
+
+Retained on `/workspace` after stop: the **15.0 MB MCAP** in `artifacts/lane-a-mcap/` plus
+`preflight.json`, `versions.txt`, `request.json`, `metrics.json`, `status.json`, and the
+full log set. No UDP MAVLink / DDS / Gazebo port is public. The stopped Pod was temporarily
+switched to an SSH-capable diagnostic image for retrieval, then restored to the immutable
+digest (no ports) and left stopped — provider state `EXITED`, volume preserved.
+
+Closes the D-08g acceptance gate; the PR is otherwise unchanged. The `wait` / `download` /
+destroy gate (issue #14) remains out of scope pending the Fern lifecycle.

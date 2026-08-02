@@ -927,7 +927,7 @@ fresh 300-second acceptance run remains pending.
 
 ### D-08g — Make the PX4 error gate ANSI-safe and QGC-aware
 
-**Status:** 🟡 **off-target verified; rebuilt 300-second Fern run pending (2026-08-02)**
+**Status:** ✅ **accepted on a fresh GPU Pod (2026-08-02)**
 
 **What.** Strip terminal control bytes before evaluating PX4 logs, count every error, and
 classify only the exact QGC-startup `vehicle_command_ack lost` signature separately from
@@ -948,5 +948,10 @@ finish, self-stop, and retain transparent passing metrics plus replayable MCAP e
 
 **Verification.** Fourteen focused runtime tests pass. They prove ANSI normalization, exact
 QGC ACK-loss classification, transparent total/classified/actionable counts, and fail-closed
-near-match behavior. Python compilation and shell syntax pass; immutable-image verification
-is pending.
+near-match behavior. Python compilation and shell syntax pass. The immutable acceptance run
+then passed: workflow `30761343309` built commit `be2fc689` and Fern Pod `hy19vgho00t7mb`
+on one RTX 2000 Ada at $0.24/hour completed a 300-second sitl smoke, exported
+`metrics.json` with `passed: true`, `px4_error_count 0` and `px4_qgc_ack_loss_count 4`,
+recorded aggregate RTF 1.00, retained a 15.0 MB MCAP, reached `succeeded` status, and
+self-stopped. Evidence and full detail are in the worklog `2026-08-01-fern-runpod-lane-a`
+under "Live acceptance gate".
