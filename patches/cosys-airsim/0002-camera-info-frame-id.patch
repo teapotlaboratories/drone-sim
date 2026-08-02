@@ -1,0 +1,74 @@
+Give camera_info the same frame_id as the TF tree and the image.
+
+generate_cam_info() sets header.frame_id to "<camera>_optical", while the static TF and the
+image both use "<vehicle>/<camera>_optical". image_proc, depth_image_proc and any TF-aware
+perception node therefore cannot resolve the camera frame.
+
+Measured (drone-sim, 2026-08-02, vehicle "PX4"):
+
+    camera_info frame_id : front_center_optical
+    image       frame_id : PX4/front_center_optical
+    tf_static child      : PX4/front_center_optical
+
+Both the Scene and DepthPlanar camera_info topics are affected.
+
+generate_cam_info() used camera_name only for this frame_id, so this threads the vehicle name
+through explicitly rather than passing a pre-prefixed string under a "camera_name" argument --
+the call sites already have curr_vehicle_name in scope (declared at airsim_ros_wrapper.cpp:165).
+
+This is an upstream defect and is worth reporting to Cosys-Lab.
+
+NOTE ON LINE ENDINGS: Cosys-AirSim sources are CRLF. This hunk was GENERATED from the real
+files, not hand-written -- a hand-written LF hunk fails with
+"Hunk 1 FAILED (different line endings)".
+
+diff -ur a/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h b/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h
+--- a/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h	2026-08-02 01:09:37.229569812 +0000
++++ b/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h	2026-08-02 01:09:37.244413079 +0000
+@@ -302,7 +302,7 @@
+     void publish_odom_tf(const nav_msgs::msg::Odometry& odom_msg);
+ 
+     /// camera helper methods
+-    sensor_msgs::msg::CameraInfo generate_cam_info(const std::string& camera_name, const CameraSetting& camera_setting, const CaptureSetting& capture_setting) const;
++    sensor_msgs::msg::CameraInfo generate_cam_info(const std::string& vehicle_name, const std::string& camera_name, const CameraSetting& camera_setting, const CaptureSetting& capture_setting) const;
+ 
+     std::shared_ptr<sensor_msgs::msg::Image> get_img_msg_from_response(const ImageResponse& img_response, const rclcpp::Time curr_ros_time, const std::string frame_id);
+     std::shared_ptr<sensor_msgs::msg::Image> get_depth_img_msg_from_response(const ImageResponse& img_response, const rclcpp::Time curr_ros_time, const std::string frame_id);
+diff -ur a/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp b/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp
+--- a/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp	2026-08-02 01:09:37.227625821 +0000
++++ b/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp	2026-08-02 01:09:37.244661793 +0000
+@@ -264,7 +264,7 @@
+                             const std::string camera_info_topic = camera_topic_prefix + "/camera_info";
+                             image_pub_vec_.push_back(image_transporter.advertise(image_topic, 1));
+                             cam_info_pub_vec_.push_back(nh_->create_publisher<sensor_msgs::msg::CameraInfo>(camera_info_topic, 10));
+-                            camera_info_msg_vec_.push_back(generate_cam_info(curr_camera_name, camera_setting, capture_setting));
++                            camera_info_msg_vec_.push_back(generate_cam_info(curr_vehicle_name, curr_camera_name, camera_setting, capture_setting));
+                         }
+                     }else{
+                         if (curr_image_type == ImageType::DepthPlanar || curr_image_type == ImageType::DepthPerspective || curr_image_type == ImageType::DepthVis || curr_image_type == ImageType::DisparityNormalized) {
+@@ -278,7 +278,7 @@
+                         const std::string camera_info_topic = camera_topic_prefix + "/camera_info";
+                         image_pub_vec_.push_back(image_transporter.advertise(image_topic, 1));
+                         cam_info_pub_vec_.push_back(nh_->create_publisher<sensor_msgs::msg::CameraInfo>(camera_info_topic, 10));
+-                        camera_info_msg_vec_.push_back(generate_cam_info(curr_camera_name, camera_setting, capture_setting));
++                        camera_info_msg_vec_.push_back(generate_cam_info(curr_vehicle_name, curr_camera_name, camera_setting, capture_setting));
+                     }                    
+                 }
+             }
+@@ -1907,13 +1907,14 @@
+ }
+ 
+ // todo have a special stereo pair mode and get projection matrix by calculating offset wrt drone body frame?
+-sensor_msgs::msg::CameraInfo AirsimROSWrapper::generate_cam_info(const std::string& camera_name,
++sensor_msgs::msg::CameraInfo AirsimROSWrapper::generate_cam_info(const std::string& vehicle_name,
++                                                                 const std::string& camera_name,
+                                                                  const CameraSetting& camera_setting,
+                                                                  const CaptureSetting& capture_setting) const
+ {
+     unused(camera_setting);
+     sensor_msgs::msg::CameraInfo cam_info_msg;
+-    cam_info_msg.header.frame_id = camera_name + "_optical";
++    cam_info_msg.header.frame_id = vehicle_name + "/" + camera_name + "_optical";
+     cam_info_msg.height = capture_setting.height;
+     cam_info_msg.width = capture_setting.width;
+     float f_x = (capture_setting.width / 2.0) / tan(math_common::deg2rad(capture_setting.fov_degrees / 2.0));

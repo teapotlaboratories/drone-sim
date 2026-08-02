@@ -8,14 +8,14 @@ documented traps against a *running* `airsim_node` instead of against the docs.
 
 ---
 
-## Result: three of four traps confirmed, one still untestable
+## Result: all four traps confirmed; two of them fixed
 
 | # | Trap | Verdict |
 |---|---|---|
 | 1 | Frames are NWU, not ENU — docs say otherwise | **CONFIRMED** — measured, not read |
 | 2 | `/clock` published on the wrong topic | **CONFIRMED**, and worse than filed |
 | 3 | IMU is a polled snapshot, not a stream | **CONFIRMED and quantified — 77.9% duplicates** |
-| 4 | `camera_info.frame_id` mismatches the TF tree | **untestable yet** — no cameras configured |
+| 4 | `camera_info.frame_id` mismatches the TF tree | **CONFIRMED and FIXED** — patch `0002` |
 
 ---
 
@@ -111,12 +111,63 @@ measurement rather than a reassurance.**
 
 IMU messages also ship with zero covariances (`// todo covariances` upstream), unchanged.
 
-## Trap 4 — not yet testable
+## Trap 4 — confirmed, then fixed
 
-No `camera_info` or image topics exist, because `sim/ue5/settings.json` declares no `Cameras`
-block. The 14 published topics are state, sensors, segmentation and object transforms only.
-Adding cameras and GPU-LiDAR *is* the remaining body of `C-04`; the frame_id mismatch can only
-be checked once they publish.
+Initially untestable: no `camera_info` existed because `sim/ue5/settings.json` declared no
+`Cameras` block. **The UE pawn does carry default cameras** — `simGetImages` over RPC works on
+`front_center` — but the wrapper enumerates `vehicle_setting->cameras`, and
+`loadCameraSettings` begins with `cameras.clear()`. No settings entry, no topics.
+
+### Adding the sensors, without repeating the earlier mistake
+
+Added a `Cameras` block (RGB + `DepthPlanar`, 640×480) and a GPU-LiDAR (`SensorType: 8`).
+**Checked the parsing semantics first**, because a `Sensors` block replacing the defaults is
+exactly what cost a session on `C-03`:
+
+- `loadCameraSettings` clears first, but its default is an **empty** map — so adding `Cameras`
+  is purely additive and destroys nothing.
+- Per-vehicle `Sensors` is iterated by key, so the GPU-LiDAR had to be *added alongside* the
+  four existing sensors, and an assertion in the edit confirms all five survive.
+
+**A bug I introduced and caught in the same step:** I first placed `_comment_gpulidar` *inside*
+the `Sensors` block. `loadSensorSettings` iterates the keys of that block and reads `SensorType`
+off each one, so the comment would have been parsed as a sensor with `SensorType 0` — not a
+valid enum. Only per-sensor `_comment` fields nested *inside* a sensor object are safe. Moved to
+vehicle level, with the reason written next to it.
+
+Result — 19 topics, up from 14, carrying real data:
+
+```
+/airsim_node/PX4/front_center_Scene/{image,camera_info}          640x480 rgb8
+/airsim_node/PX4/front_center_DepthPlanar/{image,camera_info}
+/airsim_node/PX4/gpulidar/points/gpulidar        width 8192, point_step 32, is_dense
+```
+
+### The mismatch, measured
+
+```
+camera_info frame_id : front_center_optical         <- no vehicle prefix
+image       frame_id : PX4/front_center_optical
+tf_static child      : PX4/front_center_optical
+```
+
+Source: `airsim_ros_wrapper.cpp:1916` sets `camera_name + "_optical"`, while the static TF at
+`:1709` uses `vehicle_name_ + "/" + camera_name + "_optical"`. **`camera_info` is the lone
+outlier**, and both Scene and DepthPlanar are affected — so `image_proc`, `depth_image_proc` and
+any TF-aware node cannot resolve the camera frame.
+
+**Fixed** as `patches/cosys-airsim/0002-camera-info-frame-id.patch`. `generate_cam_info()` used
+`camera_name` *only* for this frame_id, so the vehicle name is threaded through explicitly
+rather than passing a pre-prefixed string under a `camera_name` argument — the call sites
+already have `curr_vehicle_name` in scope (`:165`). Verified:
+
+```
+front_center_Scene         camera_info -> PX4/front_center_optical
+front_center_DepthPlanar   camera_info -> PX4/front_center_optical
+```
+
+`scripts/build_airsim_wrapper.sh` now applies every patch in `patches/cosys-airsim/` in
+numbered order and asserts the artifact of each, rather than trusting `patch`'s exit code.
 
 ---
 
@@ -131,8 +182,8 @@ be checked once they publish.
 
 ## Next
 
-1. Add `Cameras` (RGB + depth) and GPU-LiDAR to `sim/ue5/settings.json`, then re-check trap 4.
-2. Put the `/clock` remap into the Lane C launch rather than relying on a hand-typed flag.
+1. Put the `/clock` remap and `publish_clock:=true` into the Lane C launch rather than
+   relying on hand-typed flags — that is the one confirmed trap still worked around by hand.
 3. Decide how the NWU→ENU conversion is done *once, in a tested place*, per
    `docs/lane-a/conventions.md` — Lane C must reach the frozen convention, not invent a second.
 4. Chase the unexplained 7.342° yaw residual.

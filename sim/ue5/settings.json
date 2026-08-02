@@ -49,6 +49,19 @@
       "ControlPortLocal": 14540,
       "ControlPortRemote": 14580,
 
+      "_comment_gpulidar_AND_WHY_THIS_COMMENT_IS_OUT_HERE": [
+        "SensorType 8 = GPULidar (SensorBase::SensorType: 6 is the CPU Lidar, 8 is the GPU one).",
+        "GPU-LiDAR is a large part of why Lane C replaced Lane B: tunable noise and ground-truth",
+        "labels at a point count a CPU lidar cannot reach.",
+        "The gpulidar entry is ADDED to the four sensors below, not replacing them.",
+        "THIS COMMENT LIVES AT VEHICLE LEVEL ON PURPOSE. loadSensorSettings iterates the KEYS of",
+        "the Sensors block and reads SensorType off each one, so a _comment_ key placed inside",
+        "Sensors is parsed as a sensor with SensorType 0 - not a valid enum value. Only per-sensor",
+        "_comment fields nested INSIDE a sensor object (see barometer) are safe.",
+        "Settings are modest deliberately: the lidar shares a GPU with the renderer, and lockstep",
+        "is confirmed dead, so a heavy sensor degrades the sim rather than slowing it deterministically."
+      ],
+
       "_comment_sensors_MUST_BE_COMPLETE": [
         "A Sensors block REPLACES the defaults, it does not extend them - AirSimSettings.hpp",
         "createDefaultSensorSettings is only called 'when none specified in json'. An earlier",
@@ -74,6 +87,54 @@
             "GPS lock and EKF2 convergence happen quickly instead of stalling the run."
           ],
           "PressureFactorSigma": 0.0001825
+        },
+
+        "gpulidar": {
+          "SensorType": 8,
+          "Enabled": true,
+          "NumberOfChannels": 16,
+          "RotationsPerSecond": 10,
+          "MeasurementsPerCycle": 512,
+          "Range": 50,
+          "X": 0, "Y": 0, "Z": -0.3,
+          "DrawDebugPoints": false,
+          "DataFrame": "SensorLocalFrame"
+        }
+      },
+
+      "_comment_cameras": [
+        "C-04. Without this block the vehicle has NO cameras as far as settings are concerned,",
+        "so the ROS 2 wrapper publishes no image or camera_info topics at all - which is why",
+        "the first C-04 topic sweep found 14 topics and no imagery. The UE pawn does carry",
+        "default cameras (simGetImages over RPC works on front_center etc.), but the wrapper",
+        "enumerates vehicle_setting->cameras, and loadCameraSettings starts with cameras.clear().",
+        "Unlike the Sensors block above, adding this REPLACES an empty default, so nothing is",
+        "lost by declaring it.",
+        "ImageType: 0=Scene 1=DepthPlanar 2=DepthPerspective 5=Segmentation",
+        "(ImageCaptureBase::ImageType). 640x480 rather than the 256x144 default: the default is",
+        "too small for perception and was only ever adequate for a debug view."
+      ],
+      "Cameras": {
+        "front_center": {
+          "X": 0.30, "Y": 0.00, "Z": 0.00,
+          "Pitch": 0.0, "Roll": 0.0, "Yaw": 0.0,
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 640, "Height": 480,
+              "FOV_Degrees": 90
+            },
+            {
+              "_comment": [
+                "DepthPlanar, not DepthPerspective: planar depth is the Z-distance in the",
+                "camera frame, which is what depth_image_proc and cuVSLAM expect. Perspective",
+                "depth is ray length and would silently bias any point cloud built from it."
+              ],
+              "ImageType": 1,
+              "Width": 640, "Height": 480,
+              "FOV_Degrees": 90
+            }
+          ]
         }
       },
 
