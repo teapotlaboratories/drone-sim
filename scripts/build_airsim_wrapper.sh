@@ -24,7 +24,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SVC=${SVC:-lane-c-ros2}
 ROOT=/airsim_root
-PATCH=patches/cosys-airsim/0001-mutually-exclusive-callback-group.patch
+PATCHDIR=patches/cosys-airsim
 
 log() { printf '\033[36m[airsim-build]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[airsim-build] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -60,17 +60,29 @@ docker exec "$SVC" bash -lc "
   rm -rf $ROOT/ros2/build $ROOT/ros2/install $ROOT/ros2/log
 " || die "layout failed"
 
-log "applying the callback-group patch (vendor/ is left untouched)"
-docker cp "$REPO/$PATCH" "$SVC:/tmp/wrapper.patch" >/dev/null
-docker exec "$SVC" bash -lc "cd $ROOT && patch -p1 --forward < /tmp/wrapper.patch" \
-  || die "patch did not apply - upstream may have moved; re-derive it before continuing"
+# Apply every patch in order. Numbered so the sequence is explicit rather than
+# filesystem-order-dependent. vendor/ is never touched -- these land on the container copy.
+shopt -s nullglob
+patches=("$REPO/$PATCHDIR"/*.patch)
+[ ${#patches[@]} -gt 0 ] || die "no patches found in $PATCHDIR"
+for pf in "${patches[@]}"; do
+  log "applying $(basename "$pf")"
+  docker cp "$pf" "$SVC:/tmp/wrapper.patch" >/dev/null
+  docker exec "$SVC" bash -lc "cd $ROOT && patch -p1 --forward < /tmp/wrapper.patch" \
+    || die "$(basename "$pf") did not apply - upstream may have moved, or the hunk was
+hand-written with LF endings against these CRLF sources. Re-generate it from the real file."
+done
 
-# Assert the ARTIFACT of the patch, not that `patch` printed something friendly. A build
+# Assert the ARTIFACTS of the patches, not that `patch` printed something friendly. A build
 # script's own success banner has lied in this repo before.
+W=$ROOT/ros2/src/airsim_ros_pkgs
 docker exec "$SVC" bash -lc "
-  grep -q 'CallbackGroupType::MutuallyExclusive' $ROOT/ros2/src/airsim_ros_pkgs/src/airsim_node.cpp \
-  && ! grep -q 'CallbackGroupType::Reentrant'    $ROOT/ros2/src/airsim_ros_pkgs/src/airsim_node.cpp
-" || die "patch applied but the callback group is not MutuallyExclusive"
+  grep -q 'CallbackGroupType::MutuallyExclusive' $W/src/airsim_node.cpp \
+  && ! grep -q 'CallbackGroupType::Reentrant'    $W/src/airsim_node.cpp
+" || die "0001 applied but the callback group is not MutuallyExclusive"
+docker exec "$SVC" bash -lc "
+  grep -q 'vehicle_name + \"/\" + camera_name + \"_optical\"' $W/src/airsim_ros_wrapper.cpp
+" || die "0002 applied but camera_info frame_id is still unprefixed"
 
 log "building (expect ~90 s)"
 docker exec "$SVC" bash -lc "

@@ -761,10 +761,22 @@ in-place edit:
    | 1 | Frames NWU not ENU | **CONFIRMED** — `convert_tf_msg_to_enu()` has 0 call sites; measured yaw missed ENU by 97.3° and NWU by 7.3° |
    | 2 | `/clock` wrong topic | **CONFIRMED, double defect** — `publish_clock` is never *declared*, and it publishes to `~/clock`. Fix: `-r /airsim_node/clock:=/clock`, in the launch |
    | 3 | Polled IMU | **CONFIRMED, quantified** — 1501 Hz published, 6630 distinct, **77.9% duplicates**, real rate ~333 Hz, gaps to 3× base |
-   | 4 | `camera_info` frame_id | **untestable** — no `Cameras` block in `settings.json` yet |
+   | 4 | `camera_info` frame_id | **CONFIRMED and FIXED** — `camera_info` said `front_center_optical` while TF and the image said `PX4/front_center_optical`. Patch `0002`; verified |
 
-   **The build is also no longer ephemeral:** `patches/cosys-airsim/0001-…patch` +
-   `scripts/build_airsim_wrapper.sh` reproduce it in 1m43s with `vendor/` pristine.
+   **Cameras and GPU-LiDAR are now in the graph** — `sim/ue5/settings.json` gained a `Cameras`
+   block (RGB + `DepthPlanar`, 640×480) and a GPU-LiDAR (`SensorType: 8`). **19 topics, up from
+   14**, carrying real data: 640×480 rgb8 and an 8192-point cloud. Parsing semantics were checked
+   *before* editing — `loadCameraSettings` clears but defaults to an empty map (additive), while
+   per-vehicle `Sensors` is iterated by key (so the LiDAR was added alongside the existing four,
+   with an assertion that all five survive).
+
+   **The build is also no longer ephemeral:** `patches/cosys-airsim/*.patch` +
+   `scripts/build_airsim_wrapper.sh` reproduce it in ~2 min with `vendor/` pristine. The script
+   applies every patch in numbered order and asserts each one's artifact.
+
+   **Still worked around by hand:** trap 2. `publish_clock:=true` and
+   `-r /airsim_node/clock:=/clock` are typed on the command line; they belong in the Lane C
+   launch. That is the next `C-04` step.
 
 **Blocked by:** nothing — the crash is fixed; the work is now the trap list.
 

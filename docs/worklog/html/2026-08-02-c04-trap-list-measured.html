@@ -168,9 +168,9 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <div class="wrap">
 <header class="mast">
   <span class="eyebrow">Worklog · 2026-08-02 · C-04 · Lane C · SITL only, nothing real armed or flown</span>
-  <h1>The Trap List,<br>Measured</h1>
-  <p class="sub">Four documented traps, checked against a running <code>airsim_node</code> instead of against the docs. Three confirmed — one of them far worse than filed: <strong>78% of IMU messages are the same sample republished.</strong></p>
-  <div class="mastmeta"><span>Confirmed <b>3 / 4</b></span><span>IMU duplicates <b>77.9%</b></span><span>Frames <b>NWU</b></span><span>Build <b>reproducible</b></span></div>
+  <h1>The Trap List,<br>Measured &amp; Two Fixed</h1>
+  <p class="sub">Four documented traps, checked against a running <code>airsim_node</code> instead of against the docs. <strong>All four confirmed, two fixed.</strong> One is far worse than filed: 78% of IMU messages are the same sample republished.</p>
+  <div class="mastmeta"><span>Confirmed <b>4 / 4</b></span><span>Fixed <b>2</b></span><span>IMU duplicates <b>77.9%</b></span><span>Topics <b>14 &rarr; 19</b></span></div>
 </header>
 
 <h2 id="result"><span class="secnum">01</span> Result</h2>
@@ -181,7 +181,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <tr><td>1</td><td>Frames are NWU, not ENU — the docs say otherwise</td><td><span class="pill p-stop">CONFIRMED</span> measured, not read</td></tr>
 <tr><td>2</td><td><code>/clock</code> on the wrong topic</td><td><span class="pill p-stop">CONFIRMED</span> and worse than filed</td></tr>
 <tr><td>3</td><td>IMU is a polled snapshot, not a stream</td><td><span class="pill p-stop">CONFIRMED</span> quantified — 77.9% duplicates</td></tr>
-<tr><td>4</td><td><code>camera_info.frame_id</code> mismatch</td><td><span class="pill p-warn">untestable yet</span> no cameras configured</td></tr>
+<tr><td>4</td><td><code>camera_info.frame_id</code> mismatch</td><td><span class="pill p-ok">CONFIRMED &amp; FIXED</span> patch <code>0002</code></td></tr>
 </tbody></table></div>
 
 <div class="callout ok"><p style="margin:0"><strong>The build is no longer ephemeral.</strong> The
@@ -262,7 +262,42 @@ healthy-looking <strong>1501 Hz with 0.17 ms jitter</strong> and told us nothing
 times, not content. <strong>The duplicate check is what makes this a measurement rather than a
 reassurance.</strong></p></div>
 
-<h2 id="hygiene"><span class="secnum">05</span> Measurement hygiene</h2>
+<h2 id="t4"><span class="secnum">05</span> Trap 4 — confirmed, then fixed</h2>
+
+<p>Initially untestable: no <code>camera_info</code> existed because the settings declared no
+<code>Cameras</code> block. <strong>The UE pawn does carry default cameras</strong> &mdash;
+<code>simGetImages</code> over RPC works &mdash; but the wrapper enumerates
+<code>vehicle_setting-&gt;cameras</code>, and <code>loadCameraSettings</code> begins with
+<code>cameras.clear()</code>. No settings entry, no topics.</p>
+
+<div class="callout"><p style="margin:0"><strong>Checked the parsing semantics before editing</strong>,
+because a <code>Sensors</code> block replacing the defaults is exactly what cost a session on
+<code>C-03</code>. <code>loadCameraSettings</code> clears first but defaults to an <em>empty</em>
+map, so adding <code>Cameras</code> is purely additive; per-vehicle <code>Sensors</code> is
+iterated by key, so the GPU-LiDAR had to be <em>added alongside</em> the four existing sensors,
+with an assertion confirming all five survive.</p></div>
+
+<div class="callout warn"><p style="margin:0"><strong>A bug I introduced and caught in the same
+step:</strong> I first put <code>_comment_gpulidar</code> <em>inside</em> the <code>Sensors</code>
+block. <code>loadSensorSettings</code> iterates that block's keys and reads <code>SensorType</code>
+off each, so the comment would have parsed as a sensor with <code>SensorType 0</code> &mdash; not a
+valid enum. Only per-sensor <code>_comment</code> fields nested inside a sensor object are safe.</p></div>
+
+<pre class="mono">camera_info frame_id : front_center_optical         &lt;- no vehicle prefix
+image       frame_id : PX4/front_center_optical
+tf_static child      : PX4/front_center_optical</pre>
+
+<p><code>airsim_ros_wrapper.cpp:1916</code> sets <code>camera_name + "_optical"</code> while the
+static TF at <code>:1709</code> uses the vehicle prefix. <strong><code>camera_info</code> is the
+lone outlier</strong>, both Scene and DepthPlanar affected &mdash; so <code>image_proc</code>,
+<code>depth_image_proc</code> and any TF-aware node cannot resolve the camera frame.</p>
+
+<div class="callout ok"><p style="margin:0"><strong>Fixed</strong> as
+<code>patches/cosys-airsim/0002-camera-info-frame-id.patch</code>, and verified: both
+<code>camera_info</code> topics now report <code>PX4/front_center_optical</code>. 19 topics now,
+up from 14, carrying real data &mdash; 640&times;480 rgb8 and an 8192-point GPU-LiDAR cloud.</p></div>
+
+<h2 id="hygiene"><span class="secnum">06</span> Measurement hygiene</h2>
 
 <div class="callout warn"><p style="margin:0"><code>pgrep -c airsim_node</code> reported
 <strong>3 nodes when 1 was running</strong> — two were <code>&lt;defunct&gt;</code> zombies from
