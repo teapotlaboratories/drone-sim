@@ -1027,16 +1027,107 @@ runner does today — worth reconciling rather than having two mechanisms.
 | **Actors / dynamics** | Largely shipped. Integration work: copy the library in, place a `DynamicWorldMaster`, wire `-startSeed` through `lane_c_up.sh`. |
 | **Photorealism** | **Not solved and not shipped.** `Blocks` is untextured grey boxes. A photorealistic environment has to be sourced, and that is the open decision below. |
 
-### Open decision — where the photoreal environment comes from
+### Decided 2026-08-02 — BUILD the scene from CC0 photoscans; do not download one
 
-Not yet researched, and it should be settled before any asset is downloaded, because the
-choices differ in licence, disk cost and whether they even run headless:
+Researched across five option families with adversarial verification of the two claims most
+likely to be wrong (UE5.8 support, licence). **The question turned out not to be *which scene
+to download* but *which scene to build*, because nothing downloadable is obtainable here.**
 
-- UE5 sample projects (City Sample and similar) — large, and City Sample's building generator
-  needs a SideFX licence (already recorded under `C-08`)
-- Fab / Marketplace environments — licence terms vary per asset
-- Megascans / photogrammetry meshes
-- OSM + PCG procedural generation, which `04` names as the low-altitude alternative
+**The blocker that eliminates every ready-made photoreal project: Fab requires the Epic Games
+Launcher.** Epic's own docs — *"For UE and UEFN products, you must download those files into
+your project from the My Library tab in the Fab integration or Epic Games Launcher"*. There is
+no Linux launcher, and the GUI OAuth login cannot exist under `-RenderOffScreen -unattended`.
+Cosys-AirSim's own `docs/unreal_custenv.md:7` says the same thing.
+
+**The classic AirSim environments are UE4-only. Confirmed, and this was the assumption most
+likely to cost a day.** AirSimNH/Neighborhood (2.1 GB), LandscapeMountains, Africa,
+ZhangJiajie et al. are **UE4.27 cooked binaries with AirSim 1.8.1 baked in — no `.uproject`,
+no `Content/` tree.** Microsoft states why: *"make use of proprietary assets which prevents us
+from distributing the source code and project files"*. You cannot add Cosys-AirSim 5.8-v3.4.1
+to a `.pak`. (`Building_99.zip` on that release page is literally **22 bytes**.) AerialVLN's
+25 scenes are UE4 + AirSim 1.7.0 **and carry no LICENSE file at all**.
+
+**A licence trap this project would have walked into: `isAiForbidden`.** Several otherwise-good
+Fab environment packs (Brushify Forest, Leartes Modern City) are flagged **NoAI**, and Epic's
+Content EULA bans such content *"as inputs to Generative AI Programs"*. **This is a VLM
+navigation project — that is precisely what we would do with it.** Leartes' own Cosmos/Gumroad
+route is closed too; its AI policy bans use as *"training data or reference material for AI/ML
+systems"*. Check `isAiForbidden` before considering any asset.
+
+**Cesium is the runner-up, not the pick, and its ToS is why.** Cesium ion forbids storing tiles
+*"in an offline, disconnected, or local computer environment"* — which **directly violates
+project rule 6** (a fresh machine reaching a working stack from the repo alone). Its tiles are
+also one fused surface mesh: no per-object collision and **no per-object segmentation labels**,
+which are exactly what VLM work and obstacle avoidance need. Also: **Cesium OSM Buildings are
+untextured** (Cesium staff, verbatim: *"these buildings don't come with textures"*), so `04`'s
+"OSM+PCG" line is a *layout and clutter-density* layer, **not a photorealism fallback** — worth
+correcting there.
+
+### The pick, and it was verified by running it here rather than read from docs
+
+**Build the scene inside the existing `Blocks` project from CC0 photoscan libraries.**
+
+| source | licence | scale | access |
+|---|---|---|---|
+| Poly Haven | **CC0** | **521 models** (nature 110, props 176, rocks 37, plants 57) | plain HTTPS API, no auth |
+| ambientCG | **CC0** | **2,876 assets** (PBR ground/facade/road materials) | plain HTTPS API, no auth |
+
+**Proven in the pinned image, not inferred** — and independently re-checked afterwards:
+
+```
+UnrealEditor-Cmd PHTest.uproject -run=pythonscript -script=import_gltf.py \
+    -unattended -nullrhi -nosound -nosplash -stdout
+  -> Success - 0 error(s)   IMPORTED_COUNT=5
+  -> StaticMesh + MaterialInstanceConstant + 3x Texture2D written to Content/
+  -> 12 MB on disk from a 4.79 MB source (~2.5x)
+api.polyhaven.com -> HTTP 200, 521 models     (re-verified independently)
+```
+
+No display, no GUI, no editor step. The glTF importer ships prebuilt for Linux in `dev-slim`
+(`libUnrealEditor-GLTFCore.so`, `libUnrealEditor-InterchangeImport.so`).
+
+**Two facts that make `Blocks` the right host project**, both of which kill third-party
+"Complete Projects": the AirSim plugin is **already built into it** (506 MB), and
+`Config/DefaultEngine.ini:11` sets `GlobalDefaultGameMode=/Script/Blocks.BlocksGameMode`
+**globally** — so a new map inherits the AirSim GameMode with no per-map World Settings edit.
+
+**Honest weakness of the pick:** the CC0 libraries have **no building facades**. This yields an
+excellent *natural / industrial-yard / cluttered-outdoor* scene — trees, rocks, logs, barrels,
+pallets, fences, ground cover — **not a city canyon**. For urban massing the extension path is
+the `StreetMap` plugin (verified to build on UE5.8 with a 4-line patch, imports `.osm`
+headlessly), textured with ambientCG facade materials.
+
+### Concrete first step
+
+1. **Fetch a kit** with `curl` (**not** Python `urllib` — `dl.polyhaven.org` returns **403** to
+   it). ~60 assets at 2k ≈ **1.2 GB download, ~3 GB imported**. Verify the md5s the API supplies.
+2. **Import headlessly** into `Blocks/Content/PolyHaven/…` via `AssetImportTask` under
+   `-run=pythonscript -unattended -nullrhi`.
+3. **Author the level from Python** in the same commandlet: new `.umap`, ground plane, existing
+   spawn pose, then scatter with a **seeded `random.Random(seed)`**. **Skip PCG for v1** — a
+   seeded Python scatter is deterministic by construction and satisfies acceptance #4 directly,
+   whereas PCG headless is unproven (below).
+4. Point `GameDefaultMap` at the new map, copy in `DynamicObjects` per upstream, record the
+   deviation in [`../vendor/cosys-airsim.md`](../vendor/cosys-airsim.md), wire `-startSeed`
+   through `lane_c_up.sh`.
+5. **Re-measure before believing anything** — `verify_lane_c_sensors.py` against the new map.
+   Baseline to beat: **31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR**.
+
+### What is NOT known, and must come from a run rather than a document
+
+- **Rendering cost is entirely unmeasured.** Import was proven; a *populated* scene was never
+  rendered. Alpha-tested foliage over a GPU-LiDAR that re-renders per sweep is the specific
+  thing that could collapse 17.4 Hz. Dials exist (2k not 4k, instance count, Nanite off, LOD
+  bias) but the number has to be measured.
+- **Nanite / Vulkan SM6 headless on Linux with imported photoscans is unvalidated by anyone.**
+  Test with Nanite **off** first.
+- **PCG runtime generation headless is unproven** — a Biome test loaded and rendered with zero
+  errors but produced **zero `LogPCG` output and no instance count**. Hence the seeded scatter.
+- **Whether a CC0 photoscan kit clears the visual bar for VLM sim-to-real is a judgement call
+  that cannot be made from a terminal.** Capture frames and look at them before building a
+  benchmark on it.
+- **Fab prices and NoAI flags are second-hand** — `fab.com` returns 403 to every fetch method
+  from this box. Confirm in a browser before spending money.
 
 ### Acceptance
 
