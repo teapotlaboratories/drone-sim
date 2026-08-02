@@ -99,17 +99,7 @@ stop_children
 
 request_stop() {
   [[ -n "${RUNPOD_POD_ID:-}" ]] || return 1
-  if command -v runpodctl >/dev/null 2>&1 \
-    && timeout 30 runpodctl pod stop "$RUNPOD_POD_ID"; then
-    return 0
-  fi
-  [[ -n "${RUNPOD_API_KEY:-}" ]] || return 1
-  curl --fail --silent --show-error --retry 2 \
-    --connect-timeout 10 --max-time 30 \
-    --request POST \
-    --header "Authorization: Bearer ${RUNPOD_API_KEY}" \
-    "https://rest.runpod.io/v1/pods/${RUNPOD_POD_ID}/stop" \
-    >/dev/null
+  /usr/local/bin/request-runpod-stop "$RUNPOD_POD_ID"
 }
 
 if [[ -z "${RUNPOD_POD_ID:-}" ]]; then

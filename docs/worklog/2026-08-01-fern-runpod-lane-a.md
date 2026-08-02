@@ -31,6 +31,38 @@ The sibling Fern repository was inspected rather than guessed from its README al
 That led to two design decisions: move the wrapper contract into Drone Sim so Fern can pull
 one repository-owned image, and do not claim that the still-missing Fern PR gate exists.
 
+## Live Runpod checkpoint — 2026-08-02
+
+The post-rebase image build succeeded at commit `ad80a13` and published
+`ghcr.io/teapotlaboratories/drone-sim@sha256:cfdaa0b6a6c561edbe5bbee993fb138e27b29fc189f146034fca7aefb7e11500`.
+After the package became public, anonymous manifest inspection passed and Fern created
+GPU Pod `5hpckmhamepd5g` on one RTX 2000 Ada at $0.24/hour.
+
+Runpod's system log proved that the image pull and container start both succeeded. Terminal
+cleanup then exposed two lifecycle defects:
+
+```text
+[WARN tini] Tini is not running as PID 1 and isn't registered as a child subreaper.
+Error: unknown command "pod" for "runpodctl"
+curl: (22) The requested URL returned error: 403
+runner: WARNING automatic stop failed for 5hpckmhamepd5g
+```
+
+Runpod injected the legacy verb-first CLI, so `runpodctl pod stop` was not accepted. Its
+Pod-scoped API key also cannot call the account REST stop endpoint. The runner's final
+`sleep infinity` guard worked: it did not restart the simulation or overwrite evidence.
+External `fern pod stop 5hpckmhamepd5g` succeeded and ended GPU billing while preserving
+`/workspace`.
+
+The visible tail proves terminal cleanup was reached, but does not prove whether the smoke
+passed; `status.json` and `metrics.json` still need retrieval. No VNC port exists: QGC
+runs under Xvfb and the profile intentionally exposes no ports.
+
+Runpod's scheduled `stopAfter` field is currently on its single-GPU GraphQL create path,
+while Fern's ordered GPU fallback uses REST. This patch therefore fixes CLI compatibility
+and Tini directly; provider deadline unification remains part of the larger Fern lifecycle
+gate rather than being claimed here.
+
 ## Implemented topology
 
 ```text
@@ -65,9 +97,10 @@ Preflight checks CPU, memory, persistent disk, writable workspace, shared memory
 DDS transport, loopback port availability, PX4/XRCE executables, and optional GPU inventory.
 A failed preflight records a terminal failure and does not start PX4.
 
-The runner records success/failure before cleanup. On Runpod it requests a self-stop through
-`runpodctl` or the provider REST API when credentials are available, then idles instead of
-exiting into a billable restart loop. Fern's external `pod stop` remains the cleanup check.
+The runner records success/failure before cleanup. On Runpod it probes for the current
+noun-first or legacy verb-first `runpodctl` syntax and requests a self-stop without reading
+the Pod-scoped API key. It then idles instead of exiting into a billable restart loop.
+Fern's external `pod stop` remains the cleanup check.
 
 ## Shared ROS bringup
 
@@ -137,6 +170,22 @@ PYTHONPATH=ros2_ws/src/control PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 ..........................................                               [100%]
 42 passed in 0.15s
 ```
+
+After the live lifecycle failure, D-08a added Tini subreaper mode and current/legacy
+`runpodctl` compatibility. Its off-target verification passed:
+
+```text
+PYTHONPATH=ros2_ws/src/control PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
+...............................................                          [100%]
+47 passed in 0.16s
+
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ./scripts/run_local_ci.sh
+RESULT: PASS
+```
+
+The local gate covered off-target tests, shell/Python parsing, Compose validation, worklog
+renders, lock consistency, and attribution checks. A rebuilt image and fresh Pod self-stop
+remain required before D-08a can be marked complete.
 
 The first complete publisher run also passed:
 

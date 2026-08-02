@@ -43,16 +43,18 @@ COPY docker/runpod/artifacts.py /usr/local/lib/drone-sim/artifacts.py
 COPY docker/runpod/preflight.py /usr/local/lib/drone-sim/preflight.py
 COPY docker/runpod/runtime_api.py /usr/local/lib/drone-sim/runtime_api.py
 COPY docker/runpod/run-lane-a.sh /usr/local/bin/run-lane-a
+COPY docker/runpod/request-stop.sh /usr/local/bin/request-runpod-stop
 COPY docker/qgc-entrypoint.sh /usr/local/bin/qgc-entrypoint.sh
 
 RUN chmod 0755 \
       /usr/local/bin/drone-sim-lane-a-smoke \
       /usr/local/bin/run-lane-a \
+      /usr/local/bin/request-runpod-stop \
       /usr/local/bin/qgc-entrypoint.sh \
       /usr/local/lib/drone-sim/*.py
 
 # Health/status is intentionally loopback-only by default and Fern exposes no port for
 # this profile. The image flattens the default Compose services and verification profile
 # into one Pod; all simulator UDP stays inside the Pod network namespace.
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 CMD ["/usr/local/bin/run-lane-a"]

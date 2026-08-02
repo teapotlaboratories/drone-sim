@@ -775,7 +775,7 @@ Lane A itself remains capable of CPU-only execution.
 
 **Verified before merge.**
 
-- 42 off-target tests cover artifacts, secret exclusion, preflight, occupied ports,
+- 47 off-target tests cover artifacts, secret exclusion, preflight, occupied ports,
   loopback-only runtime configuration, and shared sim-time launch;
 - shell, Python, YAML, package, workflow, and Dockerfile checks pass;
 - workflow run `30709124212` built and pushed the complete flattened stack from commit
@@ -795,3 +795,23 @@ Lane A itself remains capable of CPU-only execution.
 **Boundary.** Feature-branch image evidence is not post-merge main-channel evidence. This
 publisher does not claim to complete the deferred automated flight gate in `D-07` or
 issues #13 and #14.
+
+### D-08a — Harden Runpod terminal cleanup after the first live Pod
+
+**Status:** 🟡 **off-target verified; fresh image/Pod verification pending
+(2026-08-02)**
+
+**What.** Make the flattened runner compatible with both current
+`runpodctl pod stop <id>` and the legacy `runpodctl stop pod <id>` that Runpod injects
+into Pods, run `tini` as a child subreaper when the provider wraps the image entrypoint,
+and stop attempting the REST lifecycle call with the restricted Pod-scoped API key.
+
+**Why.** Live Pod `5hpckmhamepd5g` pulled the immutable image and reached terminal cleanup,
+but its injected CLI rejected the current noun-first syntax and the REST fallback returned
+`403`. The runner idled safely and external Fern cleanup worked, but the Pod could not stop
+itself. Runpod also wrapped Tini away from PID 1, producing a subreaper warning.
+
+**Acceptance.** Off-target tests assert subreaper mode, legacy/current CLI detection, no
+REST use of `RUNPOD_API_KEY`, and the restart-loop guard. A fresh Fern Pod must reach a
+terminal artifact state and either self-stop or be stopped externally with the result and
+cleanup path recorded honestly.

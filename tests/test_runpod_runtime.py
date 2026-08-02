@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import socket
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -138,6 +139,13 @@ def test_preflight_rejects_occupied_loopback_port(tmp_path, monkeypatch):
 def test_runner_files_keep_control_ports_local():
     dockerfile = (RUNTIME / "lane-a.Dockerfile").read_text()
     runner = (RUNTIME / "run-lane-a.sh").read_text()
+    stop_helper = (RUNTIME / "request-stop.sh").read_text()
+    smoke = (ROOT / "tests" / "lane-a-smoke.sh").read_text()
+    assert 'ENTRYPOINT ["/usr/bin/tini", "-s", "--"]' in dockerfile
+    assert "lane-a-entrypoint.sh" not in dockerfile
+    assert "env -u LD_LIBRARY_PATH bash" in smoke
+    assert "env -u LD_LIBRARY_PATH gz topic" in smoke
+    assert "source /opt/ros/" in smoke
     assert "EXPOSE 14540" not in dockerfile
     assert "QGC_SHA256" in dockerfile
     assert "qgc-entrypoint.sh" in dockerfile
@@ -146,6 +154,47 @@ def test_runner_files_keep_control_ports_local():
     assert "127.0.0.1" in (RUNTIME / "runtime_api.py").read_text()
     assert "tcp:8080" in (RUNTIME / "preflight.py").read_text()
     assert "sleep infinity" in runner
+    assert "request-runpod-stop" in dockerfile
+    assert "RUNPOD_API_KEY" not in runner
+    assert "RUNPOD_API_KEY" not in stop_helper
+    assert "rest.runpod.io" not in stop_helper
+
+
+@pytest.mark.parametrize(
+    ("current_cli", "expected"),
+    [
+        (True, ["pod", "stop", "pod-123"]),
+        (False, ["stop", "pod", "pod-123"]),
+    ],
+)
+def test_stop_helper_supports_current_and_legacy_cli(
+    tmp_path, monkeypatch, current_cli, expected
+):
+    fake_cli = tmp_path / "runpodctl"
+    trace = tmp_path / "trace"
+    fake_cli.write_text(
+        """#!/usr/bin/env bash
+if [[ "$1" = "pod" && "$2" = "--help" ]]; then
+  [[ "${CURRENT_CLI:-0}" = "1" ]]
+  exit
+fi
+printf '%s\\n' "$@" > "$TRACE"
+"""
+    )
+    fake_cli.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("TRACE", str(trace))
+    monkeypatch.setenv("CURRENT_CLI", "1" if current_cli else "0")
+
+    result = subprocess.run(
+        [str(RUNTIME / "request-stop.sh"), "pod-123"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert trace.read_text().splitlines() == expected
 
 
 def test_sim_launch_owns_clock_bridge_and_sim_time():
@@ -153,5 +202,6 @@ def test_sim_launch_owns_clock_bridge_and_sim_time():
         ROOT / "ros2_ws" / "src" / "bringup" / "launch" / "sim.launch.py"
     ).read_text()
     assert 'package="ros_gz_bridge"' in launch
-    assert '"/world/default/clock"' in launch
-    assert '"use_sim_time": True' in launch
+    assert '"control.launch.py"' in launch
+    assert 'LaunchConfiguration("world")' in launch
+    assert '"use_sim_time": LaunchConfiguration("use_sim_time")' in launch
