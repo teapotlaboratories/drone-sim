@@ -180,10 +180,45 @@ numbered order and asserts the artifact of each, rather than trusting `patch`'s 
 - Cold start #3 (first after a machine reboot) again came up with a stale EKF origin and again
   self-repaired — `scripts/lane_c_up.sh` is now three for three.
 
+## Both remaining fixes landed
+
+### The `/clock` remap is in a launch file now
+
+`ros2_ws/src/bringup/launch/lane_c_perception.launch.py` starts `airsim_node` with
+`publish_clock:=true` (upstream defaults it false) and an **unconditional** remap of
+`/airsim_node/clock` → `/clock`. Verified: `ros2 launch bringup lane_c_perception.launch.py`
+with **no flags at all** yields a ticking `/clock` and all 19 topics.
+
+`use_sim_time` still defaults to **false**, matching `sim.launch.py`'s reasoning: enabling it
+is only safe *because* this file guarantees a publisher, and a false default means launching
+against a dead stack fails visibly instead of hanging. The docstring also warns that the topics
+are NWU, so nobody wires up a consumer assuming otherwise.
+
+### NWU→ENU went into the existing conversion point, not a new one
+
+`conventions.md` §3 freezes conversion to **one place**, and that place already exists —
+`control/frames.py`, with `test_frames.py` beside it. Lane C does not get to invent a second
+convention, so `nwu_to_enu` / `enu_to_nwu` / `yaw_nwu_to_enu` / `yaw_enu_to_nwu` were added
+there rather than in a Lane C node.
+
+**One structural difference is worth more than the code:** `enu_to_ned` is its own inverse, and
+the module's docstring leans on that — *"applying it twice returns the input"* — as the reason a
+stray double call is so hard to spot. **NWU↔ENU is not an involution.** It is a 90° rotation, so
+applying it twice is a 180° rotation with x and y both negated. Anyone carrying the
+"twice is harmless" intuition across from the other pair will corrupt data.
+
+That is pinned by `test_this_pair_is_NOT_an_involution_unlike_enu_ned`, which asserts both
+properties in one place. Seven new tests, 15 total in that file. **Verified by breaking it:**
+replacing `return (-y, x, z)` with the plausible-but-wrong `return (y, x, z)` fails 3 tests.
+
+Nothing consumes these yet — the conversion exists and is tested, but no Lane C node calls it.
+That is deliberate: `C-05` is where perception topics get consumed, and wiring a converter into
+a node with no consumer would be speculative.
+
 ## Next
 
-1. Put the `/clock` remap and `publish_clock:=true` into the Lane C launch rather than
-   relying on hand-typed flags — that is the one confirmed trap still worked around by hand.
+1. ~~Put the `/clock` remap into the launch~~ — **done.**
+2. ~~Reach the frozen frame convention~~ — **done.** See below.
 3. Decide how the NWU→ENU conversion is done *once, in a tested place*, per
    `docs/lane-a/conventions.md` — Lane C must reach the frozen convention, not invent a second.
 4. Chase the unexplained 7.342° yaw residual.
