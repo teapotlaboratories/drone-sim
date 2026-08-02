@@ -63,6 +63,34 @@ while Fern's ordered GPU fallback uses REST. This patch therefore fixes CLI comp
 and Tini directly; provider deadline unification remains part of the larger Fern lifecycle
 gate rather than being claimed here.
 
+### Second live Pod — self-stop verified
+
+Workflow `30750015788` rebuilt commit `de1597a` in 19m42s and published public digest
+`sha256:dfb35e321ceb2ad4501fe635a57d094ddb626adf3f81c634797b5d197c4a30d6`.
+Fern deployed that exact digest as Pod `8nw3t2zr6444ft` with the ordered GPU fallback
+request. Runpod selected a $0.24/hour host, pulled the image, started its container, and
+then recorded the Pod as `EXITED` without an external stop command.
+
+The terminal provider log was:
+
+```text
+No screen session found.
+Runpod config file not found, please run `runpodctl config` to create it
+pod "8nw3t2zr6444ft" stopped
+runner: Runpod stop accepted for 8nw3t2zr6444ft
+```
+
+The final two lines verify the new self-stop path. The first line is an expected second
+cleanup after the smoke trap already closed `px4sitl`; GNU Screen writes that result to
+stdout. The config line is also non-fatal: Runpod injects the Pod credential through the
+environment, and the following provider result proves the stop succeeded. D-08b makes the
+double cleanup quiet and filters only that exact config warning while preserving all other
+CLI output and the real exit status.
+
+This provider tail verifies lifecycle cleanup, not the flight result. The persistent
+`/workspace/runs/<run-id>/` status and logs still require inspection before claiming that
+the smoke passed.
+
 ## Implemented topology
 
 ```text
@@ -99,8 +127,9 @@ A failed preflight records a terminal failure and does not start PX4.
 
 The runner records success/failure before cleanup. On Runpod it probes for the current
 noun-first or legacy verb-first `runpodctl` syntax and requests a self-stop without reading
-the Pod-scoped API key. It then idles instead of exiting into a billable restart loop.
-Fern's external `pod stop` remains the cleanup check.
+the Pod-scoped API key. Known missing-local-config noise is filtered only after retaining
+the provider command's output and exit status. It then idles instead of exiting into a
+billable restart loop. Fern's external `pod stop` remains the cleanup check.
 
 ## Shared ROS bringup
 
@@ -184,8 +213,18 @@ RESULT: PASS
 ```
 
 The local gate covered off-target tests, shell/Python parsing, Compose validation, worklog
-renders, lock consistency, and attribution checks. A rebuilt image and fresh Pod self-stop
-remain required before D-08a can be marked complete.
+renders, lock consistency, and attribution checks. The rebuilt image and second live Pod
+verified self-stop; artifact inspection remains pending.
+
+D-08b then made successful cleanup output unambiguous:
+
+```text
+PYTHONPATH=ros2_ws/src/control PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
+................................................                         [100%]
+48 passed in 0.32s
+```
+
+The added failure-path test proves the helper returns the provider's non-zero status.
 
 The first complete publisher run also passed:
 

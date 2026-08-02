@@ -158,6 +158,8 @@ def test_runner_files_keep_control_ports_local():
     assert "RUNPOD_API_KEY" not in runner
     assert "RUNPOD_API_KEY" not in stop_helper
     assert "rest.runpod.io" not in stop_helper
+    assert "screen -S px4sitl -X quit >/dev/null 2>&1 || true" in runner
+    assert "screen -S px4sitl -X quit >/dev/null 2>&1 || true" in smoke
 
 
 @pytest.mark.parametrize(
@@ -179,6 +181,8 @@ if [[ "$1" = "pod" && "$2" = "--help" ]]; then
   exit
 fi
 printf '%s\\n' "$@" > "$TRACE"
+printf '%s\\n' 'Runpod config file not found, please run `runpodctl config` to create it'
+printf 'pod "%s" stopped\\n' "${@: -1}"
 """
     )
     fake_cli.chmod(0o755)
@@ -195,6 +199,36 @@ printf '%s\\n' "$@" > "$TRACE"
 
     assert result.returncode == 0, result.stderr
     assert trace.read_text().splitlines() == expected
+    assert "Runpod config file not found" not in result.stdout
+    assert 'pod "pod-123" stopped' in result.stdout
+
+
+def test_stop_helper_preserves_provider_failure(tmp_path, monkeypatch):
+    fake_cli = tmp_path / "runpodctl"
+    fake_cli.write_text(
+        """#!/usr/bin/env bash
+if [[ "$1" = "pod" && "$2" = "--help" ]]; then
+  exit 0
+fi
+printf '%s\\n' 'Runpod config file not found, please run `runpodctl config` to create it'
+printf '%s\\n' 'provider stop failed' >&2
+exit 23
+"""
+    )
+    fake_cli.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    result = subprocess.run(
+        [str(RUNTIME / "request-stop.sh"), "pod-123"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 23
+    assert "Runpod config file not found" not in result.stderr
+    assert "provider stop failed" in result.stderr
+    assert result.stdout == ""
 
 
 def test_sim_launch_owns_clock_bridge_and_sim_time():

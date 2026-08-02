@@ -798,7 +798,7 @@ issues #13 and #14.
 
 ### D-08a — Harden Runpod terminal cleanup after the first live Pod
 
-**Status:** 🟡 **off-target verified; fresh image/Pod verification pending
+**Status:** 🟡 **live self-stop verified; artifact result inspection pending
 (2026-08-02)**
 
 **What.** Make the flattened runner compatible with both current
@@ -815,3 +815,23 @@ itself. Runpod also wrapped Tini away from PID 1, producing a subreaper warning.
 REST use of `RUNPOD_API_KEY`, and the restart-loop guard. A fresh Fern Pod must reach a
 terminal artifact state and either self-stop or be stopped externally with the result and
 cleanup path recorded honestly.
+
+### D-08b — Make successful Runpod cleanup logs unambiguous
+
+**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+
+**What.** Silence the expected second GNU Screen cleanup after the smoke harness has
+already closed `px4sitl`, and filter only `runpodctl`'s missing-local-config warning while
+preserving its stop output and exit status.
+
+**Why.** Live Pod `8nw3t2zr6444ft` stopped itself successfully, but its terminal log mixed
+two harmless compatibility messages with the successful lifecycle result. That makes a
+healthy self-stop look like a failed simulation or failed provider action.
+
+**Acceptance.** Off-target tests cover quiet idempotent Screen cleanup and prove that both
+supported `runpodctl` syntaxes retain the provider's success output, suppress only the
+known local-config warning, and propagate command failures.
+
+**Verification.** Forty-eight off-target tests pass, including both CLI orders, success
+output filtering, provider failure propagation, and quiet idempotent Screen cleanup. A
+fresh image must prove the terminal provider log contains only the actionable stop result.

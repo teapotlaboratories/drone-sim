@@ -23,7 +23,7 @@ stop_children() {
   if [[ -n "$qgc_pid" ]]; then
     kill "$qgc_pid" 2>/dev/null || true
   fi
-  screen -S px4sitl -X quit 2>/dev/null || true
+  screen -S px4sitl -X quit >/dev/null 2>&1 || true
   pkill -f '[b]in/px4' 2>/dev/null || true
   pkill -f '[g]z sim' 2>/dev/null || true
   pkill -f '[M]icroXRCEAgent' 2>/dev/null || true
