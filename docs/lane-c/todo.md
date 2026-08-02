@@ -774,9 +774,18 @@ in-place edit:
    `scripts/build_airsim_wrapper.sh` reproduce it in ~2 min with `vendor/` pristine. The script
    applies every patch in numbered order and asserts each one's artifact.
 
-   **Still worked around by hand:** trap 2. `publish_clock:=true` and
-   `-r /airsim_node/clock:=/clock` are typed on the command line; they belong in the Lane C
-   launch. That is the next `C-04` step.
+   **Trap 2 is now fixed properly** — `ros2_ws/src/bringup/launch/lane_c_perception.launch.py`
+   sets `publish_clock:=true` and remaps `/airsim_node/clock` → `/clock` unconditionally.
+   `ros2 launch bringup lane_c_perception.launch.py` with **no flags** gives a ticking `/clock`.
+
+   **Trap 1 now has a conversion, in the frozen place.** `nwu_to_enu` / `enu_to_nwu` /
+   `yaw_nwu_to_enu` / `yaw_enu_to_nwu` were added to `control/frames.py` — the single conversion
+   point `conventions.md` §3 mandates — not to a Lane C node. **Unlike `enu_to_ned`, this pair is
+   NOT an involution** (90° rotation, so twice = 180°), which breaks the intuition the rest of
+   that module earns; pinned by a dedicated test. 7 new tests, 15 in the file, verified by
+   breaking the implementation. *Nothing consumes it yet* — that is `C-05`'s job.
+
+   **Still open on `C-04`:** the unexplained 7.342° yaw residual.
 
 **Blocked by:** nothing — the crash is fixed; the work is now the trap list.
 
