@@ -657,6 +657,34 @@ rather than scored.
 
 **Blocks:** `C-07` — a flight gate that can silently score a mis-ordered stack is worse than none.
 
+### Review fixes verified live — 2026-08-02
+
+`/review` on both stacked PRs found three defects; all fixed, and the Lane A gate re-run to
+prove the gate change did not regress:
+
+```
+10/10  SR 100%  voids 0  met true  worst 0.565 m   1220 s
+```
+
+**Faster than before the fix** (1220 s vs 1350 s; 124 s/seed vs 135 s) — the barrier returns
+immediately when the origin is already sane, so it costs nothing on a healthy stack and only
+spends time when it is actually preventing a bad run. Worth measuring rather than assuming: a
+per-seed wait is exactly the kind of change that quietly triples a gate.
+
+- **The gate had no barrier before the origin check.** `restart_stack()` returns on *container
+  health*, not on the EKF establishing an origin, so the check raced the estimator. Any void
+  blocks the criterion, so one slow start would have turned the whole gate INCONCLUSIVE. It
+  passed 10/10 before the fix **by timing coincidence, not by construction.** Now waits up to
+  90 s on `VOID_UNKNOWN` and voids immediately on `VOID_STALE` — the first actual use of a
+  distinction those exit codes always carried.
+- **The depth assertion could not fail.** `max(pos) > 0.5` passes on a frame where every pixel
+  is the 16312 m no-return sentinel. Replaced with `depth_is_usable()`, requiring bounded
+  returns.
+- **`versions.lock` contradicted itself** — `status: LOCKED` alongside `why_not_LOCKED_yet`.
+  Fixed on both branches, and `check_versions_conflicts.py` now fails CI on the whole class.
+
+56 tests, each new one verified by breaking the code it guards.
+
 ---
 
 ## C-04 — Camera/depth/LiDAR into the existing ROS 2 graph
