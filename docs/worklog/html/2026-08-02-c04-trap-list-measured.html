@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C-04 — The Trap List, Measured</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-02 · C-04</span>
+  <nav><a href="#result">Result</a><a href="#t1">NWU</a><a href="#t2">/clock</a><a href="#t3">IMU</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-02 · C-04 · Lane C · SITL only, nothing real armed or flown</span>
+  <h1>The Trap List,<br>Measured</h1>
+  <p class="sub">Four documented traps, checked against a running <code>airsim_node</code> instead of against the docs. Three confirmed — one of them far worse than filed: <strong>78% of IMU messages are the same sample republished.</strong></p>
+  <div class="mastmeta"><span>Confirmed <b>3 / 4</b></span><span>IMU duplicates <b>77.9%</b></span><span>Frames <b>NWU</b></span><span>Build <b>reproducible</b></span></div>
+</header>
+
+<h2 id="result"><span class="secnum">01</span> Result</h2>
+
+<div class="tw"><table>
+<thead><tr><th>#</th><th>Trap</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Frames are NWU, not ENU — the docs say otherwise</td><td><span class="pill p-stop">CONFIRMED</span> measured, not read</td></tr>
+<tr><td>2</td><td><code>/clock</code> on the wrong topic</td><td><span class="pill p-stop">CONFIRMED</span> and worse than filed</td></tr>
+<tr><td>3</td><td>IMU is a polled snapshot, not a stream</td><td><span class="pill p-stop">CONFIRMED</span> quantified — 77.9% duplicates</td></tr>
+<tr><td>4</td><td><code>camera_info.frame_id</code> mismatch</td><td><span class="pill p-warn">untestable yet</span> no cameras configured</td></tr>
+</tbody></table></div>
+
+<div class="callout ok"><p style="margin:0"><strong>The build is no longer ephemeral.</strong> The
+wrapper used to exist only inside a container that <code>lane_c_up.sh</code> deletes every run. It
+is now a patch (<code>patches/cosys-airsim/0001-…</code>) plus
+<code>scripts/build_airsim_wrapper.sh</code>, which installs the two missing ROS deps, applies the
+fix, builds, and <strong>asserts the artifact</strong> rather than trusting colcon's exit code —
+1 m 43 s from nothing. <code>vendor/</code> stays pristine.</p></div>
+
+<div class="callout warn"><p style="margin:0"><strong>The patch failed on first use:</strong>
+<code>Hunk #1 FAILED (different line endings)</code>. Cosys-AirSim sources are <strong>CRLF</strong>
+and my hand-written hunk was LF. Fixed by <em>generating</em> the hunk from the real file, and the
+patch header now says so — otherwise the next person hand-edits it and hits the same wall.</p></div>
+
+<h2 id="t1"><span class="secnum">02</span> Trap 1 — NWU, confirmed twice</h2>
+
+<p><code>convert_tf_msg_to_enu()</code> is defined at <code>airsim_ros_wrapper.cpp:1600</code> and
+has <strong>zero call sites</strong>. All four conversions call <code>convert_tf_msg_to_ros()</code>
+(<code>:1636</code>, <code>:1653</code>, <code>:1670</code>, <code>:1687</code>), which negates only
+y and z — that is NED&rarr;<strong>NWU</strong>.</p>
+
+<pre class="mono">AirSim GT (NED)  yaw   +0.000 deg
+wrapper odom     yaw   -7.342 deg
+NWU predicts     yaw   -0.000 deg    -&gt; |err|  7.342 deg
+ENU predicts     yaw  +90.000 deg    -&gt; |err| 97.342 deg
+==&gt; NWU</pre>
+
+<div class="callout stop"><p style="margin:0">Unambiguous: 7&deg; against 97&deg;.
+<strong>Anything written against REP-103 or <code>px4_ros_com</code>'s ENU assumption will be
+yaw-rotated 90&deg;.</strong></p></div>
+
+<div class="callout warn"><p style="margin:0"><strong>Honest residual:</strong> the 7.342&deg; is
+<em>not</em> explained. Ground truth says yaw is exactly 0, so a pure NWU conversion should emit 0.
+The wrapper's odom comes from <code>kinematics_estimated</code> rather than
+<code>simGetGroundTruthKinematics</code>, so an estimator difference is plausible — but that is a
+guess, recorded as an open question rather than waved through. It does not affect the conclusion,
+which turns on 90&deg;, not 7&deg;.</p></div>
+
+<h2 id="t2"><span class="secnum">03</span> Trap 2 — a <em>double</em> defect</h2>
+
+<pre class="mono">airsim_ros_wrapper.cpp:52    publish_clock_(false)                     &lt;- default off
+airsim_ros_wrapper.cpp:131   nh_-&gt;get_parameter("publish_clock", ...)  &lt;- NEVER declared
+airsim_ros_wrapper.cpp:412   create_publisher&lt;Clock&gt;("~/clock", 1)     &lt;- wrong topic</pre>
+
+<p><code>ros2 param list</code> on the running node confirms <code>publish_clock</code> is not among
+the declared parameters. Measured in three steps:</p>
+
+<pre class="mono">default                                              -&gt;  no clock topic at all
+-p publish_clock:=true                               -&gt;  /airsim_node/clock  (NOT /clock)
+-p publish_clock:=true -r /airsim_node/clock:=/clock -&gt;  /clock ticking</pre>
+
+<div class="callout stop"><p style="margin:0"><strong>The remap is the fix, and it belongs in the
+launch</strong>, not left to whoever types the command. <code>use_sim_time:=true</code> with nothing
+on <code>/clock</code> freezes every timer at zero and looks exactly like a deadlocked controller —
+the failure <code>P1-03a</code> already cost this project once.</p></div>
+
+<h2 id="t3"><span class="secnum">04</span> Trap 3 — far worse than &ldquo;polled&rdquo;</h2>
+
+<pre class="mono">messages received : 30022  -&gt;  1501 Hz published
+DISTINCT stamps   :  6630
+duplicate rate    :  77.9%
+distinct-sample dt: median 3.000 ms  -&gt;  ~333 Hz of REAL sensor data
+                    min 3.000 ms   max 9.000 ms</pre>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">Duplicate rate</div><div class="v">77.9%</div><div class="n">same sample republished</div></div>
+<div class="stat"><div class="k">Published</div><div class="v">1501 Hz</div><div class="n">the RPC poll rate, not a sensor rate</div></div>
+<div class="stat"><div class="k">Real data</div><div class="v">~333 Hz</div><div class="n">median dt 3.000 ms</div></div>
+</div>
+
+<p><strong>Nearly four in five IMU messages are the same sample republished.</strong> And
+<code>max dt 9 ms</code> is 3&times; the 3 ms base, so samples are <em>also</em> genuinely dropped,
+not merely duplicated. For cuVSLAM or any preintegrating VIO that is the bad case on both counts:
+repeated timestamps <em>and</em> non-uniform spacing.</p>
+
+<div class="callout stop"><p style="margin:0"><code>ros2 topic hz</code> alone would have reported a
+healthy-looking <strong>1501 Hz with 0.17 ms jitter</strong> and told us nothing — it sees arrival
+times, not content. <strong>The duplicate check is what makes this a measurement rather than a
+reassurance.</strong></p></div>
+
+<h2 id="hygiene"><span class="secnum">05</span> Measurement hygiene</h2>
+
+<div class="callout warn"><p style="margin:0"><code>pgrep -c airsim_node</code> reported
+<strong>3 nodes when 1 was running</strong> — two were <code>&lt;defunct&gt;</code> zombies from
+earlier <code>docker exec -d</code> launches, and zombies still match <code>pgrep</code>. This
+nearly led me to discard the cadence numbers as contaminated by duplicate publishers.
+<code>ps -eo pid,comm,args</code> showed the truth immediately.</p></div>
+
+<p>Cold start #3 — the first after a machine reboot — again came up with a stale EKF origin and
+again self-repaired. <code>scripts/lane_c_up.sh</code> is three for three.</p>
+
+<div class="panel"><p style="margin:0"><strong>Next:</strong> add <code>Cameras</code> (RGB + depth)
+and GPU-LiDAR to <code>sim/ue5/settings.json</code> and re-check trap 4; put the <code>/clock</code>
+remap into the launch; decide how NWU&rarr;ENU is converted <em>once, in a tested place</em> per
+<code>docs/lane-a/conventions.md</code>; and chase the unexplained 7.342&deg; yaw residual.</p></div>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

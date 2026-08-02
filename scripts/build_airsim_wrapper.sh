@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Build the Cosys-AirSim ROS 2 wrapper (airsim_node) inside the running lane-c-ros2 service.
+#                                                                          (C-04)
+# WHY THIS SCRIPT EXISTS
+#
+# The wrapper build is NOT reproducible by reading the upstream docs. Getting to a running
+# airsim_node took four undocumented discoveries, and the whole thing lives in a container
+# whose next `lane_c_up.sh` run deletes it. Everything below is one of those discoveries; none
+# of it is style.
+#
+#   1. drone-sim/ros2 lacks geographic_msgs and mavros_msgs. CMake fails on find_package.
+#   2. It MUST be built in place. airsim_ros_pkgs/CMakeLists.txt reaches
+#      ../../../cmake/{rpclib_wrapper,AirLib,MavLinkCom} via add_subdirectory, so copying the
+#      packages into an ordinary colcon src/ resolves those to /cmake and fails.
+#   3. The build WRITES INTO ITS OWN SOURCE TREE (external/rpclib/.../include/rpc/version.h,
+#      config.h via configure_file), so it cannot be built from a read-only mount. Hence the
+#      split below: symlink the big read-only parts, copy only what the build mutates.
+#   4. Upstream aborts on first publish from a data race -- see the patch applied below.
+#
+# vendor/Cosys-AirSim stays PRISTINE. The patch is applied to the container-local copy, never
+# to the vendored tree, per least-destructive-vendor-edits.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SVC=${SVC:-lane-c-ros2}
+ROOT=/airsim_root
+PATCH=patches/cosys-airsim/0001-mutually-exclusive-callback-group.patch
+
+log() { printf '\033[36m[airsim-build]\033[0m %s\n' "$*"; }
+die() { printf '\033[31m[airsim-build] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
+
+docker inspect "$SVC" >/dev/null 2>&1 || die "$SVC is not running - bring the stack up first"
+
+log "installing the two ROS deps the image lacks"
+docker exec "$SVC" bash -lc '
+  set -e
+  need=""
+  for p in ros-jazzy-geographic-msgs ros-jazzy-mavros-msgs python3-msgpack; do
+    dpkg -s "$p" >/dev/null 2>&1 || need="$need $p"
+  done
+  if [ -n "$need" ]; then
+    apt-get update -qq >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $need >/dev/null
+  fi' || die "dependency install failed"
+
+log "laying out a writable build root (symlink read-only, copy what the build mutates)"
+docker exec "$SVC" bash -lc "
+  set -e
+  rm -rf $ROOT && mkdir -p $ROOT
+  # Read-only is fine for these: the build only reads them.
+  for d in cmake AirLib MavLinkCom; do
+    [ -e /vendor/Cosys-AirSim/\$d ] && ln -s /vendor/Cosys-AirSim/\$d $ROOT/\$d
+  done
+  # These two the build WRITES to, so they must be real copies.
+  cp -r /vendor/Cosys-AirSim/external $ROOT/external
+  cp -r /vendor/Cosys-AirSim/ros2     $ROOT/ros2
+  # The vendored tree may carry build artifacts from an in-tree build; their CMakeCache.txt
+  # holds ABSOLUTE host paths and poisons this build with
+  # 'current CMakeCache.txt directory is different than the directory where it was created'.
+  rm -rf $ROOT/ros2/build $ROOT/ros2/install $ROOT/ros2/log
+" || die "layout failed"
+
+log "applying the callback-group patch (vendor/ is left untouched)"
+docker cp "$REPO/$PATCH" "$SVC:/tmp/wrapper.patch" >/dev/null
+docker exec "$SVC" bash -lc "cd $ROOT && patch -p1 --forward < /tmp/wrapper.patch" \
+  || die "patch did not apply - upstream may have moved; re-derive it before continuing"
+
+# Assert the ARTIFACT of the patch, not that `patch` printed something friendly. A build
+# script's own success banner has lied in this repo before.
+docker exec "$SVC" bash -lc "
+  grep -q 'CallbackGroupType::MutuallyExclusive' $ROOT/ros2/src/airsim_ros_pkgs/src/airsim_node.cpp \
+  && ! grep -q 'CallbackGroupType::Reentrant'    $ROOT/ros2/src/airsim_ros_pkgs/src/airsim_node.cpp
+" || die "patch applied but the callback group is not MutuallyExclusive"
+
+log "building (expect ~90 s)"
+docker exec "$SVC" bash -lc "
+  set +u; source /opt/ros/jazzy/setup.bash
+  cd $ROOT/ros2 && colcon build --symlink-install 2>&1 | tail -4"
+
+docker exec "$SVC" test -x "$ROOT/ros2/install/airsim_ros_pkgs/lib/airsim_ros_pkgs/airsim_node" \
+  || die "colcon reported success but airsim_node is missing"
+
+log "done. run it with:"
+echo "  docker exec -d $SVC bash -lc '. /opt/ros/jazzy/setup.bash && . $ROOT/ros2/install/setup.bash && ros2 run airsim_ros_pkgs airsim_node --ros-args -p host_ip:=127.0.0.1'"
