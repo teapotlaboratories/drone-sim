@@ -1,0 +1,96 @@
+Give each sensor timer its own callback group, not one shared group.
+
+0001 fixed a data race by making the single shared callback group MutuallyExclusive. That
+is correct but too coarse: ONE MutuallyExclusive group serialises EVERY callback in it, so
+the state timer queues behind image fetches.
+
+Measured (drone-sim, 2026-08-02) with 640x480 Scene+Depth at 20 Hz:
+
+    requested state timer  333 Hz  (update_airsim_control_every_n_sec = 0.003)
+    achieved               ~35 Hz
+    RPC cost of one state cycle  0.26 ms  ->  a 3854 Hz ceiling
+
+So the limit was not the RPC and not the simulator -- it was queueing behind a ~50 ms image
+callback in the same group. IMU, GPS, magnetometer and odometry all ride the state timer, so
+all of them were capped at the image rate.
+
+The race 0001 fixed was drone_state_timer_cb RE-ENTERING ITSELF (30% of consecutive log
+timestamps were out of order for a single vehicle). A per-timer MutuallyExclusive group still
+prevents that -- a callback cannot re-enter its own group -- while allowing different timers to
+run concurrently on the MultiThreadedExecutor. That is the property actually needed.
+
+The groups are stored as members because rclcpp's node holds only weak references to callback
+groups; a locally-scoped shared_ptr would be freed and the timer silently orphaned.
+
+This is an upstream defect and is worth reporting to Cosys-Lab together with 0001 and 0002.
+
+NOTE ON LINE ENDINGS: Cosys-AirSim sources are CRLF. This hunk was GENERATED from the real
+files, not hand-written -- a hand-written LF hunk fails to apply.
+
+diff -ur a/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h b/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h
+--- a/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h	2026-08-02 06:45:51.263210756 +0000
++++ b/ros2/src/airsim_ros_pkgs/include/airsim_ros_wrapper.h	2026-08-02 06:45:51.279358904 +0000
+@@ -411,6 +411,13 @@
+     std::shared_ptr<rclcpp::Node> nh_gpulidar_;
+     std::shared_ptr<rclcpp::Node> nh_echo_;
+     std::shared_ptr<rclcpp::CallbackGroup> cb_;
++    // One MutuallyExclusive group PER TIMER. Sharing a single group serialises every
++    // sensor behind the slowest one; see the patch header.
++    std::shared_ptr<rclcpp::CallbackGroup> cb_state_;
++    std::shared_ptr<rclcpp::CallbackGroup> cb_img_;
++    std::shared_ptr<rclcpp::CallbackGroup> cb_lidar_;
++    std::shared_ptr<rclcpp::CallbackGroup> cb_gpulidar_;
++    std::shared_ptr<rclcpp::CallbackGroup> cb_echo_;
+ 
+     // todo not sure if async spinners shuold be inside this class, or should be instantiated in airsim_node.cpp, and cb queues should be public
+     // todo for multiple drones with multiple sensors, this won't scale. make it a part of VehicleROS?
+diff -ur a/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp b/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp
+--- a/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp	2026-08-02 06:45:51.260500575 +0000
++++ b/ros2/src/airsim_ros_pkgs/src/airsim_ros_wrapper.cpp	2026-08-02 06:45:51.279764353 +0000
+@@ -138,7 +138,8 @@
+ 
+     nh_->declare_parameter("vehicle_name", rclcpp::ParameterValue(""));
+     create_ros_pubs_from_settings_json();
+-    airsim_control_update_timer_ = nh_->create_wall_timer(std::chrono::duration<double>(update_airsim_control_every_n_sec), std::bind(&AirsimROSWrapper::drone_state_timer_cb, this), cb_);
++    if (!cb_state_) cb_state_ = nh_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
++    airsim_control_update_timer_ = nh_->create_wall_timer(std::chrono::duration<double>(update_airsim_control_every_n_sec), std::bind(&AirsimROSWrapper::drone_state_timer_cb, this), cb_state_);
+ }
+ 
+ void AirsimROSWrapper::create_ros_pubs_from_settings_json()
+@@ -417,7 +418,8 @@
+         double update_airsim_img_response_every_n_sec;
+         nh_->get_parameter("update_airsim_img_response_every_n_sec", update_airsim_img_response_every_n_sec);
+ 
+-        airsim_img_response_timer_ = nh_img_->create_wall_timer(std::chrono::duration<double>(update_airsim_img_response_every_n_sec), std::bind(&AirsimROSWrapper::img_response_timer_cb, this), cb_);
++        if (!cb_img_) cb_img_ = nh_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
++        airsim_img_response_timer_ = nh_img_->create_wall_timer(std::chrono::duration<double>(update_airsim_img_response_every_n_sec), std::bind(&AirsimROSWrapper::img_response_timer_cb, this), cb_img_);
+         is_used_img_timer_cb_queue_ = true;
+     }
+ 
+@@ -425,20 +427,23 @@
+     if (lidar_cnt > 0) {
+         double update_lidar_every_n_sec;
+         nh_->get_parameter("update_lidar_every_n_sec", update_lidar_every_n_sec);
+-        airsim_lidar_update_timer_ = nh_lidar_->create_wall_timer(std::chrono::duration<double>(update_lidar_every_n_sec), std::bind(&AirsimROSWrapper::lidar_timer_cb, this), cb_);
++        if (!cb_lidar_) cb_lidar_ = nh_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
++        airsim_lidar_update_timer_ = nh_lidar_->create_wall_timer(std::chrono::duration<double>(update_lidar_every_n_sec), std::bind(&AirsimROSWrapper::lidar_timer_cb, this), cb_lidar_);
+         is_used_lidar_timer_cb_queue_ = true;
+     }
+     if (gpulidar_cnt > 0) {
+         double update_gpulidar_every_n_sec;
+         nh_->get_parameter("update_gpulidar_every_n_sec", update_gpulidar_every_n_sec);
+-        airsim_gpulidar_update_timer_ = nh_gpulidar_->create_wall_timer(std::chrono::duration<double>(update_gpulidar_every_n_sec), std::bind(&AirsimROSWrapper::gpulidar_timer_cb, this), cb_);
++        if (!cb_gpulidar_) cb_gpulidar_ = nh_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
++        airsim_gpulidar_update_timer_ = nh_gpulidar_->create_wall_timer(std::chrono::duration<double>(update_gpulidar_every_n_sec), std::bind(&AirsimROSWrapper::gpulidar_timer_cb, this), cb_gpulidar_);
+         is_used_gpulidar_timer_cb_queue_ = true;
+     }
+ 
+     if (echo_cnt > 0) {
+         double update_echo_every_n_sec;
+         nh_->get_parameter("update_echo_every_n_sec", update_echo_every_n_sec);
+-        airsim_echo_update_timer_ = nh_echo_->create_wall_timer(std::chrono::duration<double>(update_echo_every_n_sec), std::bind(&AirsimROSWrapper::echo_timer_cb, this), cb_);
++        if (!cb_echo_) cb_echo_ = nh_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
++        airsim_echo_update_timer_ = nh_echo_->create_wall_timer(std::chrono::duration<double>(update_echo_every_n_sec), std::bind(&AirsimROSWrapper::echo_timer_cb, this), cb_echo_);
+         is_used_echo_timer_cb_queue_ = true;
+     }
+ 

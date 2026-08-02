@@ -83,6 +83,10 @@ docker exec "$SVC" bash -lc "
 docker exec "$SVC" bash -lc "
   grep -q 'vehicle_name + \"/\" + camera_name + \"_optical\"' $W/src/airsim_ros_wrapper.cpp
 " || die "0002 applied but camera_info frame_id is still unprefixed"
+docker exec "$SVC" bash -lc "
+  test \$(grep -c 'cb_state_\|cb_img_\|cb_lidar_\|cb_gpulidar_\|cb_echo_' \
+            $W/src/airsim_ros_wrapper.cpp) -ge 10
+" || die "0003 applied but the per-timer callback groups are missing"
 
 log "building (expect ~90 s)"
 docker exec "$SVC" bash -lc "

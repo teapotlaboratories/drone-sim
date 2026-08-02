@@ -215,6 +215,77 @@ Nothing consumes these yet — the conversion exists and is tested, but no Lane 
 That is deliberate: `C-05` is where perception topics get consumed, and wiring a converter into
 a node with no consumer would be speculative.
 
+## Navigation-readiness sweep — and the bug it exposed
+
+Asked directly: *is the simulated drone capable of RGB, depth, LiDAR, GPS and the basics for
+navigation over the ROS 2 link?* Answer: **yes now — but it was not when the question was
+asked, and topic-existence would have said yes either way.**
+
+`scripts/verify_lane_c_sensors.py` checks **values**, not presence, because every Lane C
+failure so far looked healthy from outside. It asserts things that can fail: RGB pixel
+variance (a blank buffer and a real frame both "publish"), depth finite and metric, LiDAR
+returns not all at the origin, GPS lat/lon plausible and non-zero, **IMU |accel| ≈ 9.81 at
+rest** (a zero-filled Imu deserialises perfectly), `camera_info.frame_id` resolvable in
+`tf_static`, and `/clock` actually advancing.
+
+First run: every required check passed — **at 1.1 Hz imagery.** Valid data, useless rate.
+
+### Root cause: five uninitialized doubles
+
+```cpp
+double update_airsim_img_response_every_n_sec;              // UNINITIALIZED
+nh_->get_parameter("update_airsim_img_response_every_n_sec", ...);   // returns FALSE, leaves it
+create_wall_timer(std::chrono::duration<double>(that_variable), ...);
+```
+
+`get_parameter` returns false for an undeclared parameter and **leaves the value unchanged**,
+and `airsim_node` only auto-declares parameters that are *passed as overrides*. Pass nothing,
+and the timer period is uninitialized stack memory. **All five sensor timers do this** —
+`control`, `img_response`, `lidar`, `gpulidar`, `echo`.
+
+Same class as `publish_clock`, but worse: that one at least had a sane initializer.
+
+**This also re-explains trap 3.** The 77.9% IMU duplicate rate was never inherent to the
+polled-snapshot design — the state timer's garbage period made it poll a 333 Hz sensor at
+1328 Hz. The low image rate and the IMU duplicates were *one bug*.
+
+Fixed in the launch, with `value_type=float` forced: a bare `LaunchConfiguration` arrives as a
+**string**, and `get_parameter(name, double&)` fails a type mismatch exactly as it fails an
+undeclared name — leaving the same uninitialized value. The workaround would have looked
+applied and changed nothing.
+
+### Then my own patch turned out to be the next bottleneck
+
+With the periods set, the state timer still ran at **35 Hz against a requested 333 Hz**. Not
+the RPC: a full state cycle measured **0.26 ms**, a 3854 Hz ceiling. The cause was `0001` —
+making the *single shared* callback group `MutuallyExclusive` serialised **every** callback, so
+the state timer queued behind ~50 ms image fetches. IMU, GPS, magnetometer and odometry all
+ride that timer, so all were capped at the image rate.
+
+`0003` gives each timer its **own** `MutuallyExclusive` group. The race `0001` fixed was
+`drone_state_timer_cb` re-entering *itself*; a per-timer group still prevents that while
+letting different timers run concurrently. Groups are stored as members because rclcpp's node
+holds only weak references — a locally-scoped `shared_ptr` would be freed and the timer
+silently orphaned.
+
+### Result
+
+| | before | after |
+|---|---|---|
+| RGB | 1.1 Hz | **31.2 Hz** |
+| Depth | 1.1 Hz | **29.6 Hz** |
+| GPU-LiDAR | 1.6 Hz | **17.4 Hz** |
+| IMU | 1328 Hz, 77.3% duplicate | **366 Hz, 311 Hz distinct, 14.6% duplicate** |
+| GPS / magnetometer / odometry | 1330 Hz (mostly duplicate) | **365 Hz** |
+
+All required checks pass at navigation-grade rates. Depth reads 0.39 m to a 16312 m
+no-return sentinel; IMU reads 9.807 m/s² at rest; LiDAR 1500/1500 sampled points non-origin.
+
+**Not fixed, and worth stating:** the sim segfaulted after **57 minutes** of continuous run —
+`Array index out of bounds: 18823 into an array of size 0`, preceded by a MAVLink `hil` EPIPE.
+That is a stability ceiling nobody has characterised, and it is not the same bug as any of the
+above.
+
 ## Next
 
 1. ~~Put the `/clock` remap into the launch~~ — **done.**
