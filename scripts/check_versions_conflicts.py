@@ -28,7 +28,32 @@ def main() -> int:
     if bad:
         print(f"versions.lock: CONFLICT without a summary at line(s) {bad}", file=sys.stderr)
         return 1
-    print(f"all {total} CONFLICT entries carry a summary")
+
+    # A `why_not_<STATUS>_yet:` key inside a block whose status IS that status is a stale
+    # leftover from an earlier state, and it says the opposite of the status line above it.
+    # This is not hypothetical: lane_c.unreal_engine shipped `status: LOCKED` alongside
+    # `why_not_LOCKED_yet: Nothing has been COMPILED against it` -- a direct self-
+    # contradiction, in the file this project treats as authoritative, that survived review
+    # until someone read the whole block. Mechanically detectable, so detect it.
+    stale = []
+    for m in re.finditer(r"^(\s*)why_not_([A-Za-z-]+)_yet\s*:", text, re.M):
+        indent, claimed = m.group(1), m.group(2)
+        line_no = text[:m.start()].count("\n") + 1
+        # Walk backwards to the nearest `status:` at the same indent -- i.e. this block's.
+        prefix = text[:m.start()]
+        st = None
+        for sm in re.finditer(rf"^{indent}status:\s*([A-Za-z-]+)", prefix, re.M):
+            st = sm.group(1)
+        if st is not None and st == claimed:
+            stale.append((line_no, claimed))
+    if stale:
+        for line_no, claimed in stale:
+            print(f"versions.lock:{line_no}: `why_not_{claimed}_yet` in a block whose status "
+                  f"IS {claimed} - stale, and it contradicts the status line",
+                  file=sys.stderr)
+        return 1
+
+    print(f"all {total} CONFLICT entries carry a summary; no stale why_not_*_yet keys")
     return 0
 
 

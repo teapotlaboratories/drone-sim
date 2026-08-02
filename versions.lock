@@ -483,9 +483,6 @@ lane_c:
       Setup.sh and GenerateProjectFiles.sh are ABSENT; UnrealBuildTool.dll is present.
       `dev-slim` is a pre-built engine. Any upstream instruction that assumes a source
       checkout has to be translated to a UBT plugin build.
-    why_not_LOCKED_yet: >-
-      Nothing has been COMPILED against it. Existing is not working, and running a probe is
-      not building a plugin. LOCKED requires the Cosys-AirSim plugin to build.
     was: >-
       "5.5" / ghcr.io/epicgames/unreal-engine:dev-slim-5.5.4, pinned 2026-07-29 from
       04_ue5_stack_architecture.md, which was researched when UE5.5 was upstream's target.
