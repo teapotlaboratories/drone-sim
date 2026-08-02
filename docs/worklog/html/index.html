@@ -115,8 +115,19 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-02-c04-trap-list-measured.html">
+    <span class="k">2026-08-02 · C-04 · newest</span>
+    <h3>The Trap List, Measured</h3>
+    <p>Four documented traps checked against a <em>running</em> node instead of against the docs. <strong>Three confirmed.</strong> Frames are <strong>NWU, not ENU</strong> — <code>convert_tf_msg_to_enu()</code> has zero call sites, and measured yaw missed ENU by 97&deg; and NWU by 7&deg;. <code>/clock</code> is a <em>double</em> defect: the parameter is never declared <em>and</em> it publishes to <code>~/clock</code>. Worst of all, the IMU: <strong>1501 Hz published but only 6630 distinct samples — 77.9% duplicates</strong>, real rate ~333 Hz, with gaps up to 3&times; base. <code>ros2 topic hz</code> would have called that healthy.</p>
+    <div class="tags">
+      <span class="pill p-stop">78% IMU duplicates</span>
+      <span class="pill p-stop">NWU, not ENU</span>
+      <span class="pill p-ok">build now reproducible</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-01-c10-deterministic-bringup.html">
-    <span class="k">2026-08-01 · C-10 · newest</span>
+    <span class="k">2026-08-01 · C-10</span>
     <h3>A Deterministic Bring-Up, and a Check That Nearly Lied</h3>
     <p>Cold start to a verified stack in <strong>83 s unattended</strong>, then <strong>4/4 waypoints</strong> — third consecutive success, first from a genuine cold start. The new origin check earned itself immediately, catching a <strong>real 9.069 m stale origin</strong> (not a replay of C-09&rsquo;s 35.167 — a fresh race, different magnitude) and repairing it. Two admissions kept in: the settle-wait alone was <em>not</em> sufficient, so the honest description is &ldquo;verify and repair&rdquo;, not &ldquo;order it correctly&rdquo;; and the check first reported <code>OK</code> on a <code>NaN</code> — <code>nan &gt; tol</code> is False — green-lighting the one state it existed to catch.</p>
     <div class="tags">

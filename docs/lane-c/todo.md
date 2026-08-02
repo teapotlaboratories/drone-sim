@@ -752,9 +752,19 @@ in-place edit:
    an upstream defect, worth reporting to Cosys-Lab.
 3. **Clean the 163 MB of build artifacts out of `vendor/Cosys-AirSim/ros2/`** and keep builds
    out-of-tree, so the tree stays diffable against upstream.
-4. Re-check the `C-04` trap list against a *running* node now that one exists — NWU-vs-ENU
-   frames, `/clock` on the wrong topic, polled-IMU cadence, and the `camera_info` frame_id
-   mismatch are all still unverified.
+4. ~~Re-check the trap list against a running node~~ — **done 2026-08-02**, three of four
+   confirmed. Evidence:
+   [`../worklog/2026-08-02-c04-trap-list-measured.md`](../worklog/2026-08-02-c04-trap-list-measured.md)
+
+   | # | Trap | Verdict |
+   |---|---|---|
+   | 1 | Frames NWU not ENU | **CONFIRMED** — `convert_tf_msg_to_enu()` has 0 call sites; measured yaw missed ENU by 97.3° and NWU by 7.3° |
+   | 2 | `/clock` wrong topic | **CONFIRMED, double defect** — `publish_clock` is never *declared*, and it publishes to `~/clock`. Fix: `-r /airsim_node/clock:=/clock`, in the launch |
+   | 3 | Polled IMU | **CONFIRMED, quantified** — 1501 Hz published, 6630 distinct, **77.9% duplicates**, real rate ~333 Hz, gaps to 3× base |
+   | 4 | `camera_info` frame_id | **untestable** — no `Cameras` block in `settings.json` yet |
+
+   **The build is also no longer ephemeral:** `patches/cosys-airsim/0001-…patch` +
+   `scripts/build_airsim_wrapper.sh` reproduce it in 1m43s with `vendor/` pristine.
 
 **Blocked by:** nothing — the crash is fixed; the work is now the trap list.
 
