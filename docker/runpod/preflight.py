@@ -137,8 +137,8 @@ def run(args: argparse.Namespace) -> dict:
     xrce_command = os.getenv("DRONE_SIM_XRCE_COMMAND", "MicroXRCEAgent")
     xrce_binary = shutil.which(xrce_command)
 
-    qgc_appimage = Path(
-        os.getenv("DRONE_SIM_QGC_APPIMAGE", "/qgc.AppImage")
+    qgc_apprun = Path(
+        os.getenv("DRONE_SIM_QGC_APPRUN", "/opt/qgc/squashfs-root/AppRun")
     )
     checks = {
         "cpu": {
@@ -175,12 +175,12 @@ def run(args: argparse.Namespace) -> dict:
                 px4_binary.is_file()
                 and os.access(px4_binary, os.X_OK)
                 and xrce_binary is not None
-                and qgc_appimage.is_file()
-                and os.access(qgc_appimage, os.X_OK)
+                and qgc_apprun.is_file()
+                and os.access(qgc_apprun, os.X_OK)
             ),
             "px4": str(px4_binary),
             "xrce_agent": xrce_binary or "",
-            "qgroundcontrol": str(qgc_appimage),
+            "qgroundcontrol": str(qgc_apprun),
             "ros_distro": os.getenv("ROS_DISTRO", ""),
         },
     }

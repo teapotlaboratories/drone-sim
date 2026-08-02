@@ -33,6 +33,32 @@ stop_children() {
   pkill -f '[o]penbox' 2>/dev/null || true
 }
 
+request_stop() {
+  [[ -n "${RUNPOD_POD_ID:-}" ]] || return 1
+  /usr/local/bin/request-runpod-stop "$RUNPOD_POD_ID"
+}
+
+finalize() {
+  cp /etc/drone-sim-versions "$RUN_DIR/artifacts/versions.txt" 2>/dev/null || true
+  terminal=1
+  trap - ERR
+  stop_children
+
+  if [[ -z "${RUNPOD_POD_ID:-}" ]]; then
+    exit "$runner_status"
+  fi
+
+  if request_stop; then
+    echo "runner: Runpod stop accepted for ${RUNPOD_POD_ID}"
+  else
+    echo "runner: WARNING automatic stop failed for ${RUNPOD_POD_ID}; external Fern cleanup required" >&2
+  fi
+
+  # Runpod restarts an exited container while the Pod remains RUNNING. Idling after the
+  # terminal status prevents a failed stop request from rerunning a billable simulation.
+  exec sleep infinity
+}
+
 interrupted() {
   if [[ "$terminal" = "0" && -d "$RUN_DIR" ]]; then
     status --state interrupted --exit-code 130 --message "runner interrupted" || true
@@ -44,11 +70,12 @@ interrupted() {
 failed() {
   local exit_code=$?
   trap - ERR
+  set +e
   if [[ "$terminal" = "0" && -d "$RUN_DIR" ]]; then
     status --state failed --exit-code "$exit_code" --message "runner infrastructure failed" || true
   fi
-  stop_children
-  exit "$exit_code"
+  runner_status=$exit_code
+  finalize
 }
 trap interrupted INT TERM
 trap failed ERR
@@ -91,26 +118,4 @@ else
   fi
 fi
 
-cp /etc/drone-sim-versions "$RUN_DIR/artifacts/versions.txt" 2>/dev/null || true
-terminal=1
-trap - ERR
-stop_children
-
-request_stop() {
-  [[ -n "${RUNPOD_POD_ID:-}" ]] || return 1
-  /usr/local/bin/request-runpod-stop "$RUNPOD_POD_ID"
-}
-
-if [[ -z "${RUNPOD_POD_ID:-}" ]]; then
-  exit "$runner_status"
-fi
-
-if request_stop; then
-  echo "runner: Runpod stop accepted for ${RUNPOD_POD_ID}"
-else
-  echo "runner: WARNING automatic stop failed for ${RUNPOD_POD_ID}; external Fern cleanup required" >&2
-fi
-
-# Runpod restarts an exited container while the Pod remains RUNNING. Idling after the
-# terminal status prevents a failed stop request from rerunning a billable simulation.
-exec sleep infinity
+finalize

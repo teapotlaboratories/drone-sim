@@ -32,9 +32,14 @@ RUN apt-get update \
     && curl -fL --retry 3 --connect-timeout 30 -o /qgc.AppImage "${QGC_URL}" \
     && echo "${QGC_SHA256}  /qgc.AppImage" | sha256sum --check - \
     && chmod 0755 /qgc.AppImage \
+    && mkdir -p /opt/qgc \
+    && cd /opt/qgc \
+    && /qgc.AppImage --appimage-extract >/dev/null \
+    && rm -f /qgc.AppImage \
+    && test -x /opt/qgc/squashfs-root/AppRun \
     && useradd -m -s /bin/bash qgcuser \
     && mkdir -p /home/qgcuser/tmp \
-    && chown -R qgcuser:qgcuser /home/qgcuser \
+    && chown -R qgcuser:qgcuser /home/qgcuser /opt/qgc \
     && echo "qgroundcontrol ${QGC_VERSION} ${QGC_SHA256}" >> /etc/drone-sim-versions \
     && rm -rf /var/lib/apt/lists/*
 

@@ -73,11 +73,11 @@ def configure_healthy_runtime(tmp_path: Path, monkeypatch) -> None:
     px4 = tmp_path / "px4"
     px4.write_text("#!/bin/sh\n")
     px4.chmod(0o755)
-    qgc = tmp_path / "qgc.AppImage"
-    qgc.write_text("appimage\n")
+    qgc = tmp_path / "AppRun"
+    qgc.write_text("#!/bin/sh\n")
     qgc.chmod(0o755)
     monkeypatch.setenv("DRONE_SIM_PX4_BINARY", str(px4))
-    monkeypatch.setenv("DRONE_SIM_QGC_APPIMAGE", str(qgc))
+    monkeypatch.setenv("DRONE_SIM_QGC_APPRUN", str(qgc))
     monkeypatch.setenv("DRONE_SIM_XRCE_COMMAND", "true")
     monkeypatch.setenv("DRONE_SIM_MIN_CPUS", "0")
     monkeypatch.setenv("DRONE_SIM_MIN_MEMORY_BYTES", "0")
@@ -148,6 +148,9 @@ def test_runner_files_keep_control_ports_local():
     assert "source /opt/ros/" in smoke
     assert "EXPOSE 14540" not in dockerfile
     assert "QGC_SHA256" in dockerfile
+    assert "/qgc.AppImage --appimage-extract" in dockerfile
+    assert "test -x /opt/qgc/squashfs-root/AppRun" in dockerfile
+    assert "/opt/qgc/squashfs-root/AppRun" in (RUNTIME / "preflight.py").read_text()
     assert "qgc-entrypoint.sh" in dockerfile
     assert "qgc.log" in runner
     assert "RUNPOD_API_KEY" not in (RUNTIME / "artifacts.py").read_text()
@@ -164,6 +167,8 @@ def test_runner_files_keep_control_ports_local():
     api_position = runner.index('python3 "$RUNTIME_LIB/runtime_api.py"')
     running_position = runner.index("status --state running")
     assert preflight_position < api_position < running_position
+    assert "runner_status=$exit_code\n  finalize" in runner
+    assert 'exit "$exit_code"' not in runner
 
 
 

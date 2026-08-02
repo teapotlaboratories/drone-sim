@@ -854,3 +854,26 @@ next runtime gate; the resulting `/workspace` evidence remains the authority.
 **Verification.** Forty-eight off-target tests pass. The runner contract now requires the
 preflight invocation to precede runtime API startup, which must itself precede the running
 status transition.
+
+### D-08d — Bake the QGC runtime and stop on infrastructure failure
+
+**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+
+**What.** Extract the checksum-verified QGroundControl AppImage at build time to the path
+owned by `qgc-entrypoint.sh`, make preflight validate that same executable, and route ERR
+trap failures through the terminal Runpod self-stop/idle finalizer.
+
+**Why.** After D-08c passed preflight, Fern Pod `x1ulxxt7vet93w` created 24 failed runs at
+roughly 17-second intervals. Each `qgc.log` reported missing
+`/opt/qgc/squashfs-root/AppRun`. The flattened image had downloaded `/qgc.AppImage` but
+never extracted it. The subsequent QGC liveness check triggered the ERR trap, whose direct
+`exit` bypassed self-stop and allowed Runpod to restart the container.
+
+**Acceptance.** The image build must verify the extracted `AppRun`; preflight and the QGC
+entrypoint must agree on that path. Off-target tests must assert infrastructure failures
+reach the shared finalizer and cannot exit before self-stop. A fresh Fern Pod must pass QGC
+startup, avoid restart multiplication, and leave authoritative terminal evidence.
+
+**Verification.** Forty-eight off-target tests pass. The image contract now extracts and
+verifies `AppRun`, preflight validates the same executable used by the QGC entrypoint, and
+the runner's ERR trap reaches the shared finalizer without a direct exit before self-stop.

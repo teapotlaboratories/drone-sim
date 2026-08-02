@@ -122,6 +122,27 @@ preflight invocation < runtime API startup < running status
 This fixes the deterministic self-conflict but does not claim the five-minute smoke; the
 next immutable Fern run remains the authority.
 
+### Retained evidence — QGC runtime and restart-loop gate
+
+Workflow `30752872373` published commit `e7e25bd` as digest
+`sha256:7e60b23713875d0b8abc6980fb82765c2b1a74d7803ec12703a3549ce244d6d5`.
+Fern Pod `x1ulxxt7vet93w` pulled that exact digest and passed every preflight check, but
+then created 24 failed run directories at roughly 17-second intervals. Each terminal
+status recorded exit code `1` and `runner infrastructure failed`; each `qgc.log` reported
+that `/opt/qgc/squashfs-root/AppRun` was missing.
+
+The flattened Runpod Dockerfile downloaded `/qgc.AppImage`, while `qgc-entrypoint.sh`
+correctly requires the AppImage's extracted `AppRun`. The QGC liveness check consequently
+failed, and the ERR trap exited directly before the Runpod self-stop/idle finalizer. The
+provider restarted the container and multiplied the failure.
+
+D-08d extracts the checksum-verified AppImage during the build and proves `AppRun` is
+executable. Preflight now validates that same path. Infrastructure failures also flow
+through the shared finalizer, which writes terminal evidence, requests Runpod stop, and
+idles instead of exiting. Forty-eight off-target tests pass; a fresh immutable image and
+Fern Pod remain required before claiming the QGC or five-minute smoke gate.
+
+
 
 ## Implemented topology
 
