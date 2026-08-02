@@ -339,13 +339,79 @@ def test_origin_check_runs_inside_the_ros2_service_not_on_the_host():
     """`ros2` does not exist on the host that runs the gate. An earlier version invoked the
     checker with sys.executable locally, which would have made EVERY run VOID and left the
     gate permanently INCONCLUSIVE -- a check that fails closed on its own plumbing disables
-    the gate just as surely as one that fails open. Pin the call site."""
-    import ast as _ast
+    the gate just as surely as one that fails open.
+
+    Asserted MODULE-WIDE rather than against one function name. The first version of this
+    test named `_origin_void_reason` directly, and a later refactor that moved the exec into
+    a `_run_origin_check` helper broke it -- a false positive on a change that preserved the
+    invariant perfectly. Pin the property, not the call site's current shape."""
     src = (REPO / "scripts" / "run_gate.py").read_text()
-    fn = next(n for n in _ast.walk(_ast.parse(src))
-              if isinstance(n, _ast.FunctionDef) and n.name == "_origin_void_reason")
-    body = _ast.dump(fn)
-    assert "COMPOSE" in body, "the checker must be exec'd into the ros2 service"
-    assert "sys.executable" not in body, (
+    assert "rs.COMPOSE" in src, "the checker must be exec'd into the ros2 service"
+    assert "sys.executable" not in src, (
         "the origin checker must NOT run on the gate host - there is no ros2 there"
     )
+
+
+# ---------------------------------------------------------------------------------------
+# The gate must WAIT for an origin before judging (the barrier), and must treat the two void
+# codes differently. STALE cannot be waited out; UNKNOWN is transient by definition.
+
+
+def _origin_probe(sequence):
+    """Feed _origin_void_reason a scripted series of checker exit codes."""
+    calls = {"n": 0}
+
+    def fake():
+        i = min(calls["n"], len(sequence) - 1)
+        calls["n"] += 1
+        return sequence[i]
+    return fake, calls
+
+
+def test_gate_waits_out_a_transient_missing_origin(monkeypatch):
+    """restart_stack() returns on CONTAINER HEALTH, which is not the same event as the EKF
+    establishing an origin -- PX4 publishes ref_alt as NaN until it does. Checking
+    immediately races the estimator, and because ANY void blocks the criterion, one slow
+    start would turn the whole gate INCONCLUSIVE."""
+    fake, calls = _origin_probe([rg.ORIGIN_UNKNOWN, rg.ORIGIN_UNKNOWN, 0])
+    monkeypatch.setattr(rg, "_run_origin_check", fake)
+    monkeypatch.setattr(rg, "ORIGIN_POLL_S", 0)
+    assert rg._origin_void_reason() == "", "a transient UNKNOWN must be waited out, not voided"
+    assert calls["n"] == 3
+
+
+def test_gate_does_not_wait_out_a_stale_origin(monkeypatch):
+    """An EKF origin is set ONCE, so a stale one never re-settles. Retrying would just burn
+    the timeout and then void anyway -- and would hide the actionable message."""
+    fake, calls = _origin_probe([rg.ORIGIN_STALE])
+    monkeypatch.setattr(rg, "_run_origin_check", fake)
+    monkeypatch.setattr(rg, "ORIGIN_POLL_S", 0)
+    why = rg._origin_void_reason()
+    assert why and "STALE" in why
+    assert calls["n"] == 1, "STALE must void immediately, not after the full wait"
+
+
+def test_gate_gives_up_and_voids_if_no_origin_ever_appears(monkeypatch):
+    fake, _ = _origin_probe([rg.ORIGIN_UNKNOWN])
+    monkeypatch.setattr(rg, "_run_origin_check", fake)
+    monkeypatch.setattr(rg, "ORIGIN_POLL_S", 0)
+    monkeypatch.setattr(rg, "ORIGIN_WAIT_S", 0)
+    why = rg._origin_void_reason()
+    assert why and "no EKF origin appeared" in why
+
+
+def test_an_unrunnable_checker_is_void_not_pass(monkeypatch):
+    """An unverifiable stack must never read as verified."""
+    fake, _ = _origin_probe([-1])
+    monkeypatch.setattr(rg, "_run_origin_check", fake)
+    monkeypatch.setattr(rg, "ORIGIN_POLL_S", 0)
+    monkeypatch.setattr(rg, "ORIGIN_WAIT_S", 0)
+    why = rg._origin_void_reason()
+    assert why and "could not run" in why
+
+
+def test_void_exit_codes_are_imported_not_redeclared():
+    """Two copies of "which number means stale" is exactly the drift that makes a void look
+    like a pass."""
+    assert rg.ORIGIN_STALE == ekf.VOID_STALE
+    assert rg.ORIGIN_UNKNOWN == ekf.VOID_UNKNOWN
