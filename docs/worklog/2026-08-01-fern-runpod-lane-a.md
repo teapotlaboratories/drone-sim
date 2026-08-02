@@ -142,6 +142,32 @@ through the shared finalizer, which writes terminal evidence, requests Runpod st
 idles instead of exiting. Forty-eight off-target tests pass; a fresh immutable image and
 Fern Pod remain required before claiming the QGC or five-minute smoke gate.
 
+### Retained evidence — completed sample, blocked finalization
+
+Workflow `30754388107` built commit `ac37526` successfully in 19m24s and published
+digest `sha256:81bfdfc7d7ff8b81b974ba0844d5f3941e9f03e2323dde8654040b9743c83c1d`.
+The first allocation, Pod `bpvxj1wjtz8169`, never became container-ready and was stopped
+after 15m51s with zero uptime. A fresh Fern allocation, Pod `z1va6emzqg0t12`, pulled the
+same digest and reached the full simulation gate.
+
+The second Pod passed every preflight check on an RTX 2000 Ada, including the extracted
+QGC `AppRun`. PX4 booted in roughly 22 seconds, ROS discovered 24 `/fmu/out` topics,
+vehicle-local-position telemetry moved at about 100.2 Hz, QGC stayed alive, and declared
+topics produced a 30.6 MB MCAP. The prior QGC restart loop did not recur.
+
+After the requested 300-second Gazebo sample, `stats.raw` reached roughly 499 KB but the
+smoke log never advanced beyond `sampling real-time factor for 300s`. The retained status
+remained `running` and no `metrics.json` existed. GNU `timeout` sends TERM at the deadline
+but waits when the child does not terminate; on this runtime `gz topic` ignored TERM. The
+Pod therefore required bounded external Fern cleanup, after which its persistent volume
+was inspected through the stopped Pod's diagnostic image and stopped again.
+
+D-08e adds `--kill-after=5s` to preserve the full requested sample while guaranteeing the
+parser, metrics writer, status transition, and Runpod finalizer can execute. Twelve focused
+tests, shell parsing, and a live local TERM-ignoring-process proof pass. The retained PX4
+log also contains eight `vehicle_command_ack lost` lines associated with QGC startup;
+their effect on the strict zero-error gate will be determined by the next terminal run.
+
 
 
 ## Implemented topology

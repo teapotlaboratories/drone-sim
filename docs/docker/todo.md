@@ -877,3 +877,25 @@ startup, avoid restart multiplication, and leave authoritative terminal evidence
 **Verification.** Forty-eight off-target tests pass. The image contract now extracts and
 verifies `AppRun`, preflight validates the same executable used by the QGC entrypoint, and
 the runner's ERR trap reaches the shared finalizer without a direct exit before self-stop.
+
+### D-08e — Bound Gazebo sampling termination
+
+**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+
+**What.** Give the duration-bounded `gz topic` sampler a short TERM grace period followed
+by KILL so it cannot hold the smoke harness before metrics and terminal finalization.
+
+**Why.** Fresh Fern Pod `z1va6emzqg0t12` passed preflight, booted PX4 in roughly 22
+seconds, discovered 24 `/fmu/out` topics, recorded moving telemetry and a 30.6 MB MCAP,
+and wrote roughly 499 KB of Gazebo stats. It remained at `sampling real-time factor for
+300s`; `status.json` stayed `running` and `metrics.json` was absent. The unbounded
+post-TERM wait in GNU `timeout` allowed `gz topic` to ignore TERM indefinitely.
+
+**Acceptance.** The sampler must retain the requested duration, send KILL after a bounded
+grace period, preserve `stats.raw`, and always proceed to result/metrics generation. A
+fresh Fern Pod must reach terminal status and self-stop or leave an actionable cleanup
+failure without restarting.
+
+**Verification.** Twelve focused runtime tests pass, shell syntax is valid, a local
+TERM-ignoring process is forcibly terminated by the same kill-after contract, and the
+full repository Tier 1 gate passes. A fresh immutable Fern run remains pending.
