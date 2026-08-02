@@ -887,9 +887,10 @@ by KILL so it cannot hold the smoke harness before metrics and terminal finaliza
 
 **Why.** Fresh Fern Pod `z1va6emzqg0t12` passed preflight, booted PX4 in roughly 22
 seconds, discovered 24 `/fmu/out` topics, recorded moving telemetry and a 30.6 MB MCAP,
-and wrote roughly 499 KB of Gazebo stats. It remained at `sampling real-time factor for
-300s`; `status.json` stayed `running` and `metrics.json` was absent. The unbounded
-post-TERM wait in GNU `timeout` allowed `gz topic` to ignore TERM indefinitely.
+and wrote roughly 499 KB of Gazebo stats. The log then stopped at the subscriber/recorder
+shutdown boundary; `status.json` stayed `running` and `metrics.json` was absent. Both the
+subscriber timeout and the immediately following recorder wait lacked hard termination
+bounds. D-08e closes the subscriber side of that boundary.
 
 **Acceptance.** The sampler must retain the requested duration, send KILL after a bounded
 grace period, preserve `stats.raw`, and always proceed to result/metrics generation. A
@@ -899,3 +900,25 @@ failure without restarting.
 **Verification.** Twelve focused runtime tests pass, shell syntax is valid, a local
 TERM-ignoring process is forcibly terminated by the same kill-after contract, and the
 full repository Tier 1 gate passes. A fresh immutable Fern run remains pending.
+
+### D-08f — Bound MCAP recorder shutdown
+
+**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+
+**What.** Bound `ros2 bag record` shutdown after the full sample: request a graceful INT
+flush, escalate to TERM, then KILL only if the recorder still refuses to exit.
+
+**Why.** D-08e image Pod `nmijzwcbots6jw` again completed the expected Gazebo sample
+(roughly 498 KB of `stats.raw`) and retained a 25.5 MB MCAP, but never reached results or
+`metrics.json`. The sampler now has a hard kill deadline. The immediately following
+`stop_recorder` function sends INT and waits without a deadline; the recorder log contains
+no completed-shutdown record, making that wait the remaining silent blocker before parsing.
+
+**Acceptance.** Recorder shutdown must allow a bounded graceful flush, escalate safely,
+reap the child, preserve the MCAP, and always return control to result parsing. Off-target
+tests must enforce the finite INT/TERM/KILL sequence. A fresh Fern run must create metrics,
+terminal status, and a provider cleanup result without restart multiplication.
+
+**Verification.** Twelve focused runtime tests, shell syntax, and the full repository Tier
+1 gate pass. The recorder gets 15 seconds after INT, five seconds after TERM, then KILL
+and an unconditional reap. A fresh immutable Fern run remains pending.

@@ -157,16 +157,33 @@ topics produced a 30.6 MB MCAP. The prior QGC restart loop did not recur.
 
 After the requested 300-second Gazebo sample, `stats.raw` reached roughly 499 KB but the
 smoke log never advanced beyond `sampling real-time factor for 300s`. The retained status
-remained `running` and no `metrics.json` existed. GNU `timeout` sends TERM at the deadline
-but waits when the child does not terminate; on this runtime `gz topic` ignored TERM. The
-Pod therefore required bounded external Fern cleanup, after which its persistent volume
+remained `running` and no `metrics.json` existed. That localized the block to two adjacent
+unbounded waits: the subscriber's post-TERM behavior and the immediately following MCAP
+recorder shutdown. The Pod required bounded external Fern cleanup; its persistent volume
 was inspected through the stopped Pod's diagnostic image and stopped again.
 
-D-08e adds `--kill-after=5s` to preserve the full requested sample while guaranteeing the
-parser, metrics writer, status transition, and Runpod finalizer can execute. Twelve focused
-tests, shell parsing, and a live local TERM-ignoring-process proof pass. The retained PX4
-log also contains eight `vehicle_command_ack lost` lines associated with QGC startup;
-their effect on the strict zero-error gate will be determined by the next terminal run.
+D-08e adds `--kill-after=5s` to preserve the full requested sample while bounding the
+subscriber half of that shutdown boundary. Twelve focused tests, shell parsing, and a live
+local TERM-ignoring-process proof pass.
+
+### Retained evidence — MCAP recorder shutdown remains unbounded
+
+Workflow `30756647362` built commit `31b2cb8` successfully in 19m04s and published
+digest `sha256:4a6cf6bb64463404c1fc88fd2059359aec5395579d325e13c351b3cbe03d5c73`.
+Fern selected an RTX 4000 Ada for Pod `nmijzwcbots6jw` at $0.28/hour. The Pod again passed
+preflight, booted PX4 in roughly 22 seconds, discovered 24 topics, moved telemetry at
+about 100.2 Hz, retained a 25.5 MB MCAP, and wrote roughly 498 KB of Gazebo stats.
+
+The sampler now had a hard kill deadline, but the run still ended before result parsing:
+`status.json` remained `running`, `metrics.json` was absent, and the recorder log had no
+completed-shutdown record. The next call after sampling was `stop_recorder`, which sent INT
+and then performed an unbounded `wait` on `ros2 bag record`. D-08f bounds graceful MCAP
+flush to 15 seconds, escalates to TERM for five seconds, then uses KILL only as a last
+resort and always reaps the child before parsing results.
+
+The retained PX4 log again contains eight `vehicle_command_ack lost` lines associated
+with QGC startup. Their effect on the strict zero-error gate remains visible and will be
+evaluated once the recorder can return control to metrics generation.
 
 
 

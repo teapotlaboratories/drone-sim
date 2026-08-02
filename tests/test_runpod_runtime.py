@@ -146,6 +146,11 @@ def test_runner_files_keep_control_ports_local():
     assert "env -u LD_LIBRARY_PATH bash" in smoke
     assert "env -u LD_LIBRARY_PATH gz topic" in smoke
     assert 'timeout --kill-after=5s "$DURATION"' in smoke
+    assert 'wait_for_recorder_exit 15' in smoke
+    assert 'wait_for_recorder_exit 5' in smoke
+    assert 'kill -INT "$BAG_PID"' in smoke
+    assert 'kill -TERM "$BAG_PID"' in smoke
+    assert 'kill -KILL "$BAG_PID"' in smoke
     assert "source /opt/ros/" in smoke
     assert "EXPOSE 14540" not in dockerfile
     assert "QGC_SHA256" in dockerfile
