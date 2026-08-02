@@ -785,7 +785,35 @@ in-place edit:
    that module earns; pinned by a dedicated test. 7 new tests, 15 in the file, verified by
    breaking the implementation. *Nothing consumes it yet* — that is `C-05`'s job.
 
-   **Still open on `C-04`:** the unexplained 7.342° yaw residual.
+   **Navigation-readiness verified 2026-08-02** — `scripts/verify_lane_c_sensors.py` checks
+   sensor **values**, not topic presence, and all required checks pass:
+
+   | | before | after |
+   |---|---|---|
+   | RGB | 1.1 Hz | **31.2 Hz** |
+   | Depth | 1.1 Hz | **29.6 Hz** |
+   | GPU-LiDAR | 1.6 Hz | **17.4 Hz** |
+   | IMU | 1328 Hz, 77.3% dup | **366 Hz, 311 Hz distinct, 14.6% dup** |
+   | GPS / mag / odom | 1330 Hz (dup) | **365 Hz** |
+
+   The gap was **five uninitialized `double` timer periods** in the wrapper — `get_parameter`
+   returns false for an undeclared name and leaves the value untouched, so every sensor rate was
+   stack garbage. Fixed in the launch (with `value_type=float` forced, or it silently stays
+   uninitialized). **That also re-explains trap 3:** the IMU duplicates were never inherent to
+   the polled design, just a garbage poll period. Patch `0003` then removed the serialisation
+   that patch `0001` had introduced.
+
+   **Artifacts delivered (filed retroactively — these were built before being written down,
+   which the plan-first rule says should not happen):** `scripts/verify_lane_c_sensors.py`,
+   `scripts/build_airsim_wrapper.sh`, `patches/cosys-airsim/000{1,2,3}`,
+   `ros2_ws/src/bringup/launch/lane_c_perception.launch.py`, and
+   [`../vendor/cosys-airsim.md`](../vendor/cosys-airsim.md).
+
+   **Still open on `C-04`:**
+   - the unexplained 7.342° yaw residual;
+   - **the simulator segfaults after ~57 minutes** — `Array index out of bounds: 18823 into an
+     array of size 0`, preceded by a MAVLink `hil` EPIPE. Uncharacterised, and a real ceiling on
+     long missions.
 
 **Blocked by:** nothing — the crash is fixed; the work is now the trap list.
 
