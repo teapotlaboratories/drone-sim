@@ -43,6 +43,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+# Imported, not re-declared: two copies of "which number means stale" is exactly the kind of
+# drift that makes a void look like a pass.
+_ekf_spec = importlib.util.spec_from_file_location(
+    "check_ekf_origin", REPO / "scripts" / "check_ekf_origin.py")
+_ekf = importlib.util.module_from_spec(_ekf_spec)
+_ekf_spec.loader.exec_module(_ekf)
+ORIGIN_STALE = _ekf.VOID_STALE
+ORIGIN_UNKNOWN = _ekf.VOID_UNKNOWN
+
 _spec = importlib.util.spec_from_file_location("run_scenario", REPO / "scripts" / "run_scenario.py")
 rs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(rs)
@@ -86,32 +95,74 @@ def check_run(result: dict, scenario: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def _origin_void_reason() -> str:
-    """Empty string if the EKF origin is sane; otherwise why this run is VOID.
+# How long to keep waiting for the EKF to establish an origin after a stack restart, and
+# how often to re-ask. restart_stack() waits for CONTAINER HEALTH, which is not the same
+# event -- PX4 can be up and healthy with ref_alt still NaN for several seconds.
+ORIGIN_WAIT_S = 90
+ORIGIN_POLL_S = 3
 
-    Shells out to check_ekf_origin.py so there is exactly one implementation of the rule and
-    one place it can be wrong. A checker failure (missing script, unexpected crash) is itself
-    treated as void rather than as OK -- an unverifiable stack must never read as verified.
+
+def _run_origin_check() -> int:
+    """Run check_ekf_origin.py inside the ros2 service. Returns its exit code.
+
+    MUST run in the container, not here: `ros2` does not exist on the gate host, so running
+    the checker locally would make EVERY run void and the gate could never pass again -- a
+    check that fails closed on its own plumbing disables a gate as surely as one that fails
+    open. Piped over stdin rather than assuming the repo is mounted at a known path.
+
+    Returns -1 for "could not even run the checker", which the caller treats as void.
     """
     checker = REPO / "scripts" / "check_ekf_origin.py"
     if not checker.is_file():
-        return f"EKF-origin checker missing at {checker}; treating the run as VOID"
-    # MUST run inside the ros2 service, not here. `ros2` does not exist on the host, so
-    # running the checker locally makes EVERY run void and the gate can never pass again --
-    # a check that fails closed on its own plumbing is as useless as one that fails open.
-    # Piped over stdin rather than assuming the repo is mounted at a known path in the
-    # container; `python3 -` still parses the args that follow.
+        return -1
     try:
         p = subprocess.run(
             rs.COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
                           ". /opt/ros/jazzy/setup.bash && python3 - --quiet"],
             input=checker.read_text(), capture_output=True, text=True, timeout=120)
-    except Exception as exc:
-        return f"EKF-origin check could not run ({exc}); treating the run as VOID"
-    if p.returncode == 0:
-        return ""
-    return (f"EKF origin not verified (exit {p.returncode}); "
-            f"see C-10. This run is VOID, not a failure.")
+    except Exception:
+        return -1
+    return p.returncode
+
+
+def _origin_void_reason() -> str:
+    """Empty string if the EKF origin is sane; otherwise why this run is VOID.
+
+    WAITS for an origin before judging, which the first version did not.
+
+    `restart_stack()` returns once containers report healthy, and PX4 publishes `ref_alt` as
+    NaN until its EKF has actually established an origin. Checking immediately therefore
+    races the estimator: the checker correctly reports VOID_UNKNOWN, the seed is voided, and
+    because ANY void blocks the criterion, one slow start turns the whole gate INCONCLUSIVE.
+    A 10-seed run passed 10/10 with zero voids before this wait existed -- by timing
+    coincidence, not by construction, and it would flake on a slower box or a heavier
+    scenario. `lane_c_up.sh` already got this right with `wait_for_fmu`.
+
+    The two void codes are treated DIFFERENTLY, which is the whole reason they are distinct:
+
+      VOID_UNKNOWN (3)  no origin yet -> KEEP WAITING. Transient by definition.
+      VOID_STALE   (2)  origin exists and disagrees with GPS -> VOID IMMEDIATELY. Waiting
+                        cannot help; an EKF origin is set once, so it will never re-settle.
+    """
+    deadline = time.time() + ORIGIN_WAIT_S
+    last = None
+    while True:
+        rc = _run_origin_check()
+        if rc == 0:
+            return ""
+        last = rc
+        if rc == ORIGIN_STALE:
+            return ("EKF origin is STALE -- it disagrees with GPS, and an EKF origin is set "
+                    "once, so waiting cannot fix it. Restart PX4 after the sim has settled "
+                    "(scripts/lane_c_up.sh does this). This run is VOID, not a failure.")
+        if time.time() >= deadline:
+            break
+        time.sleep(ORIGIN_POLL_S)
+    if last == -1:
+        return ("EKF-origin check could not run at all; an unverifiable stack must never "
+                "read as verified. This run is VOID, not a failure.")
+    return (f"no EKF origin appeared within {ORIGIN_WAIT_S}s of the stack reporting healthy "
+            f"(last exit {last}). This run is VOID, not a failure.")
 
 
 def score(runs: list[dict], reuse: bool) -> dict:

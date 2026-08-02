@@ -594,12 +594,24 @@ lane_c:
       inside the image with the engine lib path they resolve to ZERO. Checked, not assumed.
       Blocks.uproject declares EngineAssociation 5.8, an exact match - no convert-in-place
       prompt, unlike the 5.5 tag which declared 5.4 and is a documented failure point.
-    what_is_STILL_unproven: >-
-      THE SIMULATOR HAS NEVER RUN. No rendering, no PX4 over the MAVLink SITL API, no
-      /fmu/* topics, no parity diff against Lane A, no frames measured, no lockstep
-      verified - and the CARLA instance still holds 0.0.0.0:41451, the port C-03 needs.
+    what_LOCKED_meant_when_set: >-
       LOCKED here means THE PIN IS PROVEN BUILDABLE, which is what a version pin must show.
-      It does not mean the lane works. Compiling is not running.
+      It does not by itself mean the lane works: compiling is not running. When this entry
+      was locked (C-02) the simulator had never run at all.
+    since_then: >-
+      C-03, C-09, C-10 and C-04 have run it. Superseded on 2026-08-01/02: the simulator
+      renders, PX4 links over the MAVLink SITL API, /fmu/* parity against Lane A is proved
+      by diff (51 topics, 24 /fmu/out, identical), the unmodified Lane A controller flies
+      4/4 waypoints, and the perception graph publishes 19 topics at 31 Hz RGB/depth,
+      17 Hz GPU-LiDAR and 311 Hz distinct IMU. The CARLA instance that held 0.0.0.0:41451
+      is also gone - the port is free and C-03 used it.
+    STILL_unproven: >-
+      Lockstep is CONFIRMED DEAD CODE, so no Lane C timing number is deterministic - never
+      quote a Lane C RTF or latency as such. Frames are NWU, not ENU, and nothing converts
+      them yet. The IMU is a polled snapshot with ~15% duplicate timestamps even at a
+      correct poll rate. And the simulator SEGFAULTS after ~57 minutes of continuous running
+      ("Array index out of bounds: 18823 into an array of size 0"), which is uncharacterised
+      and is a real ceiling on long missions.
 
     the_conflict_this_resolves: >-
       UE5.5 AND ROS 2 JAZZY COULD NOT BE HAD FROM ONE UPSTREAM TAG. Researched 2026-07-31

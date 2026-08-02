@@ -44,6 +44,51 @@ SECS = float(sys.argv[1]) if len(sys.argv) > 1 else 15.0
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
 
+# Anything at or beyond this reads as "no return" rather than a measured distance. AirSim's
+# depth cameras report a huge finite value for sky/void rather than inf or NaN -- observed
+# 16312.0 m in the Blocks environment.
+DEPTH_NO_RETURN_M = 1000.0
+# At least this fraction of finite samples must be a BOUNDED distance for the frame to have
+# seen geometry. Deliberately low: a camera legitimately pointed mostly at sky should still
+# pass, but an all-sentinel frame must not.
+DEPTH_MIN_BOUNDED_FRAC = 0.01
+
+
+def depth_is_usable(values: list[float]) -> tuple[bool, str]:
+    """Pure decision: does this depth sample contain real geometry?
+
+    WHY THIS IS NOT `max(v) > 0.5`. That was the first version, and it CANNOT FAIL the way
+    it claims to: a frame where every pixel is the 16312 m no-return sentinel satisfies both
+    "some positive value" and "max above half a metre", so a broken depth capture returning
+    all-sentinel -- or a camera staring at empty sky -- read as healthy. That is precisely
+    the "topics exist so it must work" error this whole script exists to avoid, reproduced
+    one level down.
+
+    A usable depth frame needs BOUNDED returns, not merely positive ones.
+    """
+    finite = [v for v in values if math.isfinite(v)]
+    if not finite:
+        return False, f"0 finite values of {len(values)} sampled - unusable"
+    bounded = [v for v in finite if 0.0 < v < DEPTH_NO_RETURN_M]
+    frac = len(bounded) / len(finite)
+    if not bounded:
+        # Distinguish the two ways this happens, because they mean different things: a
+        # sentinel-filled frame is a camera seeing nothing, whereas a zero/negative-filled
+        # frame is a broken capture. Reporting "all >= 1000 m" for a frame of zeros would be
+        # a false statement in the very message meant to explain the failure.
+        sentinel = sum(1 for v in finite if v >= DEPTH_NO_RETURN_M)
+        nonpos = sum(1 for v in finite if v <= 0.0)
+        return False, (f"{len(finite)} finite samples, none usable: {sentinel} at/above the "
+                       f"{DEPTH_NO_RETURN_M:g} m no-return sentinel, {nonpos} non-positive "
+                       f"- the frame contains no measurable geometry")
+    if frac < DEPTH_MIN_BOUNDED_FRAC:
+        return False, (f"only {len(bounded)}/{len(finite)} ({100*frac:.2f}%) samples are "
+                       f"bounded distances - below the {100*DEPTH_MIN_BOUNDED_FRAC:g}% floor")
+    return True, (f"{len(bounded)}/{len(finite)} ({100*frac:.0f}%) bounded, "
+                  f"range {min(bounded):.2f}..{max(bounded):.2f} m "
+                  f"(>= {DEPTH_NO_RETURN_M:g} m treated as no-return)")
+
+
 def best_effort(depth=50):
     q = QoSProfile(depth=depth)
     q.reliability = ReliabilityPolicy.BEST_EFFORT
@@ -133,15 +178,10 @@ def main():
             step = max(1, n_px // 2000)
             for i in range(0, n_px, step):
                 vals.append(struct.unpack_from("<f", raw, i * 4)[0])
-        finite = [v for v in vals if math.isfinite(v)]
-        pos = [v for v in finite if v > 0]
         check("Depth image", True, d.width > 0 and len(d.data) > 0,
               f"{d.width}x{d.height} {d.encoding}, {rate(dep):.1f} Hz")
-        check("Depth carries usable metric values", True,
-              len(pos) > 0 and max(pos, default=0) > 0.5,
-              (f"{len(finite)}/{len(vals)} finite, {len(pos)} positive, "
-               f"range {min(pos):.2f}..{max(pos):.2f} m" if pos else
-               "NO positive finite depths - unusable for obstacle avoidance"))
+        ok_d, why_d = depth_is_usable(vals)
+        check("Depth contains measurable geometry", True, ok_d, why_d)
     else:
         check("Depth image", True, False, "no messages")
 
