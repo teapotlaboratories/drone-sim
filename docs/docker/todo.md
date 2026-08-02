@@ -835,3 +835,22 @@ known local-config warning, and propagate command failures.
 **Verification.** Forty-eight off-target tests pass, including both CLI orders, success
 output filtering, provider failure propagation, and quiet idempotent Screen cleanup. A
 fresh image must prove the terminal provider log contains only the actionable stop result.
+
+### D-08c — Remove the runtime API/preflight port self-conflict
+
+**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+
+**What.** Run the loopback port preflight before starting the repository-owned runtime API
+on TCP `8080`, then start the API only after every preflight check passes.
+
+**Why.** Retained evidence from Fern Pod `1e86xizphmyrtp` recorded exit code `2` within
+0.28 seconds. Every check passed except TCP `8080`, which was occupied by the runner's own
+runtime API because it started before the availability check. No QGC or smoke log existed.
+
+**Acceptance.** An off-target contract test enforces preflight-before-runtime-API ordering.
+A rebuilt immutable image must pass preflight on a fresh Fern GPU Pod and proceed to the
+next runtime gate; the resulting `/workspace` evidence remains the authority.
+
+**Verification.** Forty-eight off-target tests pass. The runner contract now requires the
+preflight invocation to precede runtime API startup, which must itself precede the running
+status transition.

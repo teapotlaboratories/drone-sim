@@ -160,6 +160,11 @@ def test_runner_files_keep_control_ports_local():
     assert "rest.runpod.io" not in stop_helper
     assert "screen -S px4sitl -X quit >/dev/null 2>&1 || true" in runner
     assert "screen -S px4sitl -X quit >/dev/null 2>&1 || true" in smoke
+    preflight_position = runner.index('python3 "$RUNTIME_LIB/preflight.py"')
+    api_position = runner.index('python3 "$RUNTIME_LIB/runtime_api.py"')
+    running_position = runner.index("status --state running")
+    assert preflight_position < api_position < running_position
+
 
 
 @pytest.mark.parametrize(

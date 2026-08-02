@@ -91,6 +91,38 @@ This provider tail verifies lifecycle cleanup, not the flight result. The persis
 `/workspace/runs/<run-id>/` status and logs still require inspection before claiming that
 the smoke passed.
 
+### Retained evidence — deterministic preflight self-conflict
+
+The clean-log image at commit `e29bc6b` rebuilt successfully in workflow `30751308051`
+and published digest
+`sha256:c87cfb0fd0bb02eb3e8c596ad258e36d381b9729e10cd51aee4b4257ddf98854`.
+Fern Pod `1e86xizphmyrtp` pulled that exact digest and failed closed in preflight. To avoid
+guessing from the provider tail, the stopped Pod was temporarily updated to Runpod's
+documented SSH-capable diagnostic image. Runpod preserved the 20 GB `/workspace` volume,
+and Fern stopped the diagnostic container after evidence retrieval.
+
+The authoritative status was `failed`, exit code `2`, message `preflight failed`. The run
+started at `14:37:16.547848Z` and finished at `14:37:16.831373Z`. CPU, memory, workspace,
+shared-memory UDP fallback, required executables, GPU inventory, and every other declared
+port passed. Only this listener failed:
+
+```text
+tcp:8080  [Errno 98] Address already in use
+```
+
+No `qgc.log`, `smoke.log`, or metrics existed, proving PX4/Gazebo/XRCE/QGC never started.
+The runner itself created the conflict: it started `runtime_api.py` on loopback TCP 8080,
+then asked preflight to prove TCP 8080 was unused. D-08c moves runtime API startup into the
+successful preflight branch. A static ordering regression requires:
+
+```text
+preflight invocation < runtime API startup < running status
+```
+
+This fixes the deterministic self-conflict but does not claim the five-minute smoke; the
+next immutable Fern run remains the authority.
+
+
 ## Implemented topology
 
 ```text

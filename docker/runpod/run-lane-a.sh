@@ -54,10 +54,6 @@ trap interrupted INT TERM
 trap failed ERR
 
 python3 "$RUNTIME_LIB/artifacts.py" init --run-dir "$RUN_DIR" --duration "$DURATION"
-python3 "$RUNTIME_LIB/runtime_api.py" --run-dir "$RUN_DIR" \
-  > "$RUN_DIR/logs/runtime-api.log" 2>&1 &
-api_pid=$!
-
 status --state preflight
 if ! python3 "$RUNTIME_LIB/preflight.py" \
   --workspace "$FERN_WORKSPACE" \
@@ -66,6 +62,9 @@ if ! python3 "$RUNTIME_LIB/preflight.py" \
   runner_status=2
   status --state failed --exit-code "$runner_status" --message "preflight failed"
 else
+  python3 "$RUNTIME_LIB/runtime_api.py" --run-dir "$RUN_DIR" \
+    > "$RUN_DIR/logs/runtime-api.log" 2>&1 &
+  api_pid=$!
   status --state running
   export OUTDIR="$RUN_DIR"
   echo "runner: starting full Drone Sim stack with pinned QGroundControl datalink"
