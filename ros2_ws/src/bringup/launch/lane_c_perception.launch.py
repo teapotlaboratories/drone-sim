@@ -51,6 +51,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -68,6 +69,43 @@ def generate_launch_description() -> LaunchDescription:
             description="Safe to enable here because this file guarantees a /clock publisher. "
                         "Left false by default so a dead stack fails visibly, not silently."),
         DeclareLaunchArgument("vehicle_name", default_value="PX4"),
+
+        # --- SENSOR RATES: these are NOT tuning knobs, they are bug workarounds ---------
+        #
+        # airsim_ros_wrapper.cpp reads all five timer periods like this:
+        #
+        #     double update_airsim_img_response_every_n_sec;          // UNINITIALIZED
+        #     nh_->get_parameter("update_airsim_img_response_every_n_sec", ...);
+        #     create_wall_timer(duration<double>(that_variable), ...);
+        #
+        # `get_parameter` returns FALSE for an undeclared parameter and leaves the value
+        # UNCHANGED, and airsim_node only auto-declares parameters that are passed as
+        # overrides. So if we do not pass these, the timer period is uninitialized stack
+        # memory -- undefined behaviour, and observably arbitrary: measured 1.1 Hz imagery
+        # and 1.6 Hz LiDAR, while a 1328 Hz state timer polled a 333 Hz IMU and produced
+        # 77% duplicate samples.
+        #
+        # Passing them makes them real parameters. Same defect class as `publish_clock`
+        # above, but worse: that one at least had a sane initializer.
+        DeclareLaunchArgument(
+            "update_airsim_control_every_n_sec", default_value="0.003",
+            description="State/odom/IMU poll period. 0.003 = 333 Hz, matching the measured "
+                        "native IMU rate so samples are neither duplicated nor dropped."),
+        DeclareLaunchArgument(
+            "update_airsim_img_response_every_n_sec", default_value="0.05",
+            description="Image poll period. 0.05 = 20 Hz; the measured RPC ceiling for "
+                        "Scene+Depth at 640x480 is ~21.7 Hz, so this sits just under it."),
+        DeclareLaunchArgument(
+            "update_lidar_every_n_sec", default_value="0.1",
+            description="CPU LiDAR poll period, 10 Hz."),
+        DeclareLaunchArgument(
+            "update_gpulidar_every_n_sec", default_value="0.1",
+            description="GPU LiDAR poll period. 10 Hz matches RotationsPerSecond in "
+                        "sim/ue5/settings.json - polling faster only re-reads a frame."),
+        DeclareLaunchArgument(
+            "update_echo_every_n_sec", default_value="0.1",
+            description="No echo sensor is configured, but the period is read the same "
+                        "uninitialized way, so pass it regardless."),
     ]
 
     airsim_node = Node(
@@ -77,8 +115,24 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[{
             "host_ip": LaunchConfiguration("host_ip"),
-            "publish_clock": LaunchConfiguration("publish_clock"),
-            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "publish_clock": ParameterValue(LaunchConfiguration("publish_clock"), value_type=bool),
+            "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
+            # Every one of these MUST be passed - see the DeclareLaunchArgument comments.
+            # value_type=float is NOT decoration. A bare LaunchConfiguration arrives as a
+            # STRING parameter, and the wrapper reads these with get_parameter(name, double&),
+            # which fails on a type mismatch exactly as it fails on an undeclared name --
+            # leaving the same uninitialized double. The workaround would look applied and
+            # change nothing.
+            "update_airsim_control_every_n_sec": ParameterValue(
+                LaunchConfiguration("update_airsim_control_every_n_sec"), value_type=float),
+            "update_airsim_img_response_every_n_sec": ParameterValue(
+                LaunchConfiguration("update_airsim_img_response_every_n_sec"), value_type=float),
+            "update_lidar_every_n_sec": ParameterValue(
+                LaunchConfiguration("update_lidar_every_n_sec"), value_type=float),
+            "update_gpulidar_every_n_sec": ParameterValue(
+                LaunchConfiguration("update_gpulidar_every_n_sec"), value_type=float),
+            "update_echo_every_n_sec": ParameterValue(
+                LaunchConfiguration("update_echo_every_n_sec"), value_type=float),
         }],
         # THE LOAD-BEARING LINE. Without it the clock lands on /airsim_node/clock, where
         # nothing looks for it, and every use_sim_time consumer freezes at zero.
