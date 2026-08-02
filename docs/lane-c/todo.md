@@ -96,10 +96,11 @@ separate question, and it changed:
 | 4 | `C-03` PX4 ↔ Cosys-AirSim + `/fmu/*` parity | Where the sim-to-real claim is proved or lost. |
 | 5 | ~~**`C-09`** Make Lane C actually fly~~ ✅ | **Done 2026-08-01 — 4/4 waypoints.** |
 | 6 | **`C-10`** Deterministic EKF-origin ordering | `C-09`'s fix is a manual restart. Until the bring-up enforces it, Lane C flies by luck of container start order. |
-| 7 | `C-04` Sensors into the ROS 2 graph | What Lane B was for. |
-| 8 | `C-07` Lane C flight gate | Lane C earns its own success rate. |
-| 9 | `C-05` Isaac ROS perception on Lane C imagery | Phase 2 proper begins. |
-| 10 | `C-08` Scenes, Cesium, actors | Mostly Phase 4; scoped here so it is not smuggled in early. |
+| 7 | ~~`C-04` Sensors into the ROS 2 graph~~ ✅ | **Done 2026-08-02** — RGB/depth/LiDAR/GPS/IMU published and verified by value. |
+| 8 | **`C-11`** Photorealistic scene + dynamic actors | **Re-prioritised 2026-08-02 by the owner.** The reason scene work was last — *"scene work on an unproven simulator"* — no longer holds: the simulator flies and its sensors are verified. |
+| 9 | `C-07` Lane C flight gate | Lane C earns its own success rate. Wants a real scene to be worth gating. |
+| 10 | `C-05` Isaac ROS perception on Lane C imagery | **Deprioritised 2026-08-02.** Not abandoned — the imagery is ready for it whenever it comes back. |
+| 11 | `C-08` Cesium georeferenced terrain | Still Phase 4. Split from the scene/actor work below, because georeferencing is benchmark reproduction, not photorealism. |
 
 **Why `C-06` moved to the front.** The stay-on-Jazzy decision rests entirely on the
 Cosys-AirSim ROS 2 wrapper building against Jazzy, and the wrapper is *an ordinary colcon
@@ -689,8 +690,25 @@ per-seed wait is exactly the kind of change that quietly triples a gate.
 
 ## C-04 — Camera/depth/LiDAR into the existing ROS 2 graph
 
-**Status:** 🟡 **in progress 2026-08-01 — wrapper now RUNS and publishes 14 topics.** The
-first-publish crash was an upstream data race; root-caused and fixed (below). `C-03` unblocked it.
+**Status:** ✅ **`done` (2026-08-02)** — **sensor data is properly published to ROS 2, verified
+by value.** Closed on the owner's criterion: the acceptance is that the modalities reach the
+ROS 2 graph usably, which they do.
+
+```
+RGB     31.2 Hz  640x480 rgb8     Depth   29.6 Hz  32FC1, metric, real geometry
+LiDAR   17.4 Hz  8192 points      IMU    366 Hz published / 311 Hz distinct
+GPS / magnetometer / odometry  365 Hz    camera_info resolves in TF    /clock advancing
+```
+
+Verified with `scripts/verify_lane_c_sensors.py`, which asserts **values** rather than topic
+presence — IMU reads 9.807 m/s² at rest, depth contains bounded returns, LiDAR points are not
+all at the origin, RGB is not a blank frame.
+
+**Carried forward rather than blocking** (all recorded in
+[`../vendor/cosys-airsim.md`](../vendor/cosys-airsim.md)): the IMU is a polled snapshot with
+~15% duplicate timestamps; frames are NWU with a tested conversion in `control/frames.py` that
+nothing calls yet; and the unexplained 7.342° yaw residual. None of these stop the data being
+published and usable — they are `C-05`'s problem, and `C-05` is deprioritised.
 
 ### Where it actually stands
 
@@ -932,7 +950,17 @@ fit a budget by quietly weakening the gate** (`P1-06`).
 
 ## C-05 — Isaac ROS perception on Lane C imagery
 
-**Status:** `todo` · **Blocked by:** `C-04`
+**Status:** ⏸️ **deprioritised 2026-08-02 by the owner** in favour of `C-11` (photorealistic
+scene + dynamic actors). **Unblocked, not abandoned** — `C-04` is done and the imagery is ready
+whenever this resumes.
+
+**What it will inherit when it does**, so the next person does not rediscover it: cuVSLAM
+preintegrates IMU between frames and wants a dense, evenly-spaced stream, and Lane C's IMU
+carries ~15% duplicate timestamps by upstream design. Starting **visual-only** and adding
+inertial afterwards is the lower-risk order. Frames are also NWU, and `control/frames.py` has a
+tested conversion that nothing calls yet.
+
+**Originally:** `todo` · **Blocked by:** `C-04`
 
 **What.** Run `isaac_ros_visual_slam` (cuVSLAM) and `isaac_ros_nvblox` against Lane C
 camera/depth topics.
@@ -950,13 +978,109 @@ would put the perception stack on the wrong side of the split.
 
 ---
 
-## C-08 — Scenes, Cesium, and dynamic actors
+## C-11 — A photorealistic scene with dynamic actors
 
-**Status:** `todo` · **Blocked by:** `C-03` · **Mostly Phase 4 — scoped here so it is not started early**
+**Status:** 🔴 **open — the current focus.** Filed 2026-08-02 on the owner's re-prioritisation,
+split out of `C-08` so that georeferencing (Phase 4) does not have to come along with
+photorealism (needed now).
 
-**What.** Cesium for Unreal georeferenced terrain, OSM/StreetMap as the low-altitude
-alternative, UE5 MassAI / City Sample crowds and traffic, wind via the AirSim API, and
-time-of-day/weather.
+**Why now, and why this is not jumping the plan.** `C-08` was deliberately last because
+*"building Cesium terrain before the stack flies would be scene work on an unproven simulator."*
+That precondition is now satisfied: Lane C flies 4/4, and `C-04` verified the sensors publish
+usable data. The reason to wait has expired; the reason to split has not.
+
+**What.** Replace the grey `Blocks` test level with a photorealistic environment, and populate
+it with dynamic actors — moving humans, vehicles or equivalent — such that the drone flies
+through a scene that looks and behaves like somewhere real.
+
+### What upstream already gives us, which changes the shape of this task
+
+Cosys-AirSim ships **`Unreal/Environments/DynamicObjects`** (19 MB). It is **a library, not a
+scene** — the docs say to copy its C++ into your environment's `Source/` and its uassets into
+`Content/`. It provides:
+
+- **AI humans walking between waypoints** (`GroupedAI` — characters, animations, controller)
+- Spline-animated objects, conveyor belts, robotic arms
+- Randomised spawning of goods/static objects, and random door states
+- **Marked dynamic objects** — tag an actor `DynamicObject` and it can be randomly removed or
+  nudged, with configurable percentages and offsets
+
+**The part that matters most for this project: all of it is SEED-CONTROLLED**, and exposed as
+launch parameters on the simulator command line:
+
+```
+-startSeed INT     deterministic randomisation; 0 or unset = random
+-spawnAI BOOL      AI on/off              -isStatic BOOL   freeze all dynamics
+-startPoint INT    choose among Target Point actors placed in the level
+```
+
+That lines up directly with the machinery this project already has. `run_gate.py` scores
+independent **seeded** runs and `run_scenario.py` builds a per-seed variant; a scene whose
+actors are seeded from the same number makes *"the same scenario twice"* mean something it
+currently does not. `-startPoint` also overlaps with the spawn-pose variation the scenario
+runner does today — worth reconciling rather than having two mechanisms.
+
+### The two halves, and only one is solved
+
+| | |
+|---|---|
+| **Actors / dynamics** | Largely shipped. Integration work: copy the library in, place a `DynamicWorldMaster`, wire `-startSeed` through `lane_c_up.sh`. |
+| **Photorealism** | **Not solved and not shipped.** `Blocks` is untextured grey boxes. A photorealistic environment has to be sourced, and that is the open decision below. |
+
+### Open decision — where the photoreal environment comes from
+
+Not yet researched, and it should be settled before any asset is downloaded, because the
+choices differ in licence, disk cost and whether they even run headless:
+
+- UE5 sample projects (City Sample and similar) — large, and City Sample's building generator
+  needs a SideFX licence (already recorded under `C-08`)
+- Fab / Marketplace environments — licence terms vary per asset
+- Megascans / photogrammetry meshes
+- OSM + PCG procedural generation, which `04` names as the low-altitude alternative
+
+### Acceptance
+
+1. The drone flies its mission in a photorealistic scene, **not** `Blocks`.
+2. Dynamic actors are present and moving, and the drone's cameras see them.
+3. `scripts/verify_lane_c_sensors.py` still passes — same modalities, and **rates that have
+   not collapsed**.
+4. The same `-startSeed` twice produces the same actor layout; a different seed produces a
+   different one. Demonstrated, not assumed.
+
+### Traps
+
+- **Rendering cost is the headline risk.** `Blocks` is nearly free to render. `C-04` fought
+  hard to get 31 Hz RGB and 29.6 Hz depth, and those numbers were measured on grey boxes. A
+  photoreal scene plus crowds shares one GPU with the renderer. **Re-measure the sensor rates
+  after the swap — do not assume they carry over.**
+- **The 57-minute segfault** (`Array index out of bounds: 18823 into an array of size 0`) is
+  uncharacterised and matters more here: scene work means long sessions, and more actors means
+  more of whatever array that was.
+- **Shader compilation and the DDC.** First launch of `Blocks` cost ~3 minutes of shader
+  compilation; a photoreal scene will cost far more. The `lane-c-ddc` volume already exists to
+  survive container recreation — make sure the new content lands in it.
+- **Disk.** 211 GB free on the internal NVMe, and `D-04`'s watch item is ~100 GB. A large
+  environment plus its DDC could move that materially.
+- **Segmentation IDs.** `simSetSegmentationObjectID` and `simAddDetectionFilterMeshName` give
+  ground-truth labels per actor — worth setting up *while* placing actors rather than
+  retrofitting, since `C-05` and the VLM work both want them.
+- **`DynamicObjects` is copied into the environment, not referenced.** That is upstream's own
+  instruction, and it means the copy is a deviation to record in
+  [`../vendor/cosys-airsim.md`](../vendor/cosys-airsim.md) like the patches.
+
+**Blocks:** `C-07` — a flight gate is worth more against a real scene than against grey boxes.
+
+---
+
+## C-08 — Cesium georeferenced terrain
+
+**Status:** `todo` · **Still Phase 4** · **Rescoped 2026-08-02** — the photoreal-scene and
+dynamic-actor work moved to `C-11`, which is the near-term need. What stays here is
+georeferencing, which is benchmark reproduction rather than photorealism.
+
+**What.** Cesium for Unreal georeferenced terrain and OSM/StreetMap as the low-altitude
+alternative. Wind, time-of-day and weather are available over the AirSim RPC
+(`simSetWind`, `simSetTimeOfDay`, `simEnableWeather`) and may be picked up by either task.
 
 **Why it is deliberately last.** `04`'s Phase 2 bundles this with bring-up, but the project
 splits it: **cluttered scenes for obstacle avoidance are project Phase 2** (`C-05` feeds
