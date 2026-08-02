@@ -47,6 +47,7 @@ COPY tests/lane-a-smoke.sh /usr/local/bin/drone-sim-lane-a-smoke
 COPY docker/runpod/artifacts.py /usr/local/lib/drone-sim/artifacts.py
 COPY docker/runpod/preflight.py /usr/local/lib/drone-sim/preflight.py
 COPY docker/runpod/runtime_api.py /usr/local/lib/drone-sim/runtime_api.py
+COPY docker/runpod/px4_log_gate.py /usr/local/lib/drone-sim/px4_log_gate.py
 COPY docker/runpod/run-lane-a.sh /usr/local/bin/run-lane-a
 COPY docker/runpod/request-stop.sh /usr/local/bin/request-runpod-stop
 COPY docker/qgc-entrypoint.sh /usr/local/bin/qgc-entrypoint.sh

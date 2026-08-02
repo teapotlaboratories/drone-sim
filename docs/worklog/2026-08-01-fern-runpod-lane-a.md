@@ -185,7 +185,40 @@ The retained PX4 log again contains eight `vehicle_command_ack lost` lines assoc
 with QGC startup. Their effect on the strict zero-error gate remains visible and will be
 evaluated once the recorder can return control to metrics generation.
 
+### Live lifecycle proof — D-08f completes and self-stops
 
+Workflow `30758323454` built commit `0b9778560ad23f3196e90ec66bf7c30548f2730c`
+successfully in 19m58s and published
+`ghcr.io/teapotlaboratories/drone-sim@sha256:da3c0e9bcafa8b047e2e27fb39670b3f21567cf57be2781cf4fb03311cf6fa41`.
+Fern selected an NVIDIA L4 for Pod `7ddp5ya9ooqrb0` at $0.39/hour. A deliberately shorter
+60-second lifecycle probe passed preflight, booted PX4 in about 12 seconds, discovered 24
+topics, moved telemetry at 99.815 Hz, sampled aggregate RTF 1.0000, retained a 4,475,754-byte
+MCAP plus metadata, and kept QGC alive.
+
+The recorder did not finish within the 15-second INT grace, but TERM made it pause, flush
+its cache, report `Recording stopped`, and exit cleanly. The runner then wrote terminal
+`succeeded` status with exit code zero and self-stopped the Pod. This directly verifies
+that D-08f returns control to parsing and finalization instead of restarting or billing
+indefinitely.
+
+Artifact inspection found a separate measurement defect: `metrics.json` reported
+`px4_error_count: 0`, while the raw PX4 log contained four colored
+`ERROR [mavlink] vehicle_command_ack lost, generation N -> N` lines during QGC startup.
+ANSI control bytes split the old grep token. Stripping ANSI exposed all four; they appeared
+before `Ready for takeoff`, while telemetry, RTF, sensors, ROS discovery, MCAP, and QGC
+liveness remained healthy.
+
+### D-08g — transparent ANSI-safe PX4 gate
+
+The gate now normalizes ANSI once, records a plain log and every PX4 error line, and emits
+three separate metrics: total PX4 errors, exact QGC ACK-loss compatibility lines, and
+actionable errors. Only the fully anchored numeric
+`vehicle_command_ack lost, generation N -> N` signature is classified; unknown fields,
+suffixes, other MAVLink errors, and errors from every other PX4 module remain actionable.
+
+Fourteen focused runtime tests pass, including colored input and two near matches that must
+fail closed. Python compilation and smoke-script parsing pass. A fresh immutable build and
+the required 300-second Fern acceptance run remain pending.
 
 ## Implemented topology
 

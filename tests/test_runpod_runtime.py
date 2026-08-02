@@ -30,6 +30,41 @@ import sys
 
 sys.modules["artifacts"] = artifacts
 preflight = load("preflight")
+px4_log_gate = load("px4_log_gate")
+
+
+def test_px4_log_gate_normalizes_ansi_and_preserves_error_accounting():
+    raw = (
+        "\x1b[31mERROR \x1b[0m[mavlink] vehicle_command_ack lost, "
+        "generation 5 -> 26\n"
+        "\x1b[31mERROR \x1b[0m[commander] real failure\n"
+        "Accel #0 fail:  TIMEOUT!\n"
+    )
+
+    plain, report = px4_log_gate.analyze(raw)
+
+    assert "\x1b" not in plain
+    assert report["sensor_timeout_count"] == 1
+    assert report["px4_total_error_count"] == 2
+    assert report["px4_qgc_ack_loss_count"] == 1
+    assert report["px4_error_count"] == 1
+    assert report["error_lines"] == [
+        "ERROR [mavlink] vehicle_command_ack lost, generation 5 -> 26",
+        "ERROR [commander] real failure",
+    ]
+
+
+def test_px4_log_gate_rejects_near_matching_qgc_ack_errors():
+    raw = (
+        "ERROR [mavlink] vehicle_command_ack lost, generation unknown -> 26\n"
+        "ERROR [mavlink] vehicle_command_ack lost, generation 5 -> 26 extra\n"
+    )
+
+    _, report = px4_log_gate.analyze(raw)
+
+    assert report["px4_total_error_count"] == 2
+    assert report["px4_qgc_ack_loss_count"] == 0
+    assert report["px4_error_count"] == 2
 
 
 def test_artifact_contract_is_atomic_and_excludes_secrets(tmp_path, monkeypatch):
@@ -141,6 +176,10 @@ def test_runner_files_keep_control_ports_local():
     runner = (RUNTIME / "run-lane-a.sh").read_text()
     stop_helper = (RUNTIME / "request-stop.sh").read_text()
     smoke = (ROOT / "tests" / "lane-a-smoke.sh").read_text()
+    assert "px4_log_gate.py" in dockerfile
+    assert "px4_log_gate.py" in smoke
+    assert "\"px4_total_error_count\"" in smoke
+    assert "\"px4_qgc_ack_loss_count\"" in smoke
     assert 'ENTRYPOINT ["/usr/bin/tini", "-s", "--"]' in dockerfile
     assert "lane-a-entrypoint.sh" not in dockerfile
     assert "env -u LD_LIBRARY_PATH bash" in smoke

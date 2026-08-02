@@ -818,7 +818,7 @@ cleanup path recorded honestly.
 
 ### D-08b — Make successful Runpod cleanup logs unambiguous
 
-**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+**Status:** 🟡 **60-second live lifecycle verified; 300-second acceptance run pending (2026-08-02)**
 
 **What.** Silence the expected second GNU Screen cleanup after the smoke harness has
 already closed `px4sitl`, and filter only `runpodctl`'s missing-local-config warning while
@@ -838,7 +838,7 @@ fresh image must prove the terminal provider log contains only the actionable st
 
 ### D-08c — Remove the runtime API/preflight port self-conflict
 
-**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+**Status:** 🟡 **60-second live lifecycle verified; 300-second acceptance run pending (2026-08-02)**
 
 **What.** Run the loopback port preflight before starting the repository-owned runtime API
 on TCP `8080`, then start the API only after every preflight check passes.
@@ -903,7 +903,7 @@ full repository Tier 1 gate passes. A fresh immutable Fern run remains pending.
 
 ### D-08f — Bound MCAP recorder shutdown
 
-**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+**Status:** 🟡 **60-second live lifecycle verified; 300-second acceptance run pending (2026-08-02)**
 
 **What.** Bound `ros2 bag record` shutdown after the full sample: request a graceful INT
 flush, escalate to TERM, then KILL only if the recorder still refuses to exit.
@@ -919,6 +919,34 @@ reap the child, preserve the MCAP, and always return control to result parsing. 
 tests must enforce the finite INT/TERM/KILL sequence. A fresh Fern run must create metrics,
 terminal status, and a provider cleanup result without restart multiplication.
 
-**Verification.** Twelve focused runtime tests, shell syntax, and the full repository Tier
-1 gate pass. The recorder gets 15 seconds after INT, five seconds after TERM, then KILL
-and an unconditional reap. A fresh immutable Fern run remains pending.
+**Verification.** Fourteen focused runtime tests and shell syntax pass. Workflow
+`30758323454` published commit `0b97785` as digest `sha256:da3c0e9b…6fa41`. A
+60-second Fern probe reached terminal `succeeded` status, wrote metrics and a 4.5 MB MCAP,
+then self-stopped. The recorder completed after the bounded TERM escalation. The required
+fresh 300-second acceptance run remains pending.
+
+### D-08g — Make the PX4 error gate ANSI-safe and QGC-aware
+
+**Status:** 🟡 **off-target verified; rebuilt 300-second Fern run pending (2026-08-02)**
+
+**What.** Strip terminal control bytes before evaluating PX4 logs, count every error, and
+classify only the exact QGC-startup `vehicle_command_ack lost` signature separately from
+actionable PX4 errors. Persist both total and classified counts in metrics.
+
+**Why.** D-08f probe Pod `7ddp5ya9ooqrb0` reached `succeeded`, created metrics and a valid
+4.5 MB MCAP, and self-stopped. Metrics incorrectly claimed zero PX4 errors while the raw
+log contained four `ERROR [mavlink] vehicle_command_ack lost` lines. ANSI color sequences
+between `ERROR` and `[mavlink]` defeated the grep expression. The exact four-line startup
+fan-out occurred before `Ready for takeoff`; telemetry, QGC, ROS, RTF, and sensor gates
+remained healthy.
+
+**Acceptance.** The normalized log must expose all raw PX4 errors. Metrics must report
+total, exact QGC ACK-loss, and actionable error counts; the gate may exclude only that
+fully anchored compatibility signature and must fail on every other error. Off-target tests
+must cover colored input and reject near-matching errors. A fresh 300-second Fern run must
+finish, self-stop, and retain transparent passing metrics plus replayable MCAP evidence.
+
+**Verification.** Fourteen focused runtime tests pass. They prove ANSI normalization, exact
+QGC ACK-loss classification, transparent total/classified/actionable counts, and fail-closed
+near-match behavior. Python compilation and shell syntax pass; immutable-image verification
+is pending.
