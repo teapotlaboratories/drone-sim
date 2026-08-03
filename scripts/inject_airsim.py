@@ -46,6 +46,7 @@ import json
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -137,6 +138,9 @@ def main() -> int:
     ap.add_argument("--map", default="", help="content path of the map to load, e.g. /Game/Maps/Mine")
     ap.add_argument("--plugin", type=Path, default=BUILT_PLUGIN,
                     help="AirSim plugin folder to copy (default: the BUILT one from Blocks)")
+    ap.add_argument("--force", action="store_true",
+                    help="if the project already has Plugins/AirSim, move it aside "
+                         "to AirSim.bak.<timestamp> instead of refusing")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
@@ -179,7 +183,20 @@ def main() -> int:
     # 1. the plugin ------------------------------------------------------------------
     dest = root / "Plugins" / "AirSim"
     if dest.exists():
-        shutil.rmtree(dest)
+        # Do NOT silently delete this. Anyone who has integrated AirSim by hand already has
+        # a Plugins/AirSim, possibly with local modifications, and this is the USER's project
+        # -- the one directory this script has least business being cavalier with. The rest of
+        # the script is careful about exactly this (it refuses paths inside our repo and
+        # preserves their existing ini settings and plugin entries); an unannounced rmtree
+        # here would undo that care in one line.
+        if not a.force:
+            die(f"{dest} already exists.\n"
+                f"       Refusing to replace it — it may contain local modifications.\n"
+                f"       Re-run with --force to move it aside to AirSim.bak.<timestamp> "
+                f"and replace it.")
+        backup = dest.with_name(f"AirSim.bak.{int(time.time())}")
+        dest.rename(backup)
+        warn(f"existing plugin moved aside -> {backup.name}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(a.plugin, dest, symlinks=True)
     log(f"copied plugin -> Plugins/AirSim")
@@ -212,6 +229,11 @@ def main() -> int:
     # 4. DefaultGame.ini cook directives ----------------------------------------------
     game = root / "Config" / "DefaultGame.ini"
     ini_add_once(game, PACKAGING_SECTION, '+MapsToCook=(FilePath="/AirSim/AirSimAssets")')
+    if a.map:
+        # Blocks lists BOTH its own map and AirSim's. Latent while we run from the editor
+        # binary, but the moment someone packages a user world, an uncooked map is a build
+        # that silently ships without the level.
+        ini_add_once(game, PACKAGING_SECTION, f'+MapsToCook=(FilePath="{a.map}")')
     for d in COOK_DIRS:
         ini_add_once(game, PACKAGING_SECTION, f'+DirectoriesToAlwaysCook=(Path="/AirSim/{d}")')
     log(f"added {len(COOK_DIRS) + 1} cook directives")
