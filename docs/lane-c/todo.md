@@ -1234,7 +1234,28 @@ UE4-era settings**, the deprecated **`AtmosphericFog`** actor (UE5 replaced it w
 `SkyAtmosphere`, and the level has no `SkyAtmosphere`), or baked lighting that is present but
 version-stale for UE5.
 
-### ROOT CAUSE FOUND — it is the AirSim capture source, not the world
+### PROVED BY A SIDE-BY-SIDE: the world renders beautifully, AirSim's capture does not
+
+The decisive test was to bypass AirSim entirely and take **Unreal's own** screenshot of the same
+scene, from the same viewpoint, in the same process — triggered over RPC with
+`simRunConsoleCommand("HighResShot 1920x1080")`, which goes through UE's normal render path
+including tonemapping.
+
+```
+UE native capture : mean 172.9   std 41.4   min 28   max 255
+AirSim capture    : mean ~176-191, washed out, cyan cast, flat
+```
+
+**The native screenshot is photorealistic**: green grass with cast shadows, a turquoise lake
+with visible depth, a terracotta paved plaza and steps, trees with correct shadowing, the drone
+hovering over the water. Saved as `out/lane-c/citypark_UE_native.png`.
+
+Same scene, same frame, same GPU, same process. **The only difference is which capture path
+produced the pixels.** The environment was never the problem, and neither was the UE4 origin of
+the assets — a conclusion that took three wrong hypotheses to reach and one direct comparison to
+prove.
+
+### ROOT CAUSE — it is the AirSim capture source, not the world
 
 `Unreal/Plugins/AirSim/Source/PIPCamera.cpp:178`:
 
