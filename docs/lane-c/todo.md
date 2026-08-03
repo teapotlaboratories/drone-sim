@@ -1152,6 +1152,48 @@ per-vehicle `X`/`Y`/`Z` into `settings.json` (AirSim supports it), and work out 
 sane spawn automatically — the landscape bounds are available over RPC. Requiring users to edit
 their level to add a `PlayerStart` would defeat the point of the path.
 
+### 3. "No conversion needed" needs qualifying — it LOADS correctly, it does not RENDER correctly
+
+Frames captured from altitude show the park is really there — plaza, steps, mature trees, a
+road, a pond — but **everything is hazy and blown out** (mean pixel 156–191 where ~110–140 is
+normal exposure), with a cyan cast.
+
+**A wrong hypothesis, recorded because the measurement is the useful part.** Upstream's
+`unreal_custenv.md` step 7 warns of a "camera scene rendering bug" on UE5.3+, fixed by copying
+`DefaultScalability.ini` (`r.DetailMode=2` at every quality level). `Blocks` ships one; City
+Park did not; **`inject_airsim.py` was not copying it.** That was a genuine missing step and is
+now fixed — but it did **not** fix the washout: re-measured means came back
+156.4 / 182.9 / 176.1 / 191.1 against 156.5 / 182.8 / 175.9 / 191.0. Identical to three
+significant figures. The step is still correct to apply; it just is not this bug.
+
+**The likely actual cause, from the level's own actor list:**
+
+```
+Fog        : AtmosphericFog_1, ExponentialHeightFog_1
+Atmosphere : 0   <- no SkyAtmosphere
+Light      : 18  PostProcess: 4
+```
+
+**`AtmosphericFog` is the UE4 fog actor, deprecated in UE5 and superseded by `SkyAtmosphere`.**
+This map carries the deprecated one with no replacement, and its four `PostProcessVolume`s hold
+UE4-era settings. That is a very plausible source of a hazy, over-bright sky.
+
+**So the earlier conclusion is right but incomplete, and the distinction matters:**
+
+| claim | verdict |
+|---|---|
+| A UE4.24 project **loads and runs** in UE5.8 headless, no conversion | **true, proven** — 856 objects, AirSim up, world navigable |
+| It **renders correctly** without conversion | **false for this project** — deprecated fog, UE4 post-process |
+
+For a project whose whole point is *photorealism*, "loads" is not the bar. **An editor pass on
+Windows/macOS is worth doing after all** — not to make it load, but to let UE replace deprecated
+actors and rebuild lighting. That is a much smaller claim than "conversion is required to run",
+and it is the one supported by evidence.
+
+**Also worth saying plainly: City Park is a park, not a cityscape.** Paths, trees, playgrounds,
+benches, a pond. There are no street canyons or building interiors. Fine for low-altitude
+obstacle avoidance and visual SLAM over natural clutter; wrong if the goal is urban navigation.
+
 **Housekeeping:** the 3.5 GB zip landed in `assets/`, which was **not gitignored** — a stray
 `git add -A` would have tried to commit it. `/assets/` is ignored now, and the extracted world
 lives on the 7 TB drive under the mirrored project path per the repo's storage rule.
