@@ -1,0 +1,36 @@
+EXPERIMENTAL: capture Scene as LDR instead of HDR.
+
+PIPCamera.cpp sets CaptureSource = SCS_FinalToneCurveHDR for Scene and Lighting while every
+other image type uses SCS_FinalColorLDR. FinalToneCurveHDR returns values after the tone curve
+but before the final LDR/sRGB encode, and AirSim then packs that into an 8-bit buffer.
+
+Observed (drone-sim, 2026-08-03): AirSim's Scene capture of the City Park world looks washed
+out and low-contrast, while Unreal's own HighResShot of the same world looks correct. Six
+world-side interventions -- DefaultScalability.ini, SM5 to SM6, a UE4 to UE5 package
+conversion, and replacing the deprecated AtmosphericFog -- changed the AirSim output not at
+all, which points downstream of the world entirely.
+
+THIS PATCH IS NOT YET VALIDATED. It is the obvious candidate given the asymmetry above, but
+attempts to characterise the fault quantitatively were repeatedly confounded (different
+viewpoints, the vehicle falling between captures, FPV viewport not matching front_center,
+letterboxing), so it is being tested empirically rather than argued for.
+
+It is also a DECISION, not purely a bug fix. HDR capture is arguably right for perception work
+that wants dynamic range. What is not defensible is packing an HDR buffer into 8 bits, which
+discards the range AND mis-encodes it. If HDR is wanted, the right form is float output
+(pixels_as_float), not uint8.
+
+NOTE ON LINE ENDINGS: Cosys-AirSim sources are CRLF. This hunk was generated from the real
+file, not hand-written.
+
+--- a/Unreal/Plugins/AirSim/Source/PIPCamera.cpp
++++ b/Unreal/Plugins/AirSim/Source/PIPCamera.cpp
+@@ -175,7 +175,7 @@
+     for (unsigned int image_type = 0; image_type < imageTypeCount(); ++image_type) {
+         //use final color for all calculations
+         if(image_type == Utils::toNumeric(ImageType::Scene) || image_type == Utils::toNumeric(ImageType::Lighting)) {
+-            captures_[image_type]->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
++            captures_[image_type]->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+         }
+         else {
+             captures_[image_type]->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;

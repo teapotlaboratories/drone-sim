@@ -1281,7 +1281,40 @@ mismatch, not an exposure fault.
 - **The histogram:** `min=13 max=251`, **0% saturated**. Nothing is clipped — the range is
   simply distributed wrongly, which is a gamma signature, not an overexposure one.
 
-**The fix is one line** — use `SCS_FinalColorLDR` for `Scene` as every other image type already
+### The plan to fix it, and an honest correction to the confidence above
+
+**Written as `patches/cosys-airsim/0004-scene-capture-ldr.patch` but NOT yet validated.**
+
+| # | step | status |
+|---|---|---|
+| 1 | Characterise the fault quantitatively | **abandoned — kept getting confounded** |
+| 2 | Write the one-line patch (`SCS_FinalToneCurveHDR` → `SCS_FinalColorLDR`) | done |
+| 3 | Rebuild the plugin inside `Blocks`, re-inject, capture, compare visually | **next, ~15 min** |
+| 4 | Decide the HDR-vs-LDR policy and record it | after 3 |
+
+**Step 1 was abandoned deliberately, and that is worth recording.** Four attempts to build a
+controlled A/B each acquired a new confound: comparing different viewpoints (onboard camera vs
+chase camera); the vehicle falling between the two captures because `simSetVehiclePose` does
+not hold it; `ViewMode: Fpv` not matching `front_center`; and the native screenshot being
+letterboxed, which skews every percentile. Even with `simPause` freezing the frame to 0.000 m
+drift, correlation between the two paths was 0.35 — i.e. still not the same view.
+
+Two post-hoc corrections also failed: applying an sRGB **encode** made contrast worse
+(std 39.9 → 11.4), and a **decode** overshot (std → 57.0 against a 36.8 reference). Neither is
+evidence about the true cause, because the images being compared were not the same frame.
+
+**So the earlier claim that this is "a gamma mis-encode with a one-line fix" is not established.**
+What *is* established: AirSim's Scene capture of this world looks visibly worse than Unreal's own
+render of the same world, and six world-side interventions changed the AirSim output not at all —
+which places the fault downstream of the world. The capture-source asymmetry at `:178` is the
+obvious candidate, and building it is a cheaper way to find out than more measurement gymnastics.
+
+**It is also a decision, not purely a fix.** HDR capture is arguably right for perception work
+that wants dynamic range. What is not defensible is packing an HDR buffer into 8 bits, which
+both discards range and mis-encodes it — if HDR is wanted, the right form is float output
+(`pixels_as_float`), not `uint8`.
+
+**The one-line change** — use `SCS_FinalColorLDR` for `Scene` as every other image type already
 does. It is a vendored C++ change, so it needs a recorded patch plus a plugin rebuild, and it is
 **a decision rather than an obvious win**: HDR capture is arguably the *right* choice for some
 perception work (tone-mapped LDR discards dynamic range that HDR-aware pipelines may want).
