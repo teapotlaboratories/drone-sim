@@ -1084,8 +1084,38 @@ the user's map**, and the PX4 vehicle from *our* `settings.json` appeared in *th
   **one** `GlobalDefaultGameMode` (two would mean a later one wins silently).
 - Warns, but continues, when `EngineAssociation` is not 5.8 or when `Source/` exists (A2).
 
+### The engine-version question, answered — 2026-08-03
+
+**A project declaring an older engine opens in UE5.8 headless and unattended. No conversion
+step is required to launch it.** Measured: a project with `EngineAssociation: "5.2"`, injected
+and launched with `-game -RenderOffScreen -unattended`, loaded its map and initialised AirSim:
+
+```
+Waiting for mavlink vehicle...
+WeatherActor_C /Game/Maps/TheirMap.TheirMap:PersistentLevel.WeatherActor_C_0
+```
+
+No conversion dialog, no refusal, no prompt. This was flagged as the likely dealbreaker for
+bring-your-own-world — the concern being that UE's "this project was made with an older
+version" dialog would block automation. It does not, under `-unattended`.
+
+**What this does NOT prove, stated precisely:** the test project's assets were authored *by
+5.8*; only the version *declaration* was changed. So the `EngineAssociation` mismatch is proven
+harmless, but genuinely 5.2-era `.uasset` files loading in 5.8 is **not** proven. Those are
+different claims and the second still needs a real old project. UE reads older package versions
+by design (backward compatibility is the supported direction; *forward* is what breaks), so it
+is likely — but "likely" is not "measured".
+
+**Practical consequence:** a user downloads whatever version Fab offers and copies it across.
+An editor pass on Windows/macOS is **optional**, and worth doing only to absorb first-run shader
+compilation (the City Park seller quotes ~2.5 h) rather than because conversion is required.
+
+**The one case that still needs Windows:** a project shipping its own `Source/` C++ is A2, and
+that C++ must compile against UE5.8. `inject_airsim.py` detects this and warns rather than
+pretending it is A1.
+
 **Still to do on this thread:** test against a real downloaded Fab project rather than a
-synthetic one, and settle whether a 5.2–5.7 project converts to 5.8 headlessly.
+synthetic one — which is also what would settle the 5.2-era-assets question above.
 
 **Why not the alternative** — having the user drop a *level* into our `Blocks` project — even
 though it looks simpler: a `.umap` carries path-encoded references to its materials, meshes and
