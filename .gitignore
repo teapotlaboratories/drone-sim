@@ -62,3 +62,9 @@ secrets/
 # would be swept up by `git add -A`; a permission allow-list is a per-operator choice and
 # must not ship to anyone cloning this repo.
 .claude/settings.local.json
+
+# User-supplied Unreal worlds (C-11 bring-your-own-world). Multi-GB project zips and their
+# extracted trees. Root-anchored so it cannot swallow e.g. ros2_ws/src/*/assets.
+# NOT optional: a 3.5 GB City Park zip landed here untracked, and this repo uses `git add -A`
+# routinely — one commit would have tried to stage it.
+/assets/

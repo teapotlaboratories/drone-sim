@@ -1114,8 +1114,47 @@ compilation (the City Park seller quotes ~2.5 h) rather than because conversion 
 that C++ must compile against UE5.8. `inject_airsim.py` detects this and warns rather than
 pretending it is A1.
 
-**Still to do on this thread:** test against a real downloaded Fab project rather than a
-synthetic one — which is also what would settle the 5.2-era-assets question above.
+### Tested against a REAL Fab project — 2026-08-03. Both open threads closed.
+
+**City Park Environment Collection** (SilverTm, free on Fab, 3.5 GB zip / 4.1 GB extracted),
+downloaded on a non-Linux machine and copied across. It is **A1** — 2,364 zip entries and
+**zero C++ source files** — so the no-compile path applies.
+
+**1. The engine-version question is answered, and far more strongly than the synthetic test
+managed. City Park declares `EngineAssociation: "4.24"` — a UE4 project from 2019.** It loaded
+in UE5.8 headless with no conversion, no dialog, and no loader errors:
+
+```
+server version : 4        vehicles: ['PX4']
+scene objects  : 856      park geometry: Landscape_0, TennisBenchHISMA, Bench03HISMA, ...
+```
+
+856 objects against 32 in the synthetic test, and camera frames show real trees, foliage and a
+stone stairway. **A UE4→UE5 major-version jump loaded fine, so no Windows editor pass is needed
+for conversion.** (The earlier synthetic test only changed a version *declaration*; this loaded
+genuinely 7-year-old assets.)
+
+**2. A gap in the mechanism, and it will affect every user world: THE DRONE SPAWNED
+UNDERGROUND.** Reported `z = +8.25` in NED — positive is *down*, so 8.25 m below origin. The
+first camera frame was the underside of the terrain with light bleeding through.
+
+Cause: **the Showcase level contains no `PlayerStart` and no `TargetPoint`** — verified via
+`simListSceneObjects`. AirSim therefore spawns at world origin, and City Park's ground sits
+*above* origin. Lifting the vehicle with `simSetVehiclePose` confirmed it — the park rendered
+correctly for the moment it was above ground, then gravity pulled it back under.
+
+**This is not a City Park quirk; it is intrinsic to bring-your-own-world.** An arbitrary user
+world has no obligation to put its ground at the origin or to ship a `PlayerStart`. Spawn
+placement therefore belongs in the mechanism, not left to the world.
+
+**Next on this thread:** give `inject_airsim.py` a spawn-position option that writes the
+per-vehicle `X`/`Y`/`Z` into `settings.json` (AirSim supports it), and work out how to *find* a
+sane spawn automatically — the landscape bounds are available over RPC. Requiring users to edit
+their level to add a `PlayerStart` would defeat the point of the path.
+
+**Housekeeping:** the 3.5 GB zip landed in `assets/`, which was **not gitignored** — a stray
+`git add -A` would have tried to commit it. `/assets/` is ignored now, and the extracted world
+lives on the 7 TB drive under the mirrored project path per the repo's storage rule.
 
 **Why not the alternative** — having the user drop a *level* into our `Blocks` project — even
 though it looks simpler: a `.umap` carries path-encoded references to its materials, meshes and
