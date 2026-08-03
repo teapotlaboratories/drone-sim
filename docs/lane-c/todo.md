@@ -978,188 +978,125 @@ would put the perception stack on the wrong side of the split.
 
 ---
 
-## C-11 — A photorealistic scene with dynamic actors
+## C-11 — Load the user's own world (bring-your-own `.uproject`)
 
-**Status:** 🔴 **open — the current focus.** Filed 2026-08-02 on the owner's re-prioritisation,
-split out of `C-08` so that georeferencing (Phase 4) does not have to come along with
-photorealism (needed now).
+**Status:** 🔴 **open — the current focus.** Filed 2026-08-02; **rescoped 2026-08-03** after the
+owner corrected the goal.
 
-**Why now, and why this is not jumping the plan.** `C-08` was deliberately last because
-*"building Cesium terrain before the stack flies would be scene work on an unproven simulator."*
-That precondition is now satisfied: Lane C flies 4/4, and `C-04` verified the sensors publish
-usable data. The reason to wait has expired; the reason to split has not.
+**The goal is a MECHANISM, not a scene.** The user builds or buys a photorealistic world
+wherever they like — Fab on a Windows box, their own Unreal work, a colleague — and tells this
+simulator to load it. Picking one world for them is not the deliverable; **the pipeline that
+accepts theirs is.**
 
-**What.** Replace the grey `Blocks` test level with a photorealistic environment, and populate
-it with dynamic actors — moving humans, vehicles or equivalent — such that the drone flies
-through a scene that looks and behaves like somewhere real.
+**Corrections that produced this rescope** — the first survey answered a narrower question and
+got several constraints wrong:
 
-### What upstream already gives us, which changes the shape of this task
+- **Authenticating on a non-Linux machine is acceptable.** The "Fab needs the Epic Games
+  Launcher, which has no Linux build" finding is therefore *not* disqualifying. Users can fetch
+  on Windows/macOS and copy the project across; upstream's own docs say exactly this.
+- **Rule 6 was applied too strictly.** The project already carries a documented amendment —
+  *"from the repo alone, plus one documented credential step"* (`drone-sim-todo.md:105`). A
+  Cesium ion token or an Epic account fits that precedent. Cesium's real cost is that tiles
+  **stream at runtime** (a run needs network), not a licence conflict.
+- **The NoAI/`isAiForbidden` clause was over-read.** It targets training generative models on
+  the assets. Running SLAM, optical flow or 3D mapping over rendered frames is not that. Worth
+  a second look only before *fine-tuning* a model on rendered frames.
+- **This project is not only VLM.** It is drone simulation with a photorealistic world for 3D
+  mapping, optical flow, visual SLAM and similar. The earlier emphasis on per-object
+  segmentation reflected the narrower reading.
+- **"Fused mesh hurts perception" was overstated.** VSLAM consumes images and cannot see mesh
+  topology; optical flow likewise; for 3D mapping a fused mesh is a natural ground-truth
+  reference. Fused geometry also still has *collision* — you simply cannot move or delete an
+  individual building. It costs per-object semantic labels, and nothing else on that list.
 
-Cosys-AirSim ships **`Unreal/Environments/DynamicObjects`** (19 MB). It is **a library, not a
-scene** — the docs say to copy its C++ into your environment's `Source/` and its uassets into
-`Content/`. It provides:
+### There is no upstream world to adopt — verified
 
-- **AI humans walking between waypoints** (`GroupedAI` — characters, animations, controller)
-- Spline-animated objects, conveyor belts, robotic arms
-- Randomised spawning of goods/static objects, and random door states
-- **Marked dynamic objects** — tag an actor `DynamicObject` and it can be randomly removed or
-  nudged, with configurable percentages and offsets
+Cosys-AirSim ships **exactly one environment: `Blocks`** (1.0 GB of untextured grey boxes).
+Every upstream release from 5.2 to 5.8 publishes `Blocks_packaged_*` / `Blocks_editor_project_*`
+and **nothing else, ever**. `DynamicObjects` (19 MB) is a *library*, not a world. The classic
+Neighborhood / Landscape Mountains / Africa environments belong to Microsoft AirSim, are
+**UE4.27 cooked binaries with no `.uproject` or `Content/`**, and cannot take a UE5.8 plugin.
 
-**The part that matters most for this project: all of it is SEED-CONTROLLED**, and exposed as
-launch parameters on the simulator command line:
+### The mechanism: inject AirSim into the user's project
 
-```
--startSeed INT     deterministic randomisation; 0 or unset = random
--spawnAI BOOL      AI on/off              -isStatic BOOL   freeze all dynamics
--startPoint INT    choose among Target Point actors placed in the level
-```
+Upstream documents this manually; **all of it is text**, and one step that the docs present as
+a GUI action is avoidable:
 
-That lines up directly with the machinery this project already has. `run_gate.py` scores
-independent **seeded** runs and `run_scenario.py` builds a per-seed variant; a scene whose
-actors are seeded from the same number makes *"the same scenario twice"* mean something it
-currently does not. `-startPoint` also overlaps with the spawn-pose variation the scenario
-runner does today — worth reconciling rather than having two mechanisms.
+1. copy the prebuilt `Plugins/AirSim` folder into their project
+2. add `AirSim` + `ChaosVehiclesPlugin` to the `"Plugins"` array of their `.uproject`
+3. `Config/DefaultEngine.ini` → `GlobalDefaultGameMode=/Script/AirSim.AirSimGameMode` and
+   `GameDefaultMap=<their map>`
+4. `Config/DefaultGame.ini` → the `+DirectoriesToAlwaysCook` entries for AirSim content
 
-### The two halves, and only one is solved
+**Step 3 is the finding that makes this scriptable at all.** Upstream's step 9 says to set
+`GameMode Override` in `Window/World Settings` — a GUI operation. But `AAirSimGameMode` is a
+**plugin** class (`AIRSIM_API`, `Plugins/AirSim/Source/AirSimGameMode.h`), so it can be named
+directly in config and applied globally. `Blocks` proves the pattern works, using its own
+project class: `GlobalDefaultGameMode=/Script/Blocks.BlocksGameMode`.
 
-| | |
-|---|---|
-| **Actors / dynamics** | Largely shipped. Integration work: copy the library in, place a `DynamicWorldMaster`, wire `-startSeed` through `lane_c_up.sh`. |
-| **Photorealism** | **Not solved and not shipped.** `Blocks` is untextured grey boxes. A photorealistic environment has to be sourced, and that is the open decision below. |
+### Two tiers, and the sequencing matters
 
-### Decided 2026-08-02 — BUILD the scene from CC0 photoscans; do not download one
+| | what it is | cost |
+|---|---|---|
+| **A1** | user's project is **content/Blueprint-only** | pure text edits + a folder copy. No compile, no GUI. Most Marketplace environment projects. |
+| **A2** | user's project has its own **`Source/` C++** | UnrealBuildTool must compile *their* module against UE5.8, inheriting their engine-version assumptions. |
 
-Researched across five option families with adversarial verification of the two claims most
-likely to be wrong (UE5.8 support, licence). **The question turned out not to be *which scene
-to download* but *which scene to build*, because nothing downloadable is obtainable here.**
+**Do A1 first.** It is the common case, fully scriptable, and testable today. A2 and
+engine-version conversion carry the unknowns, and they are better discovered against a working
+A1 pipeline than treated as a prerequisite.
 
-**The blocker that eliminates every ready-made photoreal project: Fab requires the Epic Games
-Launcher.** Epic's own docs — *"For UE and UEFN products, you must download those files into
-your project from the My Library tab in the Fab integration or Epic Games Launcher"*. There is
-no Linux launcher, and the GUI OAuth login cannot exist under `-RenderOffScreen -unattended`.
-Cosys-AirSim's own `docs/unreal_custenv.md:7` says the same thing.
+**Why not the alternative** — having the user drop a *level* into our `Blocks` project — even
+though it looks simpler: a `.umap` carries path-encoded references to its materials, meshes and
+blueprints, so moving one between projects means UE's editor **Migrate** dependency walk. That
+is a GUI operation on the user's machine, and getting it wrong yields a map that loads with
+everything silently missing. It does not remove the hard part; it relocates it onto the user
+with worse tools. Note that this option is a *subset* of A — building A gets it nearly free.
 
-**The classic AirSim environments are UE4-only. Confirmed, and this was the assumption most
-likely to cost a day.** AirSimNH/Neighborhood (2.1 GB), LandscapeMountains, Africa,
-ZhangJiajie et al. are **UE4.27 cooked binaries with AirSim 1.8.1 baked in — no `.uproject`,
-no `Content/` tree.** Microsoft states why: *"make use of proprietary assets which prevents us
-from distributing the source code and project files"*. You cannot add Cosys-AirSim 5.8-v3.4.1
-to a `.pak`. (`Building_99.zip` on that release page is literally **22 bytes**.) AerialVLN's
-25 scenes are UE4 + AirSim 1.7.0 **and carry no LICENSE file at all**.
+### Actors work in the user's project. Three paths, one caveat
 
-**A licence trap this project would have walked into: `isAiForbidden`.** Several otherwise-good
-Fab environment packs (Brushify Forest, Leartes Modern City) are flagged **NoAI**, and Epic's
-Content EULA bans such content *"as inputs to Generative AI Programs"*. **This is a VLM
-navigation project — that is precisely what we would do with it.** Leartes' own Cosmos/Gumroad
-route is closed too; its AI policy bans use as *"training data or reference material for AI/ML
-systems"*. Check `isAiForbidden` before considering any asset.
+| path | needs project C++? | provides |
+|---|---|---|
+| **Plugin RPC API** | **no** — works in any project | `simSpawnObject`, `simDestroyObject`, `simSetObjectPose`, `simSetObjectScale`, `simGetObjectPose`, `simListSceneObjects` |
+| **`DynamicObjects` Blueprints** | mostly no | `GroupedAI` (human_ai, controller, spawner, target points, animations), spline animations, conveyor belts |
+| **`DynamicObjects` C++** (4 files) | **yes** | `-startSeed` / `-spawnAI` / `-isStatic` / `-startPoint`, random prop spawning |
 
-**Cesium is the runner-up, not the pick, and its ToS is why.** Cesium ion forbids storing tiles
-*"in an offline, disconnected, or local computer environment"* — which **directly violates
-project rule 6** (a fresh machine reaching a working stack from the repo alone). Its tiles are
-also one fused surface mesh: no per-object collision and **no per-object segmentation labels**,
-which are exactly what VLM work and obstacle avoidance need. Also: **Cesium OSM Buildings are
-untextured** (Cesium staff, verbatim: *"these buildings don't come with textures"*), so `04`'s
-"OSM+PCG" line is a *layout and clutter-density* layer, **not a photorealism fallback** — worth
-correcting there.
-
-### The pick, and it was verified by running it here rather than read from docs
-
-**Build the scene inside the existing `Blocks` project from CC0 photoscan libraries.**
-
-| source | licence | scale | access |
-|---|---|---|---|
-| Poly Haven | **CC0** | **521 models** (nature 110, props 176, rocks 37, plants 57) | plain HTTPS API, no auth |
-| ambientCG | **CC0** | **2,876 assets** (PBR ground/facade/road materials) | plain HTTPS API, no auth |
-
-**Proven in the pinned image, not inferred** — and independently re-checked afterwards:
-
-```
-UnrealEditor-Cmd PHTest.uproject -run=pythonscript -script=import_gltf.py \
-    -unattended -nullrhi -nosound -nosplash -stdout
-  -> Success - 0 error(s)   IMPORTED_COUNT=5
-  -> StaticMesh + MaterialInstanceConstant + 3x Texture2D written to Content/
-  -> 12 MB on disk from a 4.79 MB source (~2.5x)
-api.polyhaven.com -> HTTP 200, 521 models     (re-verified independently)
-```
-
-No display, no GUI, no editor step. The glTF importer ships prebuilt for Linux in `dev-slim`
-(`libUnrealEditor-GLTFCore.so`, `libUnrealEditor-InterchangeImport.so`).
-
-**Two facts that make `Blocks` the right host project**, both of which kill third-party
-"Complete Projects": the AirSim plugin is **already built into it** (506 MB), and
-`Config/DefaultEngine.ini:11` sets `GlobalDefaultGameMode=/Script/Blocks.BlocksGameMode`
-**globally** — so a new map inherits the AirSim GameMode with no per-map World Settings edit.
-
-**Honest weakness of the pick:** the CC0 libraries have **no building facades**. This yields an
-excellent *natural / industrial-yard / cluttered-outdoor* scene — trees, rocks, logs, barrels,
-pallets, fences, ground cover — **not a city canyon**. For urban massing the extension path is
-the `StreetMap` plugin (verified to build on UE5.8 with a 4-line patch, imports `.osm`
-headlessly), textured with ambientCG facade materials.
-
-### Concrete first step
-
-1. **Fetch a kit** with `curl` (**not** Python `urllib` — `dl.polyhaven.org` returns **403** to
-   it). ~60 assets at 2k ≈ **1.2 GB download, ~3 GB imported**. Verify the md5s the API supplies.
-2. **Import headlessly** into `Blocks/Content/PolyHaven/…` via `AssetImportTask` under
-   `-run=pythonscript -unattended -nullrhi`.
-3. **Author the level from Python** in the same commandlet: new `.umap`, ground plane, existing
-   spawn pose, then scatter with a **seeded `random.Random(seed)`**. **Skip PCG for v1** — a
-   seeded Python scatter is deterministic by construction and satisfies acceptance #4 directly,
-   whereas PCG headless is unproven (below).
-4. Point `GameDefaultMap` at the new map, copy in `DynamicObjects` per upstream, record the
-   deviation in [`../vendor/cosys-airsim.md`](../vendor/cosys-airsim.md), wire `-startSeed`
-   through `lane_c_up.sh`.
-5. **Re-measure before believing anything** — `verify_lane_c_sensors.py` against the new map.
-   Baseline to beat: **31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR**.
-
-### What is NOT known, and must come from a run rather than a document
-
-- **Rendering cost is entirely unmeasured.** Import was proven; a *populated* scene was never
-  rendered. Alpha-tested foliage over a GPU-LiDAR that re-renders per sweep is the specific
-  thing that could collapse 17.4 Hz. Dials exist (2k not 4k, instance count, Nanite off, LOD
-  bias) but the number has to be measured.
-- **Nanite / Vulkan SM6 headless on Linux with imported photoscans is unvalidated by anyone.**
-  Test with Nanite **off** first.
-- **PCG runtime generation headless is unproven** — a Biome test loaded and rendered with zero
-  errors but produced **zero `LogPCG` output and no instance count**. Hence the seeded scatter.
-- **Whether a CC0 photoscan kit clears the visual bar for VLM sim-to-real is a judgement call
-  that cannot be made from a terminal.** Capture frames and look at them before building a
-  benchmark on it.
-- **Fab prices and NoAI flags are second-hand** — `fab.com` returns 403 to every fetch method
-  from this box. Confirm in a browser before spending money.
+**Caveat, measured rather than assumed:** `strings` across the `DynamicObjects` uassets finds
+`RandomPropSpawner` **0** times but `LaunchParameterHelper` **2** times (control:
+`GroupedAIController` 14, `Character` 114 — the method works). So at least one Blueprint *does*
+depend on the C++. An A1 project either copies in those four small files — which means adding a
+`Source/` module and becoming A2 — or accepts one broken asset reference. **The seeded
+determinism sits on the C++ side of that line**, which matters because the gate wants it.
 
 ### Acceptance
 
-1. The drone flies its mission in a photorealistic scene, **not** `Blocks`.
-2. Dynamic actors are present and moving, and the drone's cameras see them.
-3. `scripts/verify_lane_c_sensors.py` still passes — same modalities, and **rates that have
-   not collapsed**.
-4. The same `-startSeed` twice produces the same actor layout; a different seed produces a
-   different one. Demonstrated, not assumed.
+1. A user-supplied `.uproject` (A1) is loaded by `lane_c_up.sh` **without editing the repo** —
+   pointed at by path/parameter — and the drone flies in it.
+2. `scripts/verify_lane_c_sensors.py` passes against that world, with **re-measured** rates.
+3. Actors are present and moving, and the cameras see them.
+4. A bundled **example world** exists so the simulator is useful out of the box (see below).
+5. The steps a user must perform on a non-Linux machine are **documented**, not folklore.
 
-### Traps
+### The bundled example world
 
-- **Rendering cost is the headline risk.** `Blocks` is nearly free to render. `C-04` fought
-  hard to get 31 Hz RGB and 29.6 Hz depth, and those numbers were measured on grey boxes. A
-  photoreal scene plus crowds shares one GPU with the renderer. **Re-measure the sensor rates
-  after the swap — do not assume they carry over.**
-- **The 57-minute segfault** (`Array index out of bounds: 18823 into an array of size 0`) is
-  uncharacterised and matters more here: scene work means long sessions, and more actors means
-  more of whatever array that was.
-- **Shader compilation and the DDC.** First launch of `Blocks` cost ~3 minutes of shader
-  compilation; a photoreal scene will cost far more. The `lane-c-ddc` volume already exists to
-  survive container recreation — make sure the new content lands in it.
-- **Disk.** 211 GB free on the internal NVMe, and `D-04`'s watch item is ~100 GB. A large
-  environment plus its DDC could move that materially.
-- **Segmentation IDs.** `simSetSegmentationObjectID` and `simAddDetectionFilterMeshName` give
-  ground-truth labels per actor — worth setting up *while* placing actors rather than
-  retrofitting, since `C-05` and the VLM work both want them.
-- **`DynamicObjects` is copied into the environment, not referenced.** That is upstream's own
-  instruction, and it means the copy is a deviation to record in
-  [`../vendor/cosys-airsim.md`](../vendor/cosys-airsim.md) like the patches.
+The CC0 route from the first survey stays — **demoted from "the answer" to "the default"**, so
+the thing works with no downloads or accounts. Poly Haven (**521 CC0 models**) + ambientCG
+(**2,876 CC0 assets**), both plain HTTPS with no auth, and headless glTF import was verified in
+the pinned image: `Success - 0 error(s)`, 5 uassets on disk from a 4.79 MB source. It yields a
+natural/cluttered-outdoor scene, not a city — acceptable for a default.
 
-**Blocks:** `C-07` — a flight gate is worth more against a real scene than against grey boxes.
+### Still unknown, and each wants an experiment rather than a document
+
+- **Can a UE 5.3-era project be converted to 5.8 headlessly?** If not, users need an editor
+  pass on their own machine first — acceptable, but it must be documented rather than
+  discovered.
+- **Does the prebuilt plugin drop cleanly into a foreign project**, or does UBT insist on
+  rebuilding? Upstream's precompiled path says it works when engine and platform match; ours
+  match by construction.
+- **Rendering cost is entirely unmeasured.** The 31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR
+  baseline was measured on grey boxes. Re-measure per world; a heavy user world may not hold it.
+- **The ~57-minute segfault** is uncharacterised and gets more likely with more actors.
+
+**Blocks:** `C-07` — a flight gate is worth more against a real world than against grey boxes.
 
 ---
 
