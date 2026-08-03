@@ -1337,6 +1337,30 @@ ground sits above world origin, its height varies across the map, and `simSetVeh
 not hold the vehicle against gravity. Freezing with `simPause` fixes the falling but not the
 placement: z = −9 m was still below the surface at that location.
 
+### The LDR patch is DEPLOYED and does NOT fix the washout — hypothesis refuted
+
+The rebuilt plugin is confirmed in use: the injected `.so` md5 matches the LDR rebuild
+(`1599713e…`) and differs from the unpatched vendor build (`2122e037…`).
+
+With it running, a clean capture of the treeline — no `simPause`, vehicle held above terrain by
+re-asserting its pose — still reads **mean 188.8**, indistinguishable from the pre-patch
+captures. **`SCS_FinalToneCurveHDR` → `SCS_FinalColorLDR` is not the cause.**
+
+That is a clean negative result, and it retires the hypothesis this whole thread was built on.
+The capture-source asymmetry at `PIPCamera.cpp:178` is real but is not what makes AirSim's
+imagery look worse than Unreal's own render.
+
+**What survives:** the AirSim capture path still differs visibly from UE's native render of the
+same world, which the side-by-side established. The mechanism is now **unknown**, and the
+candidates that remain are the ones a capture source does not cover — the `SceneCaptureComponent2D`
+having its own `PostProcessSettings` and `ShowFlags` independent of the world's post-process
+volumes, its own exposure state, and a render target whose format/sRGB flag may not match what
+AirSim assumes when packing bytes.
+
+**Do not chase these without fixing spawn placement first.** Three separate investigations here
+were confounded by the camera being buried in terrain, and a fourth by `simPause` returning
+stale frames.
+
 ### The "pavement border" in the captures — explained, and a methodology bug found
 
 Several captures showed a concrete-block border framing a blurred centre, as if the image were
