@@ -1289,7 +1289,7 @@ mismatch, not an exposure fault.
 |---|---|---|
 | 1 | Characterise the fault quantitatively | **abandoned — kept getting confounded** |
 | 2 | Write the one-line patch (`SCS_FinalToneCurveHDR` → `SCS_FinalColorLDR`) | done |
-| 3 | Rebuild the plugin inside `Blocks`, re-inject, capture, compare visually | **next, ~15 min** |
+| 3 | Rebuild the plugin inside `Blocks`, re-inject, capture, compare visually | **plugin BUILT and running; comparison BLOCKED** |
 | 4 | Decide the HDR-vs-LDR policy and record it | after 3 |
 
 **Step 1 was abandoned deliberately, and that is worth recording.** Four attempts to build a
@@ -1315,7 +1315,37 @@ both discards range and mis-encodes it — if HDR is wanted, the right form is f
 (`pixels_as_float`), not `uint8`.
 
 **The one-line change** — use `SCS_FinalColorLDR` for `Scene` as every other image type already
-does. It is a vendored C++ change, so it needs a recorded patch plus a plugin rebuild, and it is
+does.
+
+### Step 3 result: the patch builds and runs; evaluating it is blocked on spawn placement
+
+`Blocks` was copied to a writable location (**`vendor/` verified pristine, 0 modifications**),
+patched, and rebuilt with UnrealBuildTool:
+
+```
+[79/81] Link libUnrealEditor-AirSim.so
+Result: Succeeded          70.28 s
+```
+
+The rebuilt plugin was injected into City Park via `inject_airsim.py --plugin ... --force`
+(which correctly moved the previous one aside to `AirSim.bak.<ts>`), and the sim came up with
+AirSim serving. **So the patch is real and deployable.**
+
+**What could not be done: a clean before/after image.** Repeated attempts produced frames of
+the underside of the terrain, because of the spawn problem already recorded above — City Park's
+ground sits above world origin, its height varies across the map, and `simSetVehiclePose` does
+not hold the vehicle against gravity. Freezing with `simPause` fixes the falling but not the
+placement: z = −9 m was still below the surface at that location.
+
+**So the honest dependency is the other way round from how this was sequenced.** The capture
+fix cannot be evaluated until the drone can be *reliably placed somewhere with a view* — which
+is the spawn-position work already filed above as the next A1 task. Measurements taken before
+that are comparing whatever the camera happened to be buried in.
+
+**Numbers gathered, and why they are not yet conclusive:** the LDR capture read mean 76.5 /
+std 43.6 / max 229 against the HDR path's 176.0 / 39.9 / 255 — consistent with less clipping and
+a darker, more contrasty image, which is the expected direction. But the two frames show
+different content, so this is a hint, not a result. It is a vendored C++ change, so it needs a recorded patch plus a plugin rebuild, and it is
 **a decision rather than an obvious win**: HDR capture is arguably the *right* choice for some
 perception work (tone-mapped LDR discards dynamic range that HDR-aware pipelines may want).
 What is not defensible is the current state, where the HDR buffer is silently packed into 8 bits.
