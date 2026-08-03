@@ -226,6 +226,26 @@ def main() -> int:
         warn("no --map given; the project's existing GameDefaultMap is left alone. If it has "
              "none, the sim will load an empty level.")
 
+    # 4a. DefaultScalability.ini — upstream's step 7, easy to miss and visually obvious -
+    # Cosys-AirSim's docs: "If using Unreal Engine 5.3 or higher check here for a fix to the
+    # camera scene rendering bug in these engine versions." The fix is a DefaultScalability.ini
+    # forcing r.DetailMode=2 at every EffectsQuality level. Blocks ships one; a user's project
+    # will not, and without it captured frames come back washed out and low-detail — which
+    # looks like a broken world rather than a missing config, and sends you hunting in the
+    # wrong place. Copied verbatim from Blocks rather than re-typed.
+    scal_src = BUILT_PLUGIN.parent.parent / "Config" / "DefaultScalability.ini"
+    scal_dst = root / "Config" / "DefaultScalability.ini"
+    if scal_src.is_file():
+        if scal_dst.exists() and scal_dst.read_text() != scal_src.read_text():
+            warn(f"{scal_dst.name} exists and differs from upstream's; leaving it alone. "
+                 f"If captures look washed out, compare it against {scal_src}")
+        elif not scal_dst.exists():
+            scal_dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(scal_src, scal_dst)
+            log("copied DefaultScalability.ini (upstream step 7: UE5.3+ scene camera bug)")
+    else:
+        warn(f"no DefaultScalability.ini at {scal_src} — the UE5.3+ camera fix was NOT applied")
+
     # 4. DefaultGame.ini cook directives ----------------------------------------------
     game = root / "Config" / "DefaultGame.ini"
     ini_add_once(game, PACKAGING_SECTION, '+MapsToCook=(FilePath="/AirSim/AirSimAssets")')
