@@ -1045,6 +1045,48 @@ project class: `GlobalDefaultGameMode=/Script/Blocks.BlocksGameMode`.
 engine-version conversion carry the unknowns, and they are better discovered against a working
 A1 pipeline than treated as a prerequisite.
 
+### ✅ A1 IS BUILT AND PROVEN END TO END — 2026-08-03
+
+`scripts/inject_airsim.py` takes a user's `.uproject` and injects AirSim with **no compile, no
+editor, no GUI, no display**. Verified against a project that was never ours:
+
+```
+server version: 4              vehicles: ['PX4']
+position: x=0.00 y=0.00 z=2.29 scene objects: 32
+from OUR level: ['PlayerStart_0']
+sim log: "Waiting for mavlink vehicle..."
+         WeatherActor_C /Game/Maps/TheirMap.TheirMap:PersistentLevel.WeatherActor_C_0
+```
+
+The second log line is the load-bearing one: **the AirSim plugin spawned its own actors into
+the user's map**, and the PX4 vehicle from *our* `settings.json` appeared in *their* project.
+
+**What the script does** — four text edits and a folder copy:
+1. copies the **built** plugin (`Blocks/Plugins/AirSim`, 506 MB, has `Binaries/Linux/*.so`)
+2. enables `AirSim` + `ChaosVehiclesPlugin` in their `.uproject`
+3. `DefaultEngine.ini` → `GlobalDefaultGameMode=/Script/AirSim.AirSimGameMode` (+ optional map)
+4. `DefaultGame.ini` → 9 cook directives
+
+**Design decisions worth keeping:**
+
+- **It refuses the source-only plugin copy.** `Unreal/Plugins/AirSim` (330 MB) has no
+  `Binaries/`, so injecting it would silently force a UnrealBuildTool compile — turning A1 into
+  A2, which is the entire distinction this path exists to remove. The script hard-fails with
+  that explanation rather than producing a project that mysteriously wants to build.
+- **It refuses to inject into anything inside this repo**, so `vendor/` cannot be dirtied.
+- **Idempotent**, verified by running twice: one `GlobalDefaultGameMode`, one `AirSim` entry,
+  8 cook directives, and the user's own settings (`RendererSettings`, their existing plugins)
+  **preserved**.
+- **Hand-rolled ini editing rather than `configparser`**, which mangles Unreal's `+Key=` repeat
+  syntax and `[/Script/Foo.Bar]` section names on write. Losing a user's settings while "adding"
+  ours would be a bad trade.
+- **Asserts its artifacts** — plugin descriptor, `.so` present, plugins enabled, and exactly
+  **one** `GlobalDefaultGameMode` (two would mean a later one wins silently).
+- Warns, but continues, when `EngineAssociation` is not 5.8 or when `Source/` exists (A2).
+
+**Still to do on this thread:** test against a real downloaded Fab project rather than a
+synthetic one, and settle whether a 5.2–5.7 project converts to 5.8 headlessly.
+
 **Why not the alternative** — having the user drop a *level* into our `Blocks` project — even
 though it looks simpler: a `.umap` carries path-encoded references to its materials, meshes and
 blueprints, so moving one between projects means UE's editor **Migrate** dependency walk. That
