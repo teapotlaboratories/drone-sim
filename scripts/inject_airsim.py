@@ -226,6 +226,23 @@ def main() -> int:
         warn("no --map given; the project's existing GameDefaultMap is left alone. If it has "
              "none, the sim will load an empty level.")
 
+    # 4b. THE ONE THAT ACTUALLY DECIDES WHETHER IT LOOKS PHOTOREALISTIC ---------------
+    # UE5's photorealism IS Lumen (global illumination + reflections) and Nanite, and BOTH
+    # require Shader Model 6. On Linux/Vulkan the engine falls back to SM5 unless the project
+    # explicitly asks for SM6 -- and on SM5 you get legacy lighting with no GI, no bounce
+    # light and no virtual shadow maps. The result renders, runs, and looks flat and washed
+    # out, which reads as "this asset is poor" rather than "the renderer is a tier down".
+    #
+    # Measured: Blocks sets +TargetedRHIs=SF_VULKAN_SM6 and runs rhifeaturelevel="SM6";
+    # City Park had no such line and came up VULKAN_SM5 with
+    # "Vulkan RayTracing disabled because SM6 shader platform is required".
+    # Blocks does BOTH: it REMOVES SM5 and ADDS SM6. The `-` line matters -- leaving SM5 in
+    # the targeted list lets the engine keep selecting it, so adding SM6 alone is not enough.
+    lin = "[/Script/LinuxTargetPlatform.LinuxTargetSettings]"
+    ini_add_once(eng, lin, "-TargetedRHIs=SF_VULKAN_SM5")
+    ini_add_once(eng, lin, "+TargetedRHIs=SF_VULKAN_SM6")
+    log("requested SF_VULKAN_SM6 (Lumen/Nanite need SM6; Linux Vulkan defaults to SM5)")
+
     # 4a. DefaultScalability.ini — upstream's step 7, easy to miss and visually obvious -
     # Cosys-AirSim's docs: "If using Unreal Engine 5.3 or higher check here for a fix to the
     # camera scene rendering bug in these engine versions." The fix is a DefaultScalability.ini
