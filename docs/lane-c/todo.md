@@ -1337,6 +1337,30 @@ ground sits above world origin, its height varies across the map, and `simSetVeh
 not hold the vehicle against gravity. Freezing with `simPause` fixes the falling but not the
 placement: z = −9 m was still below the surface at that location.
 
+### The "pavement border" in the captures — explained, and a methodology bug found
+
+Several captures showed a concrete-block border framing a blurred centre, as if the image were
+matted. Two separate causes, and neither is a rendering defect:
+
+**1. The camera was inside geometry.** The blocks are the material of whatever surface the
+camera is embedded in, seen at point-blank range with depth-of-field blur. Confirmed by
+elimination: at 250 m in open air the border is **completely absent**; every frame that showed
+it was taken at an altitude below City Park's terrain surface. It is the spawn problem again,
+wearing a different disguise.
+
+**2. `simPause` makes `simGetImages` return a STALE FRAME.** Proven accidentally: three captures
+at 300 m, 120 m and 9 m altitude returned border/centre means of 137.4/206.7, 102.6/206.7 and
+102.6/206.7 — **byte-identical for the last two at completely different positions**. Pausing
+stops the scene capture re-rendering, so the RPC hands back the previous frame.
+
+**This invalidates part of the earlier investigation.** The `simPause`-based A/B that produced a
+0.35 correlation was comparing a fresh native screenshot against a stale AirSim frame, so that
+number means nothing. `simPause` was introduced to stop the vehicle falling between captures;
+it solves that and silently breaks the capture instead.
+
+**Rule for any future capture work here: never `simPause` before `simGetImages`.** Hold the
+vehicle another way — or better, fix the spawn so it does not need holding.
+
 **So the honest dependency is the other way round from how this was sequenced.** The capture
 fix cannot be evaluated until the drone can be *reliably placed somewhere with a view* — which
 is the spawn-position work already filed above as the next A1 task. Measurements taken before
