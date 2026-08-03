@@ -1234,11 +1234,50 @@ UE4-era settings**, the deprecated **`AtmosphericFog`** actor (UE5 replaced it w
 `SkyAtmosphere`, and the level has no `SkyAtmosphere`), or baked lighting that is present but
 version-stale for UE5.
 
+### ROOT CAUSE FOUND — it is the AirSim capture source, not the world
+
+`Unreal/Plugins/AirSim/Source/PIPCamera.cpp:178`:
+
+```cpp
+if (image_type == Scene || image_type == Lighting)
+    captures_[image_type]->CaptureSource = SCS_FinalToneCurveHDR;   // <-- HDR
+else
+    captures_[image_type]->CaptureSource = SCS_FinalColorLDR;
+```
+
+**The Scene camera captures `FinalToneCurveHDR`** — values after the tone curve but *before*
+the final LDR/sRGB encode — and AirSim packs that into 8-bit RGB. That is a gamma-encoding
+mismatch, not an exposure fault.
+
+**It explains every observation, including the ones that refuted my earlier hypotheses:**
+
+- **Why nothing in the world mattered.** Six interventions — `DefaultScalability.ini`, SM5→SM6,
+  the UE4→UE5 package conversion, and replacing `AtmosphericFog` with `SkyAtmosphere` — all
+  landed *upstream* of an encoding fault that happens afterward. Frame means stayed within
+  ±0.7 across all six.
+- **Why Blocks looks fine.** Grey boxes are low-dynamic-range, so the mis-encode barely shows.
+  A bright outdoor HDR scene makes it glaring.
+- **The histogram:** `min=13 max=251`, **0% saturated**. Nothing is clipped — the range is
+  simply distributed wrongly, which is a gamma signature, not an overexposure one.
+
+**The fix is one line** — use `SCS_FinalColorLDR` for `Scene` as every other image type already
+does. It is a vendored C++ change, so it needs a recorded patch plus a plugin rebuild, and it is
+**a decision rather than an obvious win**: HDR capture is arguably the *right* choice for some
+perception work (tone-mapped LDR discards dynamic range that HDR-aware pipelines may want).
+What is not defensible is the current state, where the HDR buffer is silently packed into 8 bits.
+
+**Everything below remains true and worth keeping** — the conversion, SM6 and scalability fixes
+are all correct — they simply were not this bug.
+
 **Practical position:** all three of those are exactly what an editor conversion pass fixes —
 UE offers to replace deprecated actors and rebuild lighting on open. So the earlier
-qualification stands and is now better evidenced: **a UE4 project loads and runs headless
-without conversion, but converting it in the editor is what makes it look right.** For a task
-whose point is photorealism, that pass is not optional.
+qualification stands and is now better evidenced: **a UE4 project loads and runs headless without conversion.** Converting it is
+still worth doing for correctness — and **it can be done entirely on Linux**, headless, with the
+engine already in the `lane-c` image: `UnrealEditor-Cmd -run=ResavePackages -IGNORECHANGELIST`
+upgraded all 11 packages from UE version 518 (UE4.24) to 1018 (UE5.8) in ~2 minutes, and a
+Python commandlet swapped the deprecated fog actor. **No Windows machine is required for any of
+it.** The `-IGNORECHANGELIST` flag is essential: `dev-slim` reports `BuiltFromCL: 0`, so the
+commandlet's default filter considers every package newer than the editor and skips them all.
 
 **Housekeeping:** the 3.5 GB zip landed in `assets/`, which was **not gitignored** — a stray
 `git add -A` would have tried to commit it. `/assets/` is ignored now, and the extracted world
