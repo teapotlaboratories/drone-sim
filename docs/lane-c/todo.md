@@ -1194,6 +1194,52 @@ and it is the one supported by evidence.
 benches, a pond. There are no street canyons or building interiors. Fine for low-altitude
 obstacle avoidance and visual SLAM over natural clutter; wrong if the goal is urban navigation.
 
+### Why it does not look photorealistic — two real config gaps found, cause still open
+
+Chasing the washed-out render turned up **two genuine gaps in `inject_airsim.py`**, both worth
+having regardless of whether they explain the look:
+
+1. **`DefaultScalability.ini` was not being copied** — upstream's step 7 fix for the UE5.3+
+   "scene camera bug" (`r.DetailMode=2` at every quality level). Blocks ships one; a user
+   project will not.
+2. **`+TargetedRHIs=SF_VULKAN_SM6` was not being set, and this one is significant.** UE5's
+   photorealism *is* Lumen and Nanite, and **both require Shader Model 6**. On Linux/Vulkan the
+   engine falls back to SM5 unless the project asks for SM6. Measured: Blocks sets it and runs
+   `rhifeaturelevel="SM6"`; City Park had no such line and came up `VULKAN_SM5` with *"Vulkan
+   RayTracing disabled because SM6 shader platform is required."* Blocks also **removes** SM5
+   (`-TargetedRHIs=SF_VULKAN_SM5`) — adding SM6 alone is not enough. Both lines now injected.
+
+   **Consequence for earlier results:** Blocks has been SM6 all along, so `C-04`'s sensor-rate
+   numbers were measured on the full renderer and remain valid.
+
+**Neither fixed the appearance, and the measurements say so.** Frame means across four vantage
+points, before → after scalability → after SM6:
+
+```
+156.5 / 182.8 / 175.9 / 191.0     (original)
+156.4 / 182.9 / 176.1 / 191.1     (+ DefaultScalability.ini)
+156.5 / 182.7 / 176.2 / 191.3     (+ SM6)
+```
+
+Identical to three significant figures. Both fixes are correct to keep; neither is this bug.
+
+**Ruled out by measurement, not assumption:** the scalability fix; SM5-vs-SM6; a missing
+`ExtendDefaultLuminanceRange` (neither project sets it); and missing baked lighting —
+`Showcase_BuiltData.uasset` (8.4 MB) *is* shipped with the map.
+
+**Still open.** Geometry and textures render correctly — trees, plaza steps, road and pond are
+all clearly visible — so this is not a loading or asset problem. It is a **lighting/tonemapping**
+problem. The remaining suspects, none confirmed: the map's **four `PostProcessVolume`s carrying
+UE4-era settings**, the deprecated **`AtmosphericFog`** actor (UE5 replaced it with
+`SkyAtmosphere`, and the level has no `SkyAtmosphere`), or baked lighting that is present but
+version-stale for UE5.
+
+**Practical position:** all three of those are exactly what an editor conversion pass fixes —
+UE offers to replace deprecated actors and rebuild lighting on open. So the earlier
+qualification stands and is now better evidenced: **a UE4 project loads and runs headless
+without conversion, but converting it in the editor is what makes it look right.** For a task
+whose point is photorealism, that pass is not optional.
+
 **Housekeeping:** the 3.5 GB zip landed in `assets/`, which was **not gitignored** — a stray
 `git add -A` would have tried to commit it. `/assets/` is ignored now, and the extracted world
 lives on the 7 TB drive under the mirrored project path per the repo's storage rule.
