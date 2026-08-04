@@ -149,7 +149,7 @@ and a 1328 Hz state timer polling a 333 Hz IMU into 77% duplicate samples.
 
 Affects `control`, `img_response`, `lidar`, `gpulidar`, `echo`.
 
-**No patch: `ros2_ws/src/bringup/launch/lane_c_perception.launch.py` passes all five**, with
+**No patch: `ros2_ws/src/bringup/launch/perception.launch.py` passes all five**, with
 `value_type=float` forced — a bare `LaunchConfiguration` arrives as a *string*, and
 `get_parameter(name, double&)` fails a type mismatch exactly as it fails an undeclared name,
 leaving the same uninitialized value. The workaround would have looked applied and changed
@@ -159,8 +159,9 @@ nothing.
 
 `publish_clock` defaults false (`:52`) **and** is never declared, and when enabled publishes to
 `"~/clock"` (`:412`) → `/airsim_node/clock`, not `/clock`. Handled by the same launch file with
-an unconditional remap. `use_sim_time:=true` against a bare node freezes every timer at zero —
-the `P1-03a` failure shape.
+an unconditional remap. `use_sim_time:=true` against a bare node freezes every timer at zero,
+and presents as a deadlocked controller — the same failure shape the retired Gazebo stack hit
+when nothing bridged its clock, with a different root cause.
 
 ### Frames are NWU, not ENU
 
@@ -174,7 +175,7 @@ NWU by 7.3°. **Not patched** — the conversion belongs in this project's singl
 `publish_vehicle_state()` fetches `getImuData()` once per state-timer tick and publishes only
 the latest sample. Even at a correct timer period this yields ~15% duplicate timestamps and
 non-uniform spacing. **Not patched** — it is an upstream design property, and any fix belongs
-upstream. It is a live design constraint for `C-05` (cuVSLAM wants a dense, evenly-spaced
+upstream. It is a live design constraint for `SIM-05` (cuVSLAM wants a dense, evenly-spaced
 stream). IMU messages also ship with zero covariances (`// todo covariances` upstream).
 
 ---
@@ -191,7 +192,7 @@ Array index out of bounds: 18823 into an array of size 0
 preceded by one MAVLink `hil` `TcpClientPort socket send failed with error: 32` (EPIPE).
 
 **Observed once (n = 1).** The "~57 minutes" is a single data point, not a measured period. An
-earlier version of the Lane C backlog claimed it "gets more likely with more actors" — that had
+earlier version of the backlog claimed it "gets more likely with more actors" — that had
 no measurement behind it and is **withdrawn**; the crash predates any actor work.
 
 ### Source-level analysis — 2026-08-03, a candidate mechanism (not yet proven)
@@ -235,8 +236,8 @@ entirely. Unresolved.
 **A second, quieter defect in the same block**, independent of the crash: those safe branches do
 `image_data_uint8.SetNumUninitialized(width * height * 3)` and then fill only `bmp.Num()` entries.
 On an empty buffer that yields a **fully uninitialised image** — garbage pixels, published as if
-valid, no error. Silent corruption is worse than a crash, and it is on the path Lane C actually
-uses.
+valid, no error. Silent corruption is worse than a crash, and it is on the path this project
+actually flies.
 
 **The EPIPE is plausibly a symptom, not the cause.** The caller blocks in
 `while (!wait_signal_->waitFor(5))`, logging `Failed: timeout waiting for screenshot` and looping
@@ -250,7 +251,7 @@ enough to time out PX4's MAVLink link and produce the EPIPE *before* the crash s
 | arm | configuration | result |
 |---|---|---|
 | A | isolated sim, one camera, no PX4, RPC `compress=true` | **6,000 calls / 249 s — survived**, 0 anomalies |
-| C | **full Lane C stack** — PX4 + MAVLink + wrapper polling Scene/Depth/GPU-LiDAR, **plus** concurrent RPC `compress=true` | **74,253 calls / 90 min — survived**, 0 anomalies |
+| C | **the full stack** — PX4 + MAVLink + wrapper polling Scene/Depth/GPU-LiDAR, **plus** concurrent RPC `compress=true` | **74,253 calls / 90 min — survived**, 0 anomalies |
 
 **Both candidate mechanisms are refuted as stated:**
 
@@ -277,7 +278,7 @@ hypotheses are real and independent of whether they caused this event:
    indexes by `width * height`;
 2. the iterate-not-index branches `SetNumUninitialized(w*h*3)` and then fill only `bmp.Num()`
    entries, so an empty buffer yields a **fully uninitialised image published as valid** — on the
-   path Lane C actually uses.
+   path this project actually flies.
 
 Both are worth reporting to Cosys-Lab on their own merits. (2) is the more dangerous: silent
 corruption beats a crash for cost-to-diagnose.
@@ -290,7 +291,13 @@ reproduce it.** If it recurs, capture the full simulator log and the wrapper's s
 
 ## Build-layer notes (not deviations, but required to build at all)
 
-1. `drone-sim/ros2:v1.16.0` lacks `geographic_msgs` and `mavros_msgs`.
+1. The wrapper needs `geographic_msgs`, `mavros_msgs` and `python3-msgpack`, and CMake fails
+   at `find_package` without the first two. **`drone-sim/ros2:v1.16.0` now bakes all three in**
+   (`docker/ros2.Dockerfile`), so the build script's install step finds nothing to do. It is
+   kept anyway, as an idempotent `dpkg -s` check: it used to apt-install them *inside the
+   running container*, which meant the dependency lived only in that container's writable
+   layer and vanished on every teardown — a network outage between two runs turned a working
+   stack into a build failure.
 2. The wrapper **must be built in place** — `airsim_ros_pkgs/CMakeLists.txt` reaches
    `../../../cmake/{rpclib_wrapper,AirLib,MavLinkCom}` via `add_subdirectory`.
 3. The build **writes into its own source tree** (`external/rpclib/.../version.h`,

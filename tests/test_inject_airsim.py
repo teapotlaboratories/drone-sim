@@ -1,4 +1,4 @@
-"""Tests for the AirSim project-injection helpers (`C-11` A1).
+"""Tests for the AirSim project-injection helpers (`SIM-11` A1).
 
 These run off-target: no Unreal, no container, no GPU. The functions under test rewrite files
 in the USER's own Unreal project, so the failure mode is destroying someone's settings while

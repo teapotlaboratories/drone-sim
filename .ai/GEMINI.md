@@ -1,12 +1,19 @@
 # Agent rules
 
 See [`AGENTS.md`](AGENTS.md) for the full, canonical agent rules; read
-[`../docs/bench.md`](../docs/bench.md) (the machine + container) and
-[`../docs/reference/`](../docs/reference/) (the design) before making changes. Key rules:
+[`../docs/bench.md`](../docs/bench.md) (the machine + container),
+[`../docs/quickstart.md`](../docs/quickstart.md) (how the simulator is launched and flown)
+and [`../docs/conventions.md`](../docs/conventions.md) (the frozen ROS 2 graph spec) before
+making changes.
+
+`drone-sim` is a **photoreal drone simulator you can fly your own world in** — Unreal
+Engine 5.8 · Cosys-AirSim · PX4 v1.16.0 SITL · ROS 2 Jazzy, brought up by
+`./scripts/sim_up.sh`. The Gazebo baseline and the Isaac Sim stack are retired
+(`docs/history/`). Key rules:
 
 ## Never command the real aircraft without asking first
 
-Phase 4 puts commands on a **real drone** (Pixhawk 6C / X500 — HITL, then real flight).
+The hardware target is a **real drone** (Pixhawk 6C / X500 — HITL, then real flight).
 Anything that can put the *real* aircraft in motion — arming the real Pixhawk, a HITL run
 with motors live, a real offboard/trajectory setpoint stream, or a real flight test —
 needs the operator's explicit go-ahead **for that specific run**, every time. Approval
@@ -18,28 +25,46 @@ are doing and never let a "sim" command reach real hardware (the sim↔real boun
 transport swap: SITL MAVLink/uXRCE-DDS vs a real Pixhawk link, `use_sim_time`, HITL in
 QGC). Observing (telemetry, rosbags, QGC, logs, `nvidia-smi`) needs no permission.
 
+## Know the traps before debugging
+
+The control interface is **ROS 2 only** (`px4_msgs` over uXRCE-DDS); AirSim RPC is for
+simulator concerns and MAVLink is how PX4 and the renderer agree on physics. **Lockstep is
+dead code** in Cosys-AirSim, so nothing is deterministic — never quote a timing number as
+reproducible. A **stale PX4 EKF origin** makes the vehicle report tens of metres of
+altitude while grounded and looks exactly like a control bug; `sim_up.sh` verifies and
+repairs it, and such a run is **VOID, not FAIL**. Frames are **NWU, not ENU**. Unreal
+de-duplicates plugins by name+version, so a stale copy under `Plugins/` silently wins —
+verify the artifact that actually *ran*.
+
 ## Reproducible as Docker
 
 *(project goal, added 2026-07-29)* The whole setup must be **easily reproducible as
 Docker** — a fresh machine reaches a working stack from this repo alone, with no
 undocumented manual steps. Pin the versions you actually built and smoke-tested, and
 record deviations from the reference docs: a Dockerfile written from the docs rather than
-from evidence reproduces a *broken* stack. Backlog: `docs/docker/todo.md`.
+from evidence reproduces a *broken* stack. One documented exception, stated plainly rather
+than hidden: the Unreal engine base image is credential-gated (EpicGames org membership +
+a PAT with `read:packages`). There is no compose file — `./scripts/sim_up.sh` runs the
+containers directly. Backlog: `docs/docker/todo.md`.
 
 ## Reuse upstream, don't reinvent; version-lock is the architecture
 
-The stack is assembled from pinned upstreams (PX4, Pegasus, Isaac ROS, EGO-Planner,
-Cosys-AirSim, vLLM) — the glue is the original work. Don't hand-roll what a component
-provides. The dominant risk is **version coupling**: two PX4 trees (v1.16.x for Lane A +
-real; v1.14.3 for Pegasus), Isaac's Python 3.11 vs ROS 2 Jazzy's 3.12, `px4_msgs`
-branch-matched to firmware. Lock every version in `versions.lock` before writing code.
+The stack is assembled from pinned upstreams (PX4, the Micro-XRCE-DDS Agent, `px4_msgs`,
+Cosys-AirSim, QGroundControl) — the glue is the original work. Don't hand-roll what a
+component provides. The dominant risk is **version coupling**: **one** PX4 tree (v1.16.0,
+the same tree the real Pixhawk 6C is flashed from), `px4_msgs` branch-matched to it
+(`release/1.16`), ROS 2 Jazzy everywhere, Cosys-AirSim pinned by **SHA** (`5.8-v3.4.1`)
+against UE5.8 with the engine image pinned by digest. Lock every version in
+`versions.lock` before writing code.
 
 ## Verify by running it, end to end
 
 A green `colcon build` or a node that behaves correctly in isolation is not a working
-flight — the aircraft (sim or real) is the only real client. Exercise the full ROS 2
-graph in the target lane (headless SITL, seeded scenarios, SR/collision/latency metrics,
-MCAP evidence). If you cannot verify, say so and name the blocker.
+flight — the aircraft (sim or real) is the only real client. Bring the stack up with
+`./scripts/sim_up.sh`, exercise the full ROS 2 graph on a seeded scenario, and record the
+evidence (MCAP bag, metric table, measured rate/latency). A seed currently sets the
+**spawn pose only**, so never describe a gate run as covering varied conditions. If you
+cannot verify, say so and name the blocker.
 
 ## No AI / agent attribution
 
@@ -61,11 +86,14 @@ now overrides the window.
 Feature/code changes branch off `main` and land through a PR; doc-only changes may go
 straight to `main`. Run `/review <PR#>` (Claude Code) or an equivalent full-diff review
 before any merge and resolve what it flags; default merge is `--rebase` to keep `main`
-linear. Never merge unreviewed. Install into the container, never the host; keep tooling
-and big data out of `~` (repo `vendor/` for tooling, the 7 TB external drive for data,
-`/tmp` for scratch). **On any other drive, write only under
-`<drive-root>/Developments/projects/drone-sim/`** — mirror the project path from that
-drive's root; never create a top-level directory on a drive you don't own. **Ask the operator first — every time — before any command that
-escapes the container** (`distrobox-host-exec`, `flatpak-spawn --host`,
-`chroot`/`nsenter` into `/run/host`, host-side `podman`/`distrobox`); approval is per
-command and never carries over.
+linear. Never merge unreviewed. Every feature starts as a documented TODO in `docs/todo.md`
+(`SIM-NN` IDs) and is marked done when it lands; keep a worklog as you go, and never edit,
+rename or move a worklog that is already written. Install into the container, never the
+host; keep tooling and big data out of `~` (repo `vendor/` for tooling, the 7 TB external
+drive for archival data, `/tmp` for scratch — but the simulator's live working set stays on
+the internal NVMe, because the 7 TB volume is a spinning disk). **On any other drive, write
+only under `<drive-root>/Developments/projects/drone-sim/`** — mirror the project path from
+that drive's root; never create a top-level directory on a drive you don't own. **Ask the
+operator first — every time — before any command that escapes the container**
+(`distrobox-host-exec`, `flatpak-spawn --host`, `chroot`/`nsenter` into `/run/host`,
+host-side `podman`/`distrobox`); approval is per command and never carries over.

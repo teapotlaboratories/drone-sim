@@ -1,15 +1,28 @@
-# `planning` — EGO-Planner ROS 2 port + PX4 offboard bridge
+# `planning` — a sketch, not a package
 
-**Status:** placeholder. Created in **Phase 2**. Highest-effort item in the phase.
+**There is no package here.** This directory contains this README and nothing else — no
+`package.xml`, no source, no tests. **colcon has never built it.**
 
-EGO-Planner is what Fly0 uses: 50 Hz control loop, ~0.5 Hz MLLM re-grounding,
-`d_safe=0.5 m`, `v_max=4.0 m/s`. Start from the **EGO-Swarm ROS 2 branch** with
-`drone_id=0` — the canonical `ZJU-FAST-Lab/ego-planner` is ROS 1 / catkin / Ubuntu ≤20.04
-(`docs/reference/02_development_plan.md:19`).
+**A planner is an application built *on* the simulator, not part of it.** The simulator's job
+is to make one credible: metric depth and GPU-LiDAR at known rates, a `/clock` the whole graph
+can share, ground-truth object transforms to score against, and an offboard control path that
+accepts setpoints at 20 Hz and is the same one a real Pixhawk accepts. All of that exists. A
+planner does not.
 
-**This port ships a code-map doc.** A function-level, side-by-side new-code ↔ upstream
-mapping (`file:line` ↔ `file:line`) at `docs/planning/ego-planner-ros2-code-map.md`, with
-a deliberate-divergences section. **Every cited line is grepped in both trees, never
-written from memory** (`.ai/AGENTS.md:319`).
+## If you put one here
 
-Fallback if the port slips >1 week: a ROS 1 bridge container.
+The obvious candidate is **EGO-Planner**, the local planner the Fly0 line of work uses — a
+50 Hz control loop with `d_safe = 0.5 m` and `v_max = 4.0 m/s`. Two facts that decide how the
+work starts:
+
+- **Start from the EGO-Swarm ROS 2 branch with `drone_id=0`.** The canonical
+  `ZJU-FAST-Lab/ego-planner` is ROS 1 / catkin / Ubuntu ≤20.04 and will not build against
+  Jazzy. The tree is listed but not activated in [`../../../.repos`](../../../.repos).
+- **A substantial port ships a code-map doc** — a function-level, side-by-side new-code ↔
+  upstream mapping (`file:line` ↔ `file:line`) plus a deliberate-divergences section, with
+  **every cited line grepped in both trees, never written from memory**
+  (`.ai/AGENTS.md` → "Adapting upstream code & version pinning").
+
+Whatever lands here consumes the perception topics as they actually are, not as upstream
+documents them: **NWU frames**, a **polled** IMU with duplicate timestamps, and no lockstep —
+so a control loop must be robust to a free-running simulator rather than assume a fixed step.

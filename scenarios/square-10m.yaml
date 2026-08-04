@@ -1,23 +1,27 @@
-# Phase 1 baseline scenario: take off, fly a 10 m square, land.
+# Baseline scenario: take off, fly a 10 m square, land.
 #
-# This is the mission the Phase 1 exit criterion names — "takes off, flies a 4-waypoint
-# square, lands, SR=100% over 10 seeded runs" (02_development_plan.md:38).
+# This is the mission the original exit criterion named — "takes off, flies a 4-waypoint
+# square, lands, SR=100% over 10 seeded runs"
+# (docs/history/reference/02_development_plan.md:56).
 #
-# Shape follows the plan's scenario format, `{world, seed, spawn, goal, instruction}`
-# (02_development_plan.md:173), adapted for Phase 1: `goal` is a waypoint list rather than
-# a single point, and `instruction` is absent because natural-language goals arrive in
-# Phase 3 with the VLM.
+# Shape follows that plan's scenario format, `{world, seed, spawn, goal, instruction}`
+# (docs/history/reference/02_development_plan.md:191), adapted here: `goal` is a waypoint
+# list rather than a single point, and `instruction` is absent because nothing in this repo
+# consumes a natural-language goal.
 name: square-10m
 description: >-
-  GPS-waypoint baseline in an empty world. No obstacles by design — Phase 1 proves the
-  offboard controller and the harness; clutter arrives in Phase 2.
+  GPS-waypoint baseline in an empty world. No obstacles by design — this scenario proves the
+  offboard controller and the harness, not perception or planning.
 
-world: default          # PX4's Tools/simulation/gz/worlds/default.sdf
+# Unused by the current runner. `scripts/sim_up.sh --world PATH.uproject` selects the Unreal
+# world, and `scripts/run_scenario.py` passes `--world` through from its own flag rather than
+# reading it here. Kept as a placeholder for when the scenario owns the world again.
+world: default
 
 mission:
   takeoff_altitude_m: 10.0
   # ENU, relative to HOME (where the EKF initialised), NOT world coordinates. See
-  # docs/lane-a/conventions.md §3. A square starting East, returning to the start corner
+  # docs/conventions.md §3. A square starting East, returning to the start corner
   # so the landing point is the takeoff point.
   waypoints_enu:
     - [10.0,  0.0, 10.0]
@@ -26,8 +30,8 @@ mission:
     - [ 0.0,  0.0, 10.0]
 
 # What each run records to MCAP. Declared here rather than hard-coded in the runner,
-# because what is worth recording is a property of the SCENARIO: Phase 2 will want depth and
-# the planner's trajectory, Phase 3 the VLM's target, and neither should require editing the
+# because what is worth recording is a property of the SCENARIO: a scenario with obstacles
+# will want depth and the planner's trajectory, and that should not require editing the
 # harness.
 #
 # /mission/* is what makes a bag self-describing. Without it a failed seed shows the vehicle
@@ -46,46 +50,42 @@ tolerances:
 
 # WHAT THE SEED ACTUALLY CONTROLS — read this before trusting a success rate.
 #
-# The seed selects a scenario VARIANT. It does NOT give a deterministic replay: this stack
-# is not bit-reproducible, measured directly — two back-to-back runs with identical
-# configuration against the same simulator produced waypoint errors of
+# A SEED MOVES THE SPAWN POSE AND NOTHING ELSE. `scripts/run_scenario.py` reads exactly two
+# keys from the block below — spawn_xy_jitter_m and spawn_yaw_jitter_rad — and applies them
+# through `sim_up.sh --spawn`. Ten seeded runs are therefore closer to ten repeats. Still
+# worth running, because flaky failures surface under repetition, but DO NOT describe a gate
+# run as covering varied conditions.
+#
+# It also does NOT give a deterministic replay: this stack is not bit-reproducible, measured
+# directly — two back-to-back runs with identical configuration produced waypoint errors of
 # [0.225, 0.104, 0.154, 0.204] and [0.118, 0.076, 0.158, 0.187]. Anything claiming
 # seed-exact trajectory reproduction here would be wrong.
-#
-# So a seeded run answers "does it work under these conditions", and a success RATE over
-# many seeds answers "does it work reliably" — which is what the exit criterion is for.
 seeded:
-  # WIND — the knob that actually changes the physics (P1-04a).
+  # Spawn pose, applied as `sim_up.sh --spawn X,Y,0,YAW` (metres, NED; Z negative is up).
   #
-  # Sampled per seed as speed in [0, wind_speed_max_ms] with a uniformly random heading,
-  # applied via a generated world + model overlay (scripts/make_variant.py). Measured
-  # effect at 3 m/s: waypoint errors 0.634, 0.541, 0.06, 0.298 — the upwind legs cost an
-  # order of magnitude more than the downwind one, which is the signature you want.
-  #
-  # THE BOUND IS LOAD-BEARING. At 8 m/s the DISARMED vehicle is blown 416 m across the
-  # world before it can arm, the EKF gives up (xy_valid false) and the run fails in
-  # wait_for_fcu — a harness failure, not a controller failure. 3 m/s is a disturbance the
-  # aircraft should handle; raise it only with evidence and a way to hold the vehicle
-  # until takeoff.
-  wind_speed_max_ms: 3.0
-
-  # Spawn pose in the Gazebo world, via PX4_GZ_MODEL_POSE.
-  #
-  # HONEST LIMITATION: in an EMPTY world this varies almost nothing the controller can
+  # HONEST LIMITATION: in an empty world this varies almost nothing the controller can
   # see. PX4's local frame origin is set wherever the EKF initialises, so the mission —
   # which is relative to home — is unchanged; only the EKF initialisation transient and
-  # ground contact differ. Verified: spawning at (7, -4) put the model there in Gazebo
-  # while the controller still reported home ENU (-0.03, -0.02).
+  # ground contact differ. Measured on the retired Gazebo harness: spawning at (7, -4) put
+  # the model there while the controller still reported home ENU (-0.03, -0.02).
   #
-  # It is wired now because it becomes load-bearing in Phase 2, when obstacles sit at
-  # fixed world coordinates and the spawn point decides the problem the planner faces.
+  # It becomes load-bearing once obstacles sit at fixed world coordinates and the spawn
+  # point decides the problem the planner faces.
   spawn_xy_jitter_m: 5.0
   spawn_yaw_jitter_rad: 3.14159
 
-# NOT YET SEEDED — the honest gap, tracked in docs/lane-a/todo.md.
+# NOT SEEDED — the honest gap, tracked as `SIM-07` in docs/todo.md.
 #
-# Sensor noise is the genuinely stochastic element, and `gz sim --seed` is the knob for
-# it. Reaching it means running Gazebo standalone (PX4_GZ_STANDALONE=1) as its own compose
-# service so we own the server command line, rather than letting PX4's gz_bridge start it.
-# Until then the noise stream is whatever it is, and the variation between runs is real
-# but not controlled.
+# WIND was seeded once, and is not any more. The retired Gazebo harness sampled speed in
+# [0, 3] m/s with a uniformly random heading and applied it through a generated world +
+# model overlay; that generator was deleted with the Gazebo stack, and Cosys-AirSim's own
+# wind API (simSetWind) is not wired in. The measurements are kept because they say what
+# wind is worth: at 3 m/s waypoint errors were 0.634, 0.541, 0.06, 0.298 — the upwind legs
+# cost an order of magnitude more than the downwind one, which is the signature you want.
+# And the bound was load-bearing: at 8 m/s the DISARMED vehicle was blown 416 m across the
+# world before it could arm, the EKF gave up (xy_valid false) and the run failed in
+# wait_for_fcu — a harness failure, not a controller failure. Whatever re-wires wind here
+# inherits both numbers.
+#
+# SENSOR NOISE is the other genuinely stochastic element, and it has never been controlled
+# on any stack this repo has run. The variation between runs is real but not seeded.

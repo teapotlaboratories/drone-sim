@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 1 exit criterion: success rate over N seeded runs (P1-06).
+"""The simulator's flight gate: success rate over N seeded runs (SIM-07).
 
     ./scripts/run_gate.py scenarios/square-10m.yaml            # 10 seeds, restarting each
     ./scripts/run_gate.py scenarios/square-10m.yaml --reuse    # faster, weaker (see below)
@@ -11,13 +11,17 @@ WHAT THIS NUMBER MEANS — AND WHAT IT DOES NOT
 ---------------------------------------------
 Read this before quoting an SR from here.
 
-1. **It measures repeat-reliability, not seed-diversity.** The seed currently drives the
-   spawn pose, which in an EMPTY world changes almost nothing the controller can see: PX4's
-   local frame origin is set wherever the EKF initialises, so a home-relative mission is
-   unchanged. Until `P1-04a` seeds the simulator's RNG (sensor noise) via standalone
-   Gazebo, ten seeded runs are closer to ten repeats. They are still worth running — flaky
-   failures show up under repetition — but the word "seeded" is doing less work than it
-   looks.
+1. **It measures repeat-reliability, not seed-diversity.** The seed drives the spawn pose
+   and nothing else, which in an empty world changes almost nothing the controller can
+   see: PX4's local frame origin is set wherever the EKF initialises, so a home-relative
+   mission is unchanged. Ten seeded runs are therefore closer to ten repeats. They are
+   still worth running — flaky failures show up under repetition — but the word "seeded"
+   is doing less work than it looks.
+
+   **Environmental diversity is genuinely absent, not merely weak.** The retired Gazebo
+   harness varied wind and vehicle mass through a generated world overlay; the equivalent
+   here is Cosys-AirSim's own wind API and is not wired up. Do not describe a run from
+   this gate as covering varied conditions until it is.
 
 2. **Runs are not reproducible.** Measured: two back-to-back runs with identical config
    against the same simulator gave waypoint errors [0.225, 0.104, 0.154, 0.204] and
@@ -103,7 +107,7 @@ ORIGIN_POLL_S = 3
 
 
 def _run_origin_check() -> int:
-    """Run check_ekf_origin.py inside the ros2 service. Returns its exit code.
+    """Run check_ekf_origin.py inside the ROS 2 container. Returns its exit code.
 
     MUST run in the container, not here: `ros2` does not exist on the gate host, so running
     the checker locally would make EVERY run void and the gate could never pass again -- a
@@ -117,8 +121,8 @@ def _run_origin_check() -> int:
         return -1
     try:
         p = subprocess.run(
-            rs.COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
-                          ". /opt/ros/jazzy/setup.bash && python3 - --quiet"],
+            rs.dexec("bash", "-lc",
+                     ". /opt/ros/jazzy/setup.bash && python3 - --quiet"),
             input=checker.read_text(), capture_output=True, text=True, timeout=120)
     except Exception:
         return -1
@@ -136,7 +140,7 @@ def _origin_void_reason() -> str:
     because ANY void blocks the criterion, one slow start turns the whole gate INCONCLUSIVE.
     A 10-seed run passed 10/10 with zero voids before this wait existed -- by timing
     coincidence, not by construction, and it would flake on a slower box or a heavier
-    scenario. `lane_c_up.sh` already got this right with `wait_for_fmu`.
+    scenario. `sim_up.sh` already got this right with `wait_for_fmu`.
 
     The two void codes are treated DIFFERENTLY, which is the whole reason they are distinct:
 
@@ -154,7 +158,7 @@ def _origin_void_reason() -> str:
         if rc == ORIGIN_STALE:
             return ("EKF origin is STALE -- it disagrees with GPS, and an EKF origin is set "
                     "once, so waiting cannot fix it. Restart PX4 after the sim has settled "
-                    "(scripts/lane_c_up.sh does this). This run is VOID, not a failure.")
+                    "(scripts/sim_up.sh does this). This run is VOID, not a failure.")
         if time.time() >= deadline:
             break
         time.sleep(ORIGIN_POLL_S)
@@ -169,7 +173,7 @@ def score(runs: list[dict], reuse: bool) -> dict:
     """Turn per-run records into the gate's verdict. Pure, so the VOID semantics below are
     testable without a simulator.
 
-    VOID vs FAIL is the whole point (C-10, and P1-08 for Lane A). A run against a stack whose
+    VOID vs FAIL is the whole point (SIM-10). A run against a stack whose
     EKF origin was mis-initialised did not measure the flight code at all -- the vehicle
     reports an altitude tens of metres wrong and the controller, which targets an absolute
     altitude, is commanded into the ground. Counting that as a failure blames code that is
@@ -204,7 +208,7 @@ def _worst(errors) -> float:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Phase 1 success-rate gate.")
+    ap = argparse.ArgumentParser(description="The simulator's success-rate flight gate.")
     ap.add_argument("scenario", type=Path)
     ap.add_argument("--seeds", type=int, default=10)
     ap.add_argument("--start-seed", type=int, default=1)
@@ -212,8 +216,10 @@ def main() -> int:
                     help="reuse one stack for every run (faster, weaker — see the module "
                          "docstring; the spawn pose is then never applied)")
     ap.add_argument("--outdir", type=Path, default=REPO / "out")
+    ap.add_argument("--world", default="", help=".uproject to load (default: bundled Blocks)")
+    ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
     ap.add_argument("--no-origin-check", action="store_true",
-                    help="skip the pre-run EKF-origin assertion (C-10). Only for stacks "
+                    help="skip the pre-run EKF-origin assertion (SIM-10). Only for stacks "
                          "where /fmu/out/vehicle_gps_position is unavailable -- without it a "
                          "mis-ordered stack is scored as a control failure.")
     a = ap.parse_args()
@@ -229,26 +235,21 @@ def main() -> int:
     print()
 
     if a.reuse:
-        # One stack, seed-independent defaults, left up. No wind either: a single stack
-        # cannot carry per-seed wind, which is another reason --reuse is not a gate run.
-        print("bringing up a single stack for all runs (no per-seed wind)...")
-        rs.restart_stack({"spawn_x": 0.0, "spawn_y": 0.0, "spawn_yaw": 0.0})
+        # One stack, seed-independent defaults, left up. The spawn pose is never applied,
+        # which is the whole reason --reuse is not a gate run.
+        print("bringing up a single stack for all runs (spawn pose never applied)...")
+        rs.restart_stack({"spawn_x": 0.0, "spawn_y": 0.0, "spawn_yaw": 0.0},
+                         a.world, a.settings)
 
     runs, started = [], time.time()
     for i, seed in enumerate(seeds, 1):
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
-        vdir = ""
         if not a.reuse:
-            # Build the per-seed physics overlay and hand it to the stack. Calling
-            # restart_stack(variant) alone would run with NO WIND while the report happily
-            # printed the seed's wind speed — a gate quietly measuring something other
-            # than what it claims.
-            vdir = rs.build_variant_overlay(scenario, variant, f"{name}-seed{seed}")
-            rs.restart_stack(variant, vdir)
+            rs.restart_stack(variant, a.world, a.settings)
         # Assert the stack is measurable BEFORE flying it. A stale EKF origin makes the
         # vehicle report an altitude tens of metres wrong; the run would look like a control
-        # failure and would be indistinguishable from one in the report (C-10).
+        # failure and would be indistinguishable from one in the report (SIM-10).
         void_reason = "" if a.no_origin_check else _origin_void_reason()
         if void_reason:
             result = {"outcome": "void", "failure_reason": void_reason}
@@ -266,15 +267,6 @@ def main() -> int:
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
             "spawn_pose_applied": not a.reuse,
-            # Ground truth: did an overlay actually get built for this run? The earlier
-            # version reported `wind_speed_ms > 0` instead — a field named for the physics
-            # that actually echoed a sampled number, and which therefore misreported the
-            # exact case the scenario-declares fix exists for (a seed drawing ~0 wind on a
-            # scenario that DOES declare wind still gets the overlay). It was also the
-            # field used to verify that fix, so the check could not have caught its own
-            # failure.
-            "overlay_applied": bool(vdir),
-            "overlay_dir": vdir,
             "variant": variant,
             "mcap": f"out/{name}-seed{seed}",
             "seconds": round(time.time() - t0, 1),
@@ -282,7 +274,6 @@ def main() -> int:
         print(f"  [{i:>2}/{len(seeds)}] seed {seed:<3} "
               f"{'VOID' if void_reason else ('PASS' if ok else 'FAIL'):4}  "
               f"worst {runs[-1]['worst_error_m']:.3f} m  "
-              f"wind {variant.get('wind_speed_ms', 0):.2f} m/s  "
               f"{runs[-1]['seconds']:.0f}s"
               + (f"  — {why}" if not ok else ""))
 
@@ -310,7 +301,8 @@ def main() -> int:
         "wall_seconds": elapsed,
         "caveats": [
             "The seed drives the spawn pose only; in an empty world that changes almost "
-            "nothing the controller sees. Sensor noise is not seeded until P1-04a.",
+            "nothing the controller sees. Wind and sensor noise are NOT seeded — the "
+            "simulator's wind API is not wired up, so every run flew in still air.",
             "Runs are not reproducible: identical config gives different waypoint errors. "
             "A failing seed cannot be replayed — use its MCAP.",
         ] + (["--reuse: one stack for all runs, so the spawn pose was NEVER applied. This "
@@ -326,11 +318,11 @@ def main() -> int:
     print(f"  report       : {out}")
     print()
     if summary["met"]:
-        print("  PASS — Phase 1 exit criterion met")
+        print("  PASS — flight gate criterion met")
     elif verdict["voids"]:
         print(f"  INCONCLUSIVE — {verdict['voids']} run(s) VOID: the stack's EKF origin was")
         print("                 not verified, so those runs did not measure the flight code")
-        print("                 at all. Fix the bring-up ordering (scripts/lane_c_up.sh)")
+        print("                 at all. Fix the bring-up ordering (scripts/sim_up.sh)")
         print("                 and re-run. Voids are excluded from the rate above, never")
         print("                 counted as failures.")
     elif a.reuse and summary["sr_perfect"]:

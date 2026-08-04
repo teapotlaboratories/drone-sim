@@ -124,7 +124,7 @@ def main():
     ap.add_argument("--outdir", help="repo-relative output directory")
     args = ap.parse_args()
 
-    outdir = REPO / (args.outdir or "out/lane-c/vs-native")
+    outdir = REPO / (args.outdir or "out/vs-native")
     outdir.mkdir(parents=True, exist_ok=True)
 
     wanted = set(args.only.split(",")) if args.only else None

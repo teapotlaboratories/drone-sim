@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot the flown ground track from a run's MCAP, against what was commanded.      (C-16)
+"""Plot the flown ground track from a run's MCAP, against what was commanded.      (SIM-16)
 
 Runs inside drone-sim/ros2 with the run directory mounted. Draws with cv2 rather than
 matplotlib, which is not installed in that image and is not worth adding for four panels.

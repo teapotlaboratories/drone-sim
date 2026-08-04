@@ -1,9 +1,9 @@
-"""Tests for the operator-supplied spawn position (`C-13`).
+"""Tests for the operator-supplied spawn position (`SIM-13`).
 
 These run off-target: no simulator, no GPU. The value of testing here is that the failure this
 code prevents is EXPENSIVE and SILENT — a bad spawn puts the camera inside terrain, and every
 image measurement taken afterwards looks plausible and is wrong. Four investigations in this
-lane were already lost that way, so the tests below lean on the refusals rather than the
+investigation were already lost that way, so the tests below lean on the refusals rather than the
 happy path.
 """
 import importlib.util
@@ -156,7 +156,7 @@ def test_the_committed_settings_file_can_be_placed():
     out = sp.apply_spawn(d, sp.parse_spawn("50,-30,-10,315"))
     px4 = out["Vehicles"]["PX4"]
     assert (px4["X"], px4["Y"], px4["Z"], px4["Yaw"]) == (50.0, -30.0, -10.0, 315.0)
-    # and the things Lane C depends on are still there
+    # and the things the simulator depends on are still there
     assert px4["UseTcp"] is True
     assert "gpulidar" in px4["Sensors"]
     assert px4["Cameras"]["front_center"]["CaptureSettings"][0]["ForceUpdate"] is True

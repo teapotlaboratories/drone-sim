@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-18 — Three Stacks Become One — 2026-08-04</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-04 · SIM-18</span>
+  <nav><a href="#why">Why now</a><a href="#moved">What moved</a><a href="#cold">Cold cache</a><a href="#unrecorded">Unrecorded image</a><a href="#gazebo">The strip</a><a href="#frozen">Left alone</a><a href="#flew">It flew</a><a href="#open">Still open</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-04 · SIM-18 · SITL only, nothing real was armed</span>
+  <h1>Three Stacks<br>Become One</h1>
+  <p class="sub">The repo carried three parallel simulator stacks and now carries one. The cleanup was the easy half. The useful half is what the move exposed: a bring-up that could never have worked on a fresh machine, and a 57 GB production image that had been flying for three days without ever being written down.</p>
+  <div class="mastmeta"><span>Tracked files <b>174 &rarr; 163</b></span><span>Defects exposed <b>2</b></span><span>PX4 image <b>11.6 &rarr; 11.0 GB</b></span><span>Mission <b>5/5 legs</b></span><span>Worklogs edited <b>0</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">Cold engine init vs the wait budget</div><div class="v">199 s / 120 s</div><div class="n">the bring-up gave up 80 s before a healthy stack came up</div></div>
+<div class="stat stop"><div class="k">Renderer image in versions.lock</div><div class="v">ABSENT</div><div class="n">57.5 GB, built and flown 3 days, never recorded</div></div>
+<div class="stat ok"><div class="k">Example mission after the pivot</div><div class="v">5/5 legs</div><div class="n">worst 1.856 m against a 2.0 m tolerance, landed</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#why">Why now &mdash; the cost was a fork, not disk</a></li>
+  <li><a href="#moved">What moved</a></li>
+  <li><a href="#cold">Defect 1: the cold shader cache</a></li>
+  <li><a href="#unrecorded">Defect 2: an image nobody wrote down</a></li>
+  <li><a href="#gazebo">The Gazebo strip, measured</a></li>
+  <li><a href="#frozen">Two things deliberately not done</a></li>
+  <li><a href="#flew">Verified by flying it</a></li>
+  <li><a href="#open">One observation left open</a></li>
+</ol></div>
+
+<h2 id="why"><span class="secnum">01</span> Why now &mdash; the cost was a fork, not disk</h2>
+<p>The Isaac Sim path had <strong>never run on this machine</strong>: it SIGSEGVs on driver
+610.43.03 against its validated 580.65.06, and no Pegasus release exists for the Isaac 6.0 that
+avoids the crash. Deferred 2026-07-29; nothing changed since.</p>
+<p>The Gazebo baseline is the more interesting case, because it <em>worked</em> &mdash; it flew a
+10/10 seeded gate. But its only remaining job was to be a comparison for a stack that had
+outgrown it, while its compose file, container smoke test, world-overlay generator and
+seeded-wind harness all had to keep building, keep passing CI, and keep being read.</p>
+<div class="callout"><span class="lbl">The argument that actually justified the removal</span>
+<p><strong>Not disk &mdash; a fork in every document and every script.</strong> Anyone opening the
+repo had to work out which of two flight gates was the real one before they could do anything
+else. That is a recurring tax, paid by every reader, forever.</p></div>
+
+<h2 id="moved"><span class="secnum">02</span> What moved</h2>
+<div class="tw"><table>
+<thead><tr><th>Action</th><th>What</th></tr></thead>
+<tbody>
+<tr><td><b>Deleted</b></td><td>the compose stack &middot; the container smoke test &middot; the world/wind overlay generator and its tests &middot; the demo recorder &middot; the <code>vlm/</code> and <code>vlm_client</code> placeholders &middot; the Gazebo and Isaac asset stubs</td></tr>
+<tr><td><b>Renamed</b></td><td><code>sim_up.sh</code> &middot; <code>verify_sensors.py</code> &middot; <code>measure_sensor_rates.sh</code> &middot; <code>record_flight.py</code> &middot; <code>perception.launch.py</code>; images <code>drone-sim/px4</code>, <code>drone-sim/unreal</code>, <code>drone-sim/video</code>; containers <code>sim-*</code>; volume <code>sim-ddc</code></td></tr>
+<tr><td><b>Rebuilt</b></td><td><code>px4.Dockerfile</code> without Gazebo &middot; <code>ros2.Dockerfile</code> without the <code>/clock</code> bridge &middot; <code>video.Dockerfile</code> as a thin ffmpeg layer</td></tr>
+<tr><td><b>Rewired</b></td><td><code>run_scenario.py</code> drives <code>sim_up.sh</code> instead of compose; <code>run_gate.py</code> keeps its VOID/FAIL scoring and becomes this simulator's gate</td></tr>
+<tr><td><b>Archived</b></td><td>the retired backlogs and the four research reports, under <code>docs/history/</code>, banner-stamped as frozen</td></tr>
+<tr><td><b>Renumbered</b></td><td><code>C-NN</code> &rarr; <code>SIM-NN</code>; git history still says <code>C-11</code> and must not be rewritten &mdash; map in <code>docs/history/id-map.md</code></td></tr>
+</tbody></table></div>
+<p>The inventory that drove this was built by <strong>enumerating every occurrence and classifying
+it by kind</strong> &mdash; file names, image tags, container names, volume names, shell variables,
+ROS identifiers, YAML keys, prose &mdash; rather than by running a substitution and reading the
+diff. A global replace would have rewritten CSS class names, the English word inside
+&ldquo;PCIe lanes&rdquo;, and the <code>gz_advanced_plane</code> airframe target.</p>
+
+<h2 id="cold"><span class="secnum">03</span> Defect 1: the bring-up could not survive a cold shader cache</h2>
+<p>Renaming the derived-data-cache volume orphaned the warm cache. The next cold start was
+therefore <strong>the first genuinely cold start this stack has ever had</strong>, and it failed:</p>
+<pre><code>[sim] waiting for the vehicle to settle (5 reads within 0.05 m)
+[sim] starting XRCE agent, PX4, QGC and the ROS 2 workspace
+[sim] waiting for /fmu/out telemetry and a FINITE EKF origin
+[sim] FATAL: no finite EKF origin appeared -- /fmu/out silent ... or the EKF never initialised</code></pre>
+<p>The stack was <strong>fine</strong>. It came up 80 seconds after the script gave up.</p>
+
+<figure>
+<svg viewBox="0 0 720 210" role="img" aria-label="Timeline: the renderer needed 199 seconds to initialise on a cold shader cache, while the bring-up script waited only 120 seconds before declaring failure. The stack became healthy at 199 seconds, 79 seconds after the script gave up.">
+  <line x1="60" y1="170" x2="700" y2="170" stroke="var(--rule)" stroke-width="1.5"/>
+  <text x="60" y="192" fill="var(--ink2)" font-size="11" font-family="monospace">0 s</text>
+  <text x="330" y="192" fill="var(--ink2)" font-size="11" font-family="monospace">120 s</text>
+  <text x="520" y="192" fill="var(--ink2)" font-size="11" font-family="monospace">199 s</text>
+  <text x="655" y="192" fill="var(--ink2)" font-size="11" font-family="monospace">240 s</text>
+
+  <text x="60" y="40" fill="var(--ink)" font-size="12" font-family="monospace">RENDERER &mdash; shader compilation on a cold cache</text>
+  <rect x="60" y="50" width="470" height="26" fill="var(--space)" opacity=".28" stroke="var(--space)"/>
+  <text x="70" y="68" fill="var(--ink)" font-size="11" font-family="monospace">Unreal initialising &mdash; PX4 cannot connect yet</text>
+  <line x1="530" y1="44" x2="530" y2="180" stroke="var(--ok)" stroke-width="2" stroke-dasharray="3 3"/>
+  <text x="538" y="60" fill="var(--ok)" font-size="11" font-family="monospace">199 s &mdash; engine up, link accepted</text>
+
+  <text x="60" y="105" fill="var(--ink)" font-size="12" font-family="monospace">BRING-UP SCRIPT &mdash; wait_for_fmu budget</text>
+  <rect x="60" y="115" width="280" height="26" fill="var(--stop)" opacity=".28" stroke="var(--stop)"/>
+  <text x="70" y="133" fill="var(--ink)" font-size="11" font-family="monospace">60 iterations &times; 2 s</text>
+  <line x1="340" y1="109" x2="340" y2="180" stroke="var(--stop)" stroke-width="2"/>
+  <text x="348" y="133" fill="var(--stop)" font-size="11" font-family="monospace">120 s &mdash; declares the stack dead</text>
+
+  <path d="M340 158 L530 158" stroke="var(--ground)" stroke-width="1.5" marker-end="url(#ah)"/>
+  <text x="352" y="152" fill="var(--ground)" font-size="11" font-family="monospace">79 s of healthy stack, reported as failure</text>
+  <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="var(--ground)"/></marker></defs>
+</svg>
+<figcaption>Measured on this machine, 2026-08-04. <code>sim-unreal</code> started 07:47:05;
+<code>Game Engine Initialized</code> at 07:50:24.</figcaption>
+</figure>
+
+<div class="callout stop"><span class="lbl">Why it had been invisible &mdash; and why it mattered</span>
+<p>Answering AirSim RPC, which is what the settle-wait polls, happens <em>early</em>, well before
+Unreal has finished initialising. With a warm cache the gap is ~30 s and nothing notices. Every
+previous run on this machine inherited a warm cache, so the 120 s budget had never been tested
+against the case it exists for.</p>
+<p><strong>And that case is exactly the reproducibility goal.</strong> A fresh machine always has a
+cold cache. The bring-up as written could not have worked on one, on the first try, ever.</p></div>
+
+<p><b>Fix: wait for the event, not for a number of seconds.</b> A separate
+<code>wait_for_sim_link</code> polls PX4's own log for <code>Simulator connected on TCP port 4560</code>,
+with a 900 s budget, progress output every 60 s, and an early abort if the renderer container
+dies &mdash; so a long shader compile reads as progress rather than as a hang. It runs
+<em>before</em> the origin wait, because the two fail for different reasons and one combined
+timeout cannot tell them apart.</p>
+<pre><code>docker run --rm -v &lt;old-volume&gt;:/from -v sim-ddc:/to alpine cp -a /from/. /to/</code></pre>
+
+<h2 id="unrecorded"><span class="secnum">04</span> Defect 2: a production image nobody wrote down</h2>
+<p>Deleting the compose file removed a tier-1 CI step &mdash; <code>docker compose config</code> &mdash;
+which had been catching references to things that do not exist. The class of defect did not go
+away with the file, so it was replaced by <code>scripts/check_image_refs.py</code>: every
+<code>drone-sim/&hellip;</code> reference in the tree must name an image declared under
+<code>images:</code> in <code>versions.lock</code>.</p>
+<p><strong>On its first run it failed, and it was right.</strong></p>
+<pre><code>FAIL: 15 reference(s) to an image this repo does not build:
+  scripts/sim_up.sh:147: drone-sim/unreal:ue5.8 is not declared under images: in versions.lock
+  docker/unreal.Dockerfile:106: drone-sim/unreal:ue5.8 ...</code></pre>
+<div class="callout stop"><span class="lbl">Not a stale entry &mdash; no entry</span>
+<p>The Unreal engine image &mdash; <strong>57.5 GB</strong>, the renderer, the container every other
+container joins for its network and IPC namespaces &mdash; had been built and flown for three days
+without an entry in the lock. <code>versions.lock</code> calls itself the authority on what this
+project builds, and it had never mentioned the largest thing it builds.</p></div>
+<p>Two false positives from that first run are now encoded in the check: a filesystem path
+<code>&hellip;/projects/drone-sim/venvs/vllm</code> read as an image called <code>drone-sim/venvs</code>
+(fixed with a negative lookbehind, so a reference cannot be the tail of a longer path), and
+<code>drone-sim/airsim-client.</code> at the end of a prose sentence swallowing the full stop.</p>
+
+<h2 id="gazebo"><span class="secnum">05</span> The Gazebo strip, measured rather than assumed</h2>
+<p><code>docker/px4.Dockerfile</code> now runs <code>Tools/setup/ubuntu.sh --no-sim-tools</code> and
+explicitly reinstates the five packages that flag drops which are <em>not</em> Gazebo
+(<code>bc</code>, <code>libeigen3-dev</code>, <code>protobuf-compiler</code>, <code>pkg-config</code>,
+<code>libxml2-utils</code>).</p>
+<div class="grid g3">
+<div class="stat"><div class="k">With Gazebo</div><div class="v">11.6 GB</div><div class="n">as built through 2026-08-03</div></div>
+<div class="stat"><div class="k">Without</div><div class="v">11.0 GB</div><div class="n">--no-sim-tools + explicit deps</div></div>
+<div class="stat warn"><div class="k">Saved</div><div class="v">600 MB</div><div class="n">~5%, for four image rebuilds</div></div>
+</div>
+<div class="callout warn"><span class="lbl">A correction worth recording against myself</span>
+<p><strong>That is a smaller win than the argument for doing it implied.</strong> The case for
+removing Gazebo from this image is that the renderer is Unreal and nothing here ever loads a
+<code>gz</code> world &mdash; not that it saves meaningful disk. Stated up front, the disk figure
+would not have carried the decision on its own.</p></div>
+<p>The build now <em>asserts</em> the strip &mdash; <code>! dpkg -s gz-harmonic &amp;&amp; ! command -v gz</code>
+&mdash; because an apt install elsewhere in the chain could pull it back in silently. NuttX is
+deliberately kept: real Pixhawk 6C firmware is flashed from that tree, and <code>--no-nuttx</code>
+would slim the image while quietly removing that capability.</p>
+<p><code>ros-gz-bridge</code> left the ROS 2 image at the same time. It had no consumer &mdash;
+<code>/clock</code> comes from the simulator, remapped in <code>perception.launch.py</code> &mdash; and
+with it went <code>gz_transport_vendor</code>, whose <code>libgz-transport13</code> shadowed any system
+Gazebo the moment ROS was sourced.</p>
+
+<h2 id="frozen"><span class="secnum">06</span> Two things deliberately not done</h2>
+<div class="callout"><span class="lbl">The worklogs are frozen</span>
+<p>They keep their original wording <em>and</em> their original filenames, including the retired
+terminology. They are dated records of what was actually done, and a worklog edited to match a
+later decision stops being evidence. One consequence to know:
+<code>docker/px4.Dockerfile:14</code> cites a worklog whose <em>filename</em> still carries the old
+scheme, and that link is correct &mdash; it is the only occurrence of the old vocabulary left in
+any active file, and it must not be &ldquo;fixed&rdquo;.</p></div>
+<div class="callout warn"><span class="lbl">Wind and vehicle mass are no longer seeded</span>
+<p>They came from a generated Gazebo world overlay that no longer exists. A seed now moves the
+spawn pose and nothing else, and <code>run_scenario.py</code> says so at the top rather than
+reporting a wind speed nothing applies &mdash; the previous gate printed one for every run while
+every run flew in still air.</p>
+<p><strong>So do not describe a gate run from this simulator as covering varied conditions.</strong>
+It covers repetition. That is still worth having, but it is a weaker claim than the retired
+harness could make, and the honest move is to say so rather than inherit the old wording.
+Restoring real diversity needs Cosys-AirSim's own wind API and belongs to <code>SIM-07</code>.</p></div>
+
+<h2 id="flew"><span class="secnum">07</span> Verified by flying it</h2>
+<p>A clean build proves nothing about flight. Cold bring-up first, exercising both the new link
+wait and the pre-existing origin repair loop &mdash; which earned its keep on a genuinely stale
+origin:</p>
+<pre><code>[sim] renderer link up after 10s
+VOID: EKF origin is STALE: ref_alt 114.168 m vs GPS 123.284 m = 9.116 m apart (tolerance 1 m)
+[sim] origin stale; restarting PX4 (attempt 1/2)
+OK:   EKF origin sane: ref_alt 123.284 m vs GPS 123.284 m = 0.000 m apart
+[sim] stack up and origin verified -- safe to fly</code></pre>
+<p>Then the example mission, end to end over ROS 2, with the wrapper rebuilt from the three
+recorded patches:</p>
+<div class="tw"><table>
+<thead><tr><th>Leg</th><th>Target (ENU)</th><th>Arrival error</th><th>Settled</th><th>Time</th><th></th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>[ 25.0,   0.0, -8.0]</code></td><td>1.517 m</td><td>0.093 m</td><td>11.7 s</td><td><span class="pill p-ok">ok</span></td></tr>
+<tr><td>2</td><td><code>[  0.0,  25.0, -8.0]</code></td><td>1.856 m</td><td><b>73.603 m</b></td><td>9.5 s</td><td><span class="pill p-warn">see below</span></td></tr>
+<tr><td>3</td><td><code>[-25.0,   0.0, -8.0]</code></td><td>1.507 m</td><td>0.256 m</td><td>16.0 s</td><td><span class="pill p-ok">ok</span></td></tr>
+<tr><td>4</td><td><code>[  0.0, -25.0, -8.0]</code></td><td>1.045 m</td><td>0.144 m</td><td>14.4 s</td><td><span class="pill p-ok">ok</span></td></tr>
+<tr><td>5</td><td><code>[  0.0,   0.0, -8.0]</code></td><td>1.420 m</td><td>0.298 m</td><td>14.4 s</td><td><span class="pill p-ok">ok</span></td></tr>
+</tbody></table></div>
+<p><code>landed: true</code> &middot; worst 1.856 m against a 2.0 m tolerance &middot; MCAP 3.0 GB kept
+&middot; tier-1 CI passes all eight checks.</p>
+
+<h2 id="open"><span class="secnum">08</span> One observation left open rather than explained away</h2>
+<div class="callout stop"><span class="lbl">Leg 2 settles 73.603 m from where it arrived</span>
+<p>Its arrival error was 1.856 m, and legs 1, 3, 4 and 5 all settle inside 0.3 m. Leg 3 then
+arrives correctly at <code>[-25.2, 0.15]</code>, so whatever happened did not derail the mission.</p>
+<p><code>park_tour.py</code> and <code>offboard_control.py</code> are <strong>functionally
+unchanged</strong> by this work &mdash; the only edits are a task ID and two documentation paths
+&mdash; so this is not something the pivot introduced. It is either a bad settle sample or a real
+excursion between waypoints, and the MCAP for the run is kept.</p>
+<p><strong>It is recorded undiagnosed on purpose.</strong> The mission passed on its stated criterion
+and it would have been easy to quote &ldquo;5/5 legs, worst 1.856 m&rdquo; and move on. A number in
+the summary that disagrees with the other four by two orders of magnitude is exactly the kind of
+thing this project has learned costs a day later.</p></div>
+
+<footer>
+  <span>drone-sim · SIM-18</span>
+  <span>2026-08-04 · SITL only · nothing real was armed</span>
+  <span><a href="index.html">&larr; Worklog index</a></span>
+</footer>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 """Frame conversion — the project's single conversion point (ENU <-> NED, NWU -> ENU).
 
-`docs/lane-a/conventions.md` §3 freezes the rule: our interfaces are ROS REP-103 (ENU
+`docs/conventions.md` §3 freezes the rule: our interfaces are ROS REP-103 (ENU
 world, FLU body), PX4 is NED, and the conversion happens here and nowhere else. Every
 extra conversion site is an opportunity for a sign error, and the failure mode is silent —
 a double conversion is the identity on x and a sign flip on z, so the vehicle accepts the
@@ -53,7 +53,7 @@ def _wrap_pi(angle: float) -> float:
 
 
 # ---------------------------------------------------------------------------------------
-# NWU <-> ENU — Lane C only.  (C-04)
+# NWU <-> ENU — the simulator's own frame.  (SIM-04)
 #
 # Cosys-AirSim's ROS 2 wrapper publishes NWU, NOT ENU, despite its docs claiming "the
 # right-handed coordinate frame of the ROS standard". `convert_tf_msg_to_enu()` exists at
@@ -63,8 +63,9 @@ def _wrap_pi(angle: float) -> float:
 # Measured 2026-08-02 against AirSim ground truth: the published yaw missed an ENU
 # prediction by 97.3 deg and an NWU prediction by 7.3 deg.
 #
-# These live here rather than in a Lane C node because conventions.md freezes the rule that
-# conversion happens in ONE place. Lane C does not get to invent a second convention -- but
+# These live here rather than in a simulator-specific node because conventions.md freezes the
+# rule that conversion happens in ONE place. The simulator does not get to invent a second
+# convention -- but
 # it does have to REACH the frozen one, and NWU is where it starts.
 #
 # UNLIKE enu <-> ned, THIS PAIR IS NOT AN INVOLUTION. ENU <-> NED is its own inverse, which

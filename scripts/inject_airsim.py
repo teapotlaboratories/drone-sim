@@ -3,7 +3,7 @@
 
     scripts/inject_airsim.py /path/to/TheirProject.uproject [--map /Game/Maps/Their]
 
-This is `C-11` A1: the bring-your-own-world path for CONTENT/BLUEPRINT-ONLY projects. It is
+This is `SIM-11` A1: the bring-your-own-world path for CONTENT/BLUEPRINT-ONLY projects. It is
 pure text edits plus a folder copy — no compile, no editor, no GUI, no display.
 
 WHY A SCRIPT AND NOT THE UPSTREAM INSTRUCTIONS
@@ -35,7 +35,7 @@ forcing UnrealBuildTool to compile, which is the entire distinction this path ex
 WHAT THIS DOES NOT DO
 ---------------------
 - It does not convert engine versions. A project authored for 5.2 may need an editor pass on a
-  Windows/macOS machine first; that is an open question recorded in C-11.
+  Windows/macOS machine first; that is an open question recorded in SIM-11.
 - It does not compile anything. If the project has its own Source/ (A2), this warns and
   continues — the injection is still correct, but a build step is then required.
 """
@@ -155,7 +155,7 @@ def shadowing_plugin_copies(root: Path) -> list:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Inject Cosys-AirSim into a user's UE project (C-11 A1).")
+    ap = argparse.ArgumentParser(description="Inject Cosys-AirSim into a user's UE project (SIM-11 A1).")
     ap.add_argument("uproject", type=Path, help="path to the user's .uproject")
     ap.add_argument("--map", default="", help="content path of the map to load, e.g. /Game/Maps/Mine")
     ap.add_argument("--plugin", type=Path, default=BUILT_PLUGIN,

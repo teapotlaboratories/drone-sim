@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Confirm the navigation command interface, end to end over ROS 2.                   (C-15)
+"""Confirm the navigation command interface, end to end over ROS 2.                   (SIM-15)
 
 SITL ONLY. This arms and flies a SIMULATED vehicle. It must never be pointed at real hardware.
 
@@ -320,7 +320,7 @@ def main() -> int:
     ap.add_argument("--skip-gps", action="store_true")
     a = ap.parse_args()
 
-    print(f"\n  {YELLOW}Lane C navigation interface — SITL ONLY, nothing real is armed{RESET}")
+    print(f"\n  {YELLOW}navigation interface — SITL ONLY, nothing real is armed{RESET}")
 
     rclpy.init()
     n = NavCheck(a.namespace)

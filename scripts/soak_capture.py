@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A/B soak: does the capture path segfault, and is `compress` the discriminator?   (C-04 soak)
+"""A/B soak: does the capture path segfault, and is `compress` the discriminator?   (SIM-04 soak)
 
 SITL only. Renders on GPU 0 exclusively -- GPU 1 is deliberately untouched, because another
 unrelated simulator may be using it.
@@ -148,7 +148,7 @@ def main():
     ap.add_argument("--only", help="comma-separated arm names: compress_true,compress_false")
     args = ap.parse_args()
 
-    outdir = REPO / "out/lane-c/soak"
+    outdir = REPO / "out/soak"
     outdir.mkdir(parents=True, exist_ok=True)
 
     arms = [("compress_true", True), ("compress_false", False)]

@@ -11,7 +11,7 @@ Every lever here is available on STOCK Cosys-AirSim -- no plugin patch:
                     does not need the temporal history the capture never accumulates.
 
 Throughput is measured in the same run because the fix and its cost have to be judged together:
-Lane C already claims 31 Hz RGB, and an intervention that renders every camera every frame can
+The graph already claims 31 Hz RGB, and an intervention that renders every camera every frame can
 take that away. The rate measured is the achievable simGetImages rate at this resolution, not
 the simulator's internal frame rate.
 """

@@ -11,7 +11,7 @@
 # (NAV_DLL_ACT=2, set by the x500 airframe at 4001_gz_x500:51). That check is deliberately
 # left ENFORCED, so QGC is a functional dependency of any flight, not an optional viewer.
 #
-# WHY THIS IS SEPARATE FROM docker/demo/lane-a-video.Dockerfile
+# WHY THIS IS SEPARATE FROM docker/video.Dockerfile
 # ------------------------------------------------------------
 # The demo image adds ffmpeg, xterm, openbox and xdotool to record videos. None of that is
 # needed to hold a datalink. This image carries only what QGC needs to run, so the core
@@ -28,7 +28,7 @@
 # than a script the user has to remember. A checksum mismatch fails the BUILD, which is the
 # earliest and loudest place to catch a swapped binary that decides whether the aircraft
 # can arm.
-FROM drone-sim/lane-a:v1.16.0
+FROM drone-sim/px4:v1.16.0
 
 # Keep these in step with the qgroundcontrol entry in versions.lock.
 ARG QGC_VERSION=5.0.8

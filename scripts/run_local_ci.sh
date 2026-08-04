@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Local CI — the accepted substitute for an automated flight gate.
 #
-# DECIDED 2026-07-31: tier 2 (the SITL gate in GitHub Actions) is deferred, and running
-# this on the workstation counts as having run the gate. See P1-07 in
-# docs/lane-a/todo.md for why: the flight gate cannot run on a GitHub-hosted runner
-# (12.6 GB image, 2 vCPU against an RTF floor of 0.95), and a self-hosted runner on a
+# Tier 2 (the flight gate in GitHub Actions) is deferred, and running this on the
+# workstation counts as having run the gate. The flight gate cannot run on a GitHub-hosted
+# runner at all -- it needs a 57 GB Unreal image and a GPU -- and a self-hosted runner on a
 # PUBLIC repo would let any fork's pull request execute code on this machine.
 #
 # So the gate stays a human-triggered thing — but a SINGLE COMMAND, with a summary you can
@@ -58,7 +57,7 @@ echo "tier 1 — what GitHub Actions also runs:"
 step "off-target tests"        python3 -m pytest tests/ -q
 step "shell scripts parse"     bash -c 'f=0; while IFS= read -r -d "" s; do bash -n "$s" || f=1; done < <(git ls-files -z "*.sh"); exit $f'
 step "python scripts parse"    bash -c 'f=0; while IFS= read -r -d "" s; do python3 -m py_compile "$s" || f=1; done < <(git ls-files -z "*.py"); exit $f'
-step "compose file valid"      env COMPOSE_PROFILES=test,record docker compose -f docker/compose.yaml config --quiet
+step "image refs declared"     python3 scripts/check_image_refs.py
 step "worklog renders"         python3 scripts/check_worklog_renders.py
 step ".repos matches lock"     python3 scripts/check_repos_manifest.py
 step "no AI attribution"       ./scripts/check_attribution.sh
@@ -68,7 +67,7 @@ step "versions.lock conflicts" python3 scripts/check_versions_conflicts.py
 if [ "$RUN_GATE" = "1" ]; then
   echo
   echo "tier 2 — the flight gate (this is the part CI cannot run):"
-  echo "  $SEEDS seeded runs against $SCENARIO, roughly $((SEEDS * 2)) minutes"
+  echo "  $SEEDS seeded runs against $SCENARIO, roughly $((SEEDS * 3)) minutes"
   if python3 -u ./scripts/run_gate.py "$SCENARIO" --seeds "$SEEDS"; then
     echo "  flight gate                        PASS"
   else
@@ -79,7 +78,7 @@ else
   echo
   echo "tier 2 — flight gate SKIPPED (pass --gate to run it)."
   echo "  Skipping is fine for a docs or tooling change. It is NOT fine for anything that"
-  echo "  touches the controller, the scenario runner, the overlay or the compose stack —"
+  echo "  touches the controller, the scenario runner or the bring-up script —"
   echo "  nothing else in this repo would catch a regression there."
 fi
 

@@ -1,15 +1,18 @@
-# `sim/` — per-lane simulator assets
+# `sim/` — simulator-side assets
 
-Worlds, scenes, and simulator-side configuration for the three lanes. Large binary
-assets (Isaac USD scenes, UE5 projects, Cesium tiles) do **not** live here — they go on
-the 7 TB external drive under `/var/mnt/…` and are referenced by path
-(`.ai/AGENTS.md:460`).
+Vehicle, sensor and scene configuration for the simulator this repo builds: **Unreal
+Engine 5.8 + Cosys-AirSim**. Large binary assets (UE5 projects, Cesium tiles, captured
+imagery) do **not** live here — they go on the 7 TB external drive under `/var/mnt/…` and
+are referenced by path (`.ai/AGENTS.md` → "Simulation & hardware notes").
 
-| Dir | Lane | Simulator | Phase |
-|---|---|---|---|
-| `gazebo/` | A | Gazebo Harmonic + PX4 v1.16.x | 0–2 |
-| `isaac/` | B | Isaac Sim 5.1 + Pegasus v5.1.0 + PX4 v1.14.3 | 3 |
-| `ue5/` | C | UE5.5 + Cosys-AirSim | 4 |
+| Dir | Contents |
+|---|---|
+| `ue5/` | `settings.json` — which vehicle, which sensors, how they are tuned — plus worked examples |
 
-Build in strict lane order. Lane C is high-risk/optional
-(`docs/reference/02_development_plan.md:4`).
+That is the whole directory. The Gazebo and Isaac Sim trees that used to sit beside `ue5/`
+are retired; their backlogs and design docs are archived under
+[`../docs/history/`](../docs/history/).
+
+**A world is an input, not a repo asset.** `scripts/sim_up.sh` defaults to the Blocks
+environment vendored with Cosys-AirSim, and `--world PATH.uproject` points it at your own
+Unreal project wherever that lives. Nothing here needs to change to fly a different map.

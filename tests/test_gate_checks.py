@@ -196,9 +196,9 @@ def test_self_attributes_used_as_defaults_actually_exist():
 
 
 # ---------------------------------------------------------------------------------------
-# C-10: a stale EKF origin must VOID a run, not fail it.
+# SIM-10: a stale EKF origin must VOID a run, not fail it.
 #
-# The numbers below are the ones actually observed in C-09, not invented. PX4 froze its
+# The numbers below are the ones actually observed in SIM-09, not invented. PX4 froze its
 # local origin at 88.113 m while GPS read 123.280 m throughout, so every reported altitude
 # was 35.167 m high and the vehicle "was" 35 m up while sitting on the ground. The failure
 # is silent, order-dependent, and looks exactly like a control bug.
@@ -274,7 +274,7 @@ def test_non_finite_origin_is_never_a_pass(ref_alt, gps_alt):
 
 
 # ---------------------------------------------------------------------------------------
-# C-10: VOID runs are excluded from the rate AND block the criterion.
+# SIM-10: VOID runs are excluded from the rate AND block the criterion.
 
 
 def _runs(*specs):
@@ -344,12 +344,25 @@ def test_origin_check_runs_inside_the_ros2_service_not_on_the_host():
     Asserted MODULE-WIDE rather than against one function name. The first version of this
     test named `_origin_void_reason` directly, and a later refactor that moved the exec into
     a `_run_origin_check` helper broke it -- a false positive on a change that preserved the
-    invariant perfectly. Pin the property, not the call site's current shape."""
+    invariant perfectly. Pin the property, not the call site's current shape.
+
+    It was pinned a SECOND time by the string `rs.COMPOSE`, and the pivot away from the
+    Gazebo compose stack broke it the same way: run_gate.py now reaches the container
+    through `rs.dexec(...)` and the invariant was never violated. The lesson repeated
+    itself, so the assertion below is written against the PROPERTY -- the checker's argv is
+    built by run_scenario's container helper, and nothing runs it locally -- rather than
+    against whichever helper currently spells that."""
     src = (REPO / "scripts" / "run_gate.py").read_text()
-    assert "rs.COMPOSE" in src, "the checker must be exec'd into the ros2 service"
+    assert "rs.dexec(" in src, (
+        "the checker must be exec'd into the ROS 2 container via run_scenario's helper, "
+        "so the container name has exactly one definition"
+    )
     assert "sys.executable" not in src, (
         "the origin checker must NOT run on the gate host - there is no ros2 there"
     )
+    # And the helper must genuinely enter a container, not shell out on the host.
+    rs_src = (REPO / "scripts" / "run_scenario.py").read_text()
+    assert '"docker", "exec"' in rs_src, "dexec must be a real `docker exec`"
 
 
 # ---------------------------------------------------------------------------------------

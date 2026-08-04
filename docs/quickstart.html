@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lane C Quickstart — run it, read it, fly it</title>
+<title>Quickstart — run it, read it, fly it</title>
 <style>
 /* ==========================================================================
    CANONICAL WORKLOG DESIGN SOURCE.
    Copy this <style> block verbatim into every later worklog render so the set
    does not drift. To change the design, edit it here first, then re-embed.
 
-   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   Matches docs/history/reference/*.html, with one deliberate divergence: NO external
    font <link>. Worklog renders must be strictly self-contained (no external
    css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
    IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
@@ -161,15 +161,15 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 </style></head>
 <body>
 <div class="topbar">
-  <span class="brand">Lane C · Quickstart</span>
+  <span class="brand">drone-sim · Quickstart</span>
   <nav><a href="#start">Start</a><a href="#configure">Configure</a><a href="#sensors">Sensors</a><a href="#commands">Commands</a><a href="#verify">Verify</a><a href="#limits">Limits</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
 <header class="mast">
-  <span class="eyebrow">Lane C · quickstart · SITL only · measured 2026-08-03</span>
+  <span class="eyebrow">UE5.8 + Cosys-AirSim · quickstart · SITL only · measured 2026-08-03</span>
   <h1>Run It,<br>Read It, Fly It</h1>
-  <p class="sub">Start the simulator, choose your world and sensors, subscribe to what it publishes, and command the drone &mdash; entirely over ROS 2. Every number on this page was measured on a running stack, not taken from upstream documentation.</p>
+  <p class="sub">The simulator is <strong>Unreal Engine 5.8 + Cosys-AirSim + PX4 v1.16 SITL + ROS 2 Jazzy</strong>. Start it, choose your world and sensors, subscribe to what it publishes, and command the drone &mdash; entirely over ROS 2, with the same graph you would fly on real hardware. Every number on this page was measured on a running stack, not taken from upstream documentation.</p>
   <div class="mastmeta"><span>Sensor topics <b>17</b></span><span>PX4 telemetry <b>24</b></span><span>Command kinds <b>3</b></span><span>Waypoint error <b>0.98 m</b></span><span>Control interface <b>ROS 2 only</b></span></div>
 </header>
 
@@ -192,10 +192,17 @@ not the commands.</strong></p></div>
 </ol></div>
 
 <h2 id="start"><span class="secnum">01</span> Start the simulator</h2>
-<pre>./scripts/lane_c_up.sh</pre>
+<pre>./scripts/sim_up.sh</pre>
 <p>Five containers come up &mdash; renderer, XRCE agent, PX4 SITL, QGC, ROS 2 &mdash; the vehicle is
 allowed to settle, and the EKF origin is <strong>verified</strong> before the stack is declared
 usable. It prints <code>stack up and origin verified -- safe to fly</code>, typically in ~80&nbsp;s.</p>
+
+<div class="callout"><span class="lbl">First run only &mdash; the images have to exist</span>
+<p>Building them is described in the repository README. One step cannot be automated away: the
+Unreal engine base image (<code>ghcr.io/epicgames/unreal-engine</code>) is
+<strong>credential-gated</strong> &mdash; it needs EpicGames organisation membership and a PAT
+with <code>read:packages</code>. &ldquo;Reproducible from this repo alone&rdquo; carries that one
+documented credential step; pretending otherwise would only move the surprise later.</p></div>
 
 <div class="callout warn"><span class="lbl">Why it verifies rather than just waits</span>
 <p>PX4 sets its EKF local origin <strong>once</strong>. If it initialises before the simulated
@@ -218,7 +225,7 @@ code at all.</p></div>
 <code>SPAWN_VEHICLE</code>, <code>SPAWN_ALLOW_BELOW</code>.</p>
 
 <pre><span class="c"># your own world, drone placed deliberately, 10 m up facing north-west</span>
-./scripts/lane_c_up.sh \
+./scripts/sim_up.sh \
     --world /path/to/YourProject.uproject \
     --spawn 50,-30,<b>-10</b>,315</pre>
 
@@ -237,7 +244,7 @@ copied to a run-time artifact, so your configuration and the reviewed default ca
 each other.</p>
 <pre>cp sim/ue5/settings.json my-settings.json
 $EDITOR my-settings.json
-./scripts/lane_c_up.sh --settings my-settings.json</pre>
+./scripts/sim_up.sh --settings my-settings.json</pre>
 <p>A worked example ships at <code>sim/ue5/examples/minimal-no-lidar.json</code> &mdash; GPU-LiDAR
 disabled, cameras at 320&times;240. Verified: the <code>gpulidar</code> topic disappears from the
 graph and <code>image.width</code> reads <code>320</code>.</p>
@@ -267,9 +274,10 @@ time.</strong></p></div>
 <p>A camera declared without <code>X/Y/Z/Pitch/Roll/Yaw</code> keeps AirSim&rsquo;s NaN sentinels,
 reaches <code>FRotator::Quaternion</code> as <code>P=nan Y=nan R=nan</code>, and <strong>SIGSEGVs the
 simulator during <code>BeginPlay</code></strong> &mdash; a crash, not a validation error.</p>
-<p>The last three keys are why Lane C imagery is photorealistic. Drop them and the capture renders
-with global illumination and reflections <strong>forced off</strong>. They cost ~8.6% RGB and ~10%
-LiDAR throughput.</p></div>
+<p>The last three keys are why the imagery is photoreal &mdash; with them the capture matches
+Unreal&rsquo;s own render to <strong>1.15 of 255</strong>. Drop them and it renders with global
+illumination and reflections <strong>forced off</strong>. They cost ~8.6% RGB and ~10% LiDAR
+throughput.</p></div>
 
 <div class="tw"><table>
 <thead><tr><th>Sensor</th><th>Key</th><th>Note</th></tr></thead>
@@ -284,15 +292,26 @@ LiDAR throughput.</p></div>
 
 <h2 id="sensors"><span class="secnum">03</span> Sensors you receive</h2>
 <p>Published by <code>airsim_node</code>. Start it once the stack is up:</p>
-<pre>docker exec -d lane-c-ros2 bash -lc '
+<pre>docker exec -d sim-ros2 bash -lc '
   source /opt/ros/jazzy/setup.bash
   source /airsim_root/ros2/install/setup.bash
   source /ros2_ws/install/setup.bash
-  ros2 launch bringup lane_c_perception.launch.py'</pre>
+  ros2 launch bringup perception.launch.py'</pre>
 <div class="callout warn"><span class="lbl">Rebuild the wrapper after every bring-up</span>
-<p><code>lane_c_up.sh</code> deletes the ROS 2 container, which is where the wrapper lives. If
-<code>ros2 launch</code> reports <code>package 'airsim_ros_pkgs' not found</code>, run
-<code>./scripts/build_airsim_wrapper.sh</code> (~2 min).</p></div>
+<p><code>sim_up.sh</code> does <code>docker rm -f sim-ros2 …</code> on every bring-up, and the
+wrapper is built <em>inside</em> that container (<code>/airsim_root</code>), not baked into the
+image. If <code>ros2 launch</code> reports <code>package 'airsim_ros_pkgs' not found</code>, run
+<code>./scripts/build_airsim_wrapper.sh</code> (~2 min). The order is always
+<code>sim_up.sh</code> &rarr; <code>build_airsim_wrapper.sh</code> &rarr; <code>ros2 launch</code>.</p></div>
+
+<div class="callout stop"><span class="lbl">Launch it &mdash; do not ros2 run it</span>
+<p>A bare <code>ros2 run airsim_ros_pkgs airsim_node</code> starts, looks healthy, and its clock is
+silently dead: <code>publish_clock</code> defaults to false, and when enabled it publishes to
+<code>/airsim_node/clock</code>, never <code>/clock</code>. <code>perception.launch.py</code> flips
+that default, remaps the topic, and passes the five sensor-timer periods the wrapper otherwise
+reads out of <em>uninitialised stack memory</em> &mdash; measured 1.1 Hz imagery and 1.6 Hz LiDAR
+when they are left unset. Add <code>use_sim_time:=true</code> to put your graph on simulator time;
+it is only safe because this launch file guarantees the <code>/clock</code> publisher.</p></div>
 
 <div class="tw"><table>
 <thead><tr><th>Topic</th><th>Type</th><th>Rate</th><th>Notes</th></tr></thead>
@@ -317,7 +336,9 @@ LiDAR throughput.</p></div>
 </tbody></table></div>
 
 <p>Vehicle state comes from PX4 itself &mdash; <strong>24 <code>/fmu/out/*</code> topics</strong>,
-byte-identical to what Lane A and real hardware publish:</p>
+byte-identical to what a real Pixhawk publishes over the same <code>px4_msgs</code> definitions.
+That identity <em>is</em> the sim-to-real argument: your node cannot tell which side of the
+transport swap it is on.</p>
 <div class="tw"><table>
 <thead><tr><th>Topic</th><th>Type</th></tr></thead>
 <tbody>
@@ -433,12 +454,19 @@ VEHICLE_CMD_NAV_LAND</pre>
 <p>Stream setpoints <strong>before</strong> requesting OFFBOARD, or the mode change is rejected.</p>
 
 <h2 id="verify"><span class="secnum">05</span> Verify it works</h2>
-<pre><span class="c"># sensors — checks VALUES, not topic presence</span>
-docker exec lane-c-ros2 python3 /tmp/verify.py       <span class="c"># scripts/verify_lane_c_sensors.py</span>
+<p>Both scripts live in the repo, not in the image, so copy them in first &mdash; and run them
+through a <strong>login</strong> shell, because <code>docker exec</code> bypasses the entrypoint and a
+non-login shell has no ROS environment at all (<code>import rclpy</code> fails before anything is
+checked).</p>
+<pre>docker cp scripts/verify_sensors.py       sim-ros2:/tmp/verify.py
+docker cp scripts/verify_nav_interface.py sim-ros2:/tmp/verify_nav.py
+
+<span class="c"># sensors — checks VALUES, not topic presence</span>
+docker exec sim-ros2 bash -lc 'python3 /tmp/verify.py'
 
 <span class="c"># the command interface — arms and flies, SITL only</span>
-docker exec lane-c-ros2 python3 /tmp/verify_nav.py   <span class="c"># scripts/verify_nav_interface.py</span></pre>
-<p><code>verify_lane_c_sensors.py</code> deliberately asserts values: an all-black camera and a
+docker exec sim-ros2 bash -lc 'python3 /tmp/verify_nav.py'</pre>
+<p><code>verify_sensors.py</code> deliberately asserts values: an all-black camera and a
 working one both &ldquo;publish an image&rdquo;, and only one has pixel variance.</p>
 <div class="callout warn"><span class="lbl">simGetVehiclePose is spawn-relative</span>
 <p>AirSim anchors its NED frame at the <em>spawn point</em>, so after a spawn
@@ -449,15 +477,15 @@ working spawn look like it was ignored.</p></div>
 <h2 id="limits"><span class="secnum">06</span> Known limits</h2>
 <ul>
 <li><strong>Lockstep is dead code</strong> in Cosys-AirSim &mdash; <code>"LockStep": true</code> is
-silently ineffective, so <strong>every Lane C timing number is free-running</strong>. Never quote a
-Lane C RTF as deterministic.</li>
+silently ineffective, so <strong>every timing number here is free-running</strong>. Never quote an
+RTF as deterministic.</li>
 <li><strong>Frame rate is capped by the launch file, not the hardware.</strong>
-<code>lane_c_perception.launch.py</code> pins imagery at 20 Hz and LiDAR at 10 Hz; measured
+<code>perception.launch.py</code> pins imagery at 20 Hz and LiDAR at 10 Hz; measured
 throughput sits at 94% and 100% of those ceilings.</li>
 <li><strong>Frames are NWU, not ENU</strong>, despite what the upstream docs say.</li>
 <li><strong>The capture carries ~2.5&times; the high-frequency speckle</strong> of Unreal's own
 render. <code>ForceUpdate</code> removes the Lumen-attributable part; the residual is deferred as
-<code>C-12</code>, and the metric itself is not fully trustworthy.</li>
+<code>SIM-12</code>, and the metric itself is not fully trustworthy.</li>
 <li><strong>A simulator segfault was seen once</strong> after ~57 minutes of continuous running
 (<code>Array index out of bounds: 18823 into an array of size 0</code>, preceded by a MAVLink
 <code>hil</code> EPIPE). <strong>n&nbsp;=&nbsp;1.</strong>
@@ -471,12 +499,13 @@ uncharacterised event rather than a known ceiling.</li>
 </ul>
 
 <div class="panel"><p style="margin:0"><strong>Source of truth:</strong>
-<code>docs/quickstart.md</code> and <code>docs/lane-c/todo.md</code>. Measurements here are
+<code>docs/quickstart.md</code>, the backlog in <code>docs/todo.md</code>, and the wire
+conventions the graph is held to in <code>docs/conventions.md</code>. Measurements here are
 from 2026-08-03 on the <code>carbonite</code> bench; re-measure per world, because a heavy user
 world may not hold these rates.</p></div>
 
 <footer>
-  <span>drone-sim · Lane C · quickstart</span>
+  <span>drone-sim · quickstart</span>
   <span>SITL only · control via ROS 2</span>
   <span><a href="roadmap.html">&larr; Roadmap</a></span>
 </footer>

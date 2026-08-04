@@ -1,28 +1,68 @@
 # Reproducibility — Docker — backlog
 
 **Area:** containerization, reproducible builds, one-command bring-up.
-**Indexed from:** [`../drone-sim-todo.md`](../drone-sim-todo.md).
+**Indexed from:** [`../todo.md`](../todo.md) — the project backlog.
 
 > **Project goal (added 2026-07-29):** *the whole setup must be easily reproducible as
 > Docker.* Not "there are some Dockerfiles" — a fresh machine (or a fresh container on
 > this one) must reach a working stack from the repo alone, with no undocumented manual
 > steps.
 
-**Definition of done — Lane A:** `docker compose up` brings the Lane A stack to the same
-state `P0-07` proved by hand — headless SITL, `/fmu/out/*` populated, QGC-consumable
-MAVLink — on a machine that has only Docker + an NVIDIA driver. **Met (`D-01`, `D-02`).**
+**`D-NN` IDs are cross-cutting and stable.** They are not simulator tasks (`SIM-NN`, in
+[`../todo.md`](../todo.md)) and they are not renumbered when the stack underneath them
+changes — which it has.
 
-**Definition of done — Lane C, added 2026-07-31 and NOT met.** Lane C is now the project's
-primary stack (`../lane-c/todo.md`), so "reproducible as Docker" no longer means Lane A
-alone. Lane C is the harder case in three specific ways, all discovered on 2026-07-31:
+---
+
+## Restated 2026-08-04 — one stack, no compose
+
+The repo builds and runs **one** stack: Unreal Engine 5.8 + Cosys-AirSim + PX4 v1.16 SITL +
+ROS 2 Jazzy, brought up by [`../../scripts/sim_up.sh`](../../scripts/sim_up.sh). The Gazebo
+baseline and Isaac Sim are retired; their backlogs are in [`../history/`](../history/).
+
+**There is no compose file.** `docker/compose.yaml` described the Gazebo stack and was
+deleted with it. The simulator has never used compose: every service joins the renderer's
+network and IPC namespaces (which compose could express) *and* the bring-up has to sequence
+a settle-then-verify step around PX4's EKF origin (which it cannot, cleanly). One correct
+path beats two half-correct ones.
+
+That deletion changes what several tasks below mean. Each is marked with what happened to
+it, and none is silently dropped:
+
+| ID | What it was | Disposition |
+|---|---|---|
+| `D-01` | Capture the working install as a Dockerfile | ✅ **done**, and still live as `docker/px4.Dockerfile` — updated, Gazebo removed |
+| `D-02` | `docker compose` for the Gazebo graph | ✅ done 2026-07-29 → **superseded by deletion**; three of its findings carried over to `sim_up.sh` |
+| `D-02b` | Live GUI access (x11vnc + noVNC) | **narrowed** — the Gazebo GUI it was half about no longer exists; QGC remains |
+| `D-02c` | Recording as a compose service | ✅ done 2026-07-30 → **superseded by deletion**; replaced by `scripts/record_flight.py` |
+| `D-03` | GPU services and device pinning | **partly done** — the renderer is pinned at the container boundary; the second consumer is not built |
+| `D-04` | The Unreal engine container | **partly done** — it is built and it flies *here*; the reproducibility deliverables are outstanding. **The live constraint on the whole goal** |
+| `D-05` | CI builds the images | `todo` — restated against the current Dockerfiles |
+| `D-06` | Redraw container boundaries onto real machines | `todo` — the criticism got sharper, not weaker |
+| `D-07` | Automated flight gate | `todo`, deferred — one of its two blockers changed |
+| `D-08` | The runtime substrate is not captured | `todo` — the target is native Docker, not this box |
+
+### Definition of done, for the one stack there is
+
+On a machine with **native Docker and an NVIDIA driver**, a clone of this repo plus **one
+documented credential step** reaches a flying stack:
+
+1. the six images build from the repo (`docker/*.Dockerfile`);
+2. `./scripts/sim_up.sh` prints `stack up and origin verified -- safe to fly`;
+3. `./scripts/run_gate.py scenarios/square-10m.yaml` passes.
+
+**Not met.** Two named gaps: the credential gate (`D-04`), and the fact that nothing here
+has ever been built or run on a machine other than this one — which is a distrobox, not the
+target substrate (`D-08`).
 
 > ### The reproducibility goal has a hole in it, and it is worth stating plainly
 >
-> **The Lane A DoD says "a machine that has only Docker + an NVIDIA driver". Lane C cannot
-> meet that as written.** Its engine base image, `ghcr.io/epicgames/unreal-engine`, is
-> **credential-gated**: anonymous reads return HTTP 403, and pulling needs EpicGames GitHub
-> **org membership plus a PAT with `read:packages`**. A clone of this repo plus a Dockerfile
-> is **not sufficient** to build Lane C, and no amount of pinning fixes that.
+> **The original wording was "a machine that has only Docker + an NVIDIA driver". The
+> simulator cannot meet that as written.** Its engine base image,
+> `ghcr.io/epicgames/unreal-engine`, is **credential-gated**: anonymous reads return HTTP
+> 403, and pulling needs EpicGames GitHub **org membership plus a PAT with
+> `read:packages`**. A clone of this repo plus a Dockerfile is **not sufficient**, and no
+> amount of pinning fixes that.
 >
 > This is a genuine, permanent constraint from upstream licensing — not a gap to close.
 > **So the goal has to be restated rather than quietly failed:** a fresh machine reaches a
@@ -30,48 +70,58 @@ alone. Lane C is the harder case in three specific ways, all discovered on 2026-
 > is documented, scripted where possible, and named in the README rather than discovered.
 >
 > Anything less and the honest description of this project is "reproducible except for the
-> primary simulator", which is not what the goal says.
-
-Concretely, Lane C's DoD is:
-
-1. `docker compose --profile lane-c up` brings up UE5.8 + Cosys-AirSim + PX4 + the ROS 2
-   graph, with `/fmu/out/*` populated identically to Lane A (`lane-c-topic-parity`).
-2. The **credential step is documented in `docker/README.md`** and fails with a clear,
-   actionable message rather than a registry 403.
-3. Disk is budgeted up front — see `D-04`.
+> simulator", which is not what the goal says.
 
 ---
 
-## Why this is now urgent, not eventual
+## Why this was urgent, and what the urgency taught
 
-Phase 0 Lane A was installed **natively inside the `drone-sim` container**, on the
-reasoning that Phase 0 proves components and Phase 1 containerizes them. That reasoning is
-now superseded by this goal, and there is a **perishable asset**: the exact, working,
-smoke-tested recipe is currently only in `versions.lock` and the worklogs. Every day it
-goes uncaptured, the chance of it becoming irreproducible rises — apt archives move,
-`latest` tags drift, and the deviations we discovered are exactly the kind of detail that
-is expensive to rediscover.
+The original Phase 0 install was done **natively inside the `drone-sim` container**, on the
+reasoning that you prove components first and containerize them later. The reproducibility
+goal superseded that reasoning, and the asset was **perishable**: the exact, working,
+smoke-tested recipe lived only in `versions.lock` and the worklogs. Apt archives move,
+`latest` tags drift, and the deviations discovered along the way are exactly the kind of
+detail that is expensive to rediscover.
 
-**Three of today's findings are the sort a naive Dockerfile silently gets wrong:**
+**Three findings from that day are the sort a naive Dockerfile silently gets wrong:**
 
 1. **The XRCE agent's pinned v2.4.2 cannot be built at all** — its Fast-DDS branch is
    deleted upstream, and the 2.12 line does not compile on GCC 13+. Must be **v2.4.3**
-   built with `-DUAGENT_USE_SYSTEM_FASTDDS=ON`.
-2. **`px4_ros_com` must be branch-matched** to `release/1.16`, which the plan's own setup
-   snippet does not do.
+   built with `-DUAGENT_USE_SYSTEM_FASTDDS=ON`. **Still live** — the agent is
+   `sim-xrce` today.
+2. **`px4_ros_com` must be branch-matched** to `release/1.16`, which the reference setup
+   snippet does not do. **Still live.**
 3. **PX4 airframe targets are `gz_`-prefixed** — `gz_x500_lidar_2d`, not `x500_lidar_2d`.
-
-A Dockerfile written from the reference docs rather than from today's evidence would
-reproduce a **broken** stack.
+   **Retired with Gazebo**; the simulator uses airframe 10016 and the PX4 image no longer
+   contains `gz` at all. Kept because it is the cleanest single example of the rule: a
+   Dockerfile written from the reference docs rather than from evidence reproduces a
+   **broken** stack.
 
 ---
 
-## D-01 — Capture the working Lane A install as a Dockerfile
+## D-01 — Capture the working install as a Dockerfile
 
 **Status:** ✅ **`done` (2026-07-29)** — the image is **native-equivalent** on a normal
-container runtime. **Blocks:** D-02, D-03 (both now unblocked)
+container runtime. Now `docker/px4.Dockerfile`, and still the base of `drone-sim/ros2`,
+`drone-sim/qgc` and `drone-sim/video`.
+
+### Updated 2026-08-04 — the image no longer contains Gazebo
+
+`Tools/setup/ubuntu.sh --no-sim-tools`, plus an explicit reinstall of the build dependencies
+that flag drops which are *not* Gazebo (`bc`, `libeigen3-dev`, `protobuf-compiler`,
+`pkg-config`, `libxml2-utils`). **MEASURED: 11.6 GB with Gazebo, 11.0 GB without**, and the
+build then **asserts `gz` is absent** rather than trusting the flag — because a dependency
+chain can pull Gazebo back in without anyone noticing, and an image that quietly regrows a
+retired simulator is exactly what this file exists to prevent.
+
+**NuttX is still installed on purpose.** Real Pixhawk 6C firmware is flashed from that same
+tree, so dropping it would slim the image while silently removing a capability.
 
 ### Closing result — three-way comparison, identical harness and criteria
+
+**Read this as evidence about *containerization*, not about today's stack.** It was measured
+against PX4 + Gazebo SITL, which is retired. The conclusion it supports — a container costs
+nothing on a normal runtime, and this box's nesting costs ~2.3% — is what carried forward.
 
 | Configuration | Aggregate RTF | Topic rate | Sensor TIMEOUTs | Instantaneous dips <0.95 |
 |---|---|---|---|---|
@@ -79,20 +129,28 @@ container runtime. **Blocks:** D-02, D-03 (both now unblocked)
 | **Host podman** (no nesting) | **0.9967** | **99.74 Hz** | **0** | **0 of 2,930** |
 | Nested Docker (this dev box) | 0.9767 | 97.2 Hz | 0 in 5 runs | 655 of 2,907 |
 
-**The containerized stack reproduces native behaviour.** On host podman it runs at 99.67% of
+**The containerized stack reproduced native behaviour.** On host podman it ran at 99.67% of
 real time — 0.33% off bare metal — with zero sensor TIMEOUTs, zero errors, 24 populated
 `/fmu/out` topics and correct publish rates.
 
 **The 2.3% deficit belongs to *this dev box's* nesting** (Docker inside rootless podman on
 `fuse-overlayfs`), **not to containerization.** That distinction is the whole point for a
 reproducibility goal: ship the image, run it on a normal host, get native performance. The
-nested path remains fine for day-to-day work here — 0.9767 clears any sane floor — it is just
-not the number to quote for the stack.
+nested path remains fine for day-to-day work here — it is just not the number to quote for
+the stack.
+
+**There is no equivalent number for the current simulator, and there cannot be one of this
+kind.** Lockstep is dead code in Cosys-AirSim, so its timing is free-running and a
+real-time factor from it is not a determinism claim (`../conventions.md` §4). The simulator
+is gated on **success rate over seeded runs** instead (`scripts/run_gate.py`).
 
 Full reasoning and every dead end:
 [`../worklog/2026-07-29-d01-container-parity.md`](../worklog/2026-07-29-d01-container-parity.md).
 
-### How to run it on the host (recipe, since each step has a trap)
+### How to run an image on the host (recipe, since each step has a trap)
+
+The script this was demonstrated with — the Gazebo acceptance gate — was deleted with that
+stack. **The traps are the durable part** and apply to any host-side podman run.
 
 ```bash
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/host/run/user/1000/bus   # HOST bus, not the container's
@@ -100,8 +158,8 @@ EXT=/var/mnt/<uuid>/Developments/projects/drone-sim
 host-spawn -no-pty /usr/bin/bash -c "/usr/bin/podman \
   --root $EXT/podman-store --runroot /tmp/pmrr \
   run --rm --shm-size=2g -e DURATION=300 -e OUTDIR=/out \
-  -v $EXT/host-out:/out:z -v $EXT/smoke.sh:/smoke.sh:ro,z \
-  docker.io/drone-sim/lane-a:v1.16.0 bash /smoke.sh"
+  -v $EXT/host-out:/out:z -v $EXT/probe.sh:/probe.sh:ro,z \
+  docker.io/drone-sim/px4:v1.16.0 bash /probe.sh"
 ```
 
 | Trap | Why |
@@ -109,162 +167,123 @@ host-spawn -no-pty /usr/bin/bash -c "/usr/bin/podman \
 | `/run/host/run/user/1000/bus` | the container's own bus makes `host-spawn` a silent no-op (rc=0, nothing runs) |
 | `--runroot /tmp/pmrr` | podman rejects runroot paths >50 chars (Unix socket limit) |
 | `--root` on the external drive | **never** use the host's live store `~/.local/share/containers/storage` — it runs this distrobox and concurrent writes can corrupt it |
-| `:z` on bind mounts | SELinux on Bazzite; without it `bash: /smoke.sh: Permission denied` (rc=126) |
+| `:z` on bind mounts | SELinux on Bazzite; without it `bash: /probe.sh: Permission denied` (rc=126) |
 | load the image **on the host** | nested rootless podman cannot map GID 42 — *"insufficient UIDs or GIDs available in user namespace"* |
 | run host-spawn commands **synchronously** | a `nohup … &` child dies when host-spawn returns |
 
-The isolated store already holds the image (12 GB), so no re-transfer is needed.
-
 ### What the investigation established (detail in the worklog)
 
-The full story — every dead end, refuted hypothesis and measurement — is in
-[`../worklog/2026-07-29-d01-container-parity.md`](../worklog/2026-07-29-d01-container-parity.md).
 Only the **actionable** conclusions are kept here:
 
-| Finding | Action it forces |
-|---|---|
-| **PX4 busy-spins its prompt** when stdin does not block (`pxh.cpp` clears `ICANON` without setting `VMIN`): ~1.45 M writes/s, **4.1 GB per 300 s run**, one CPU core consumed | **Launch under `screen` with `stty min 1 time 0`** — mandatory in every harness and compose service. Upstream defect; worth reporting. |
-| Gazebo's **instantaneous** `real_time_factor` swings 0.14–1.01 while the true ratio is 0.977 | **Assert on AGGREGATE RTF** — `sim_time`/`real_time` over the run. Never the instantaneous field, never its minimum. A healthy *native* run has a lone 0.503 sample in 2,931. |
-| Docker defaults `/dev/shm` to **64 MB**; Fast-DDS uses shared memory as its default transport | **`shm_size: 2gb`** in the compose service (`D-02`). Invisible in a Dockerfile. |
-| tmpfs over PX4's `rootfs` | **Refuted and harmful** — 0/5 runs; it shadows the SITL filesystem and Gazebo never starts. Do not retry. |
-| Killed runs leave orphaned `fastrtps_*` segments in `/dev/shm` (37 accumulated in one session) | **Sweep `/dev/shm` in the entrypoint**, so a cancelled CI job cannot poison the next build on that runner. |
-| Harness-managed background jobs died at ~25 s; **detached** runs completed | Long regressions: `setsid nohup … &`. Write logs somewhere durable, never a tmpfs that can fill mid-run. |
+| Finding | Action it forces | Still live? |
+|---|---|---|
+| **PX4 busy-spins its prompt** when stdin does not block (`pxh.cpp` clears `ICANON` without setting `VMIN`): ~1.45 M writes/s, **4.1 GB per 300 s run**, one CPU core consumed | **Launch under `screen` with `stty min 1 time 0`** — mandatory in every harness. Upstream defect; worth reporting. | **yes** — `sim-px4` still runs PX4 this way |
+| Docker defaults `/dev/shm` to **64 MB**; Fast-DDS uses shared memory as its default transport | **`--shm-size=2g`** on the container that donates the IPC namespace. Invisible in a Dockerfile. | **yes** — on `sim-unreal` |
+| Killed runs leave orphaned `fastrtps_*` segments in `/dev/shm` (37 accumulated in one session) | **Sweep `/dev/shm` at start**, so a cancelled run cannot poison the next one on that machine. | **yes** |
+| Harness-managed background jobs died at ~25 s; **detached** runs completed | Long regressions: `setsid nohup … &`. Write logs somewhere durable, never a tmpfs that can fill mid-run. | **yes** |
+| Gazebo's **instantaneous** `real_time_factor` swings 0.14–1.01 while the true ratio is 0.977 | **Assert on AGGREGATE RTF**, never the instantaneous field or its minimum. A healthy *native* run has a lone 0.503 sample in 2,931. | retired with Gazebo — but the shape of the mistake is not: **do not assert on a noisy instantaneous metric** |
+| tmpfs over PX4's `rootfs` | **Refuted and harmful** — 0/5 runs; it shadowed the SITL filesystem and Gazebo never started. Do not retry. | historical |
 
 **Void measurements — do not quote them.** Earlier pass rates of 40% and 60% were taken
 while PX4 was spinning a core and writing ~4 GB per run through `fuse-overlayfs`, and were
 scored against the noisy instantaneous metric. They measured the instrumentation, not Docker.
 
 **Two Dockerfile bugs worth remembering:** `gz --version` is not a valid invocation (prints
-usage, exits non-zero — fails the layer under `-o pipefail`), and the package is
-`gz-sim8-cli`, not `gz-sim8`. Both were in verification lines, which is why the Dockerfile
-now asserts on artifacts (`test -x`, SHA equality, `ldd | grep -c 'not found'`) rather than
-on reaching the end of a script.
+usage, exits non-zero — fails the layer under `-o pipefail`), and the package was
+`gz-sim8-cli`, not `gz-sim8`. Both were in *verification* lines. Neither can recur — Gazebo
+is gone — but the lesson they forced is now the house style: **assert on artifacts**
+(`test -x`, SHA equality, `ldd | grep -c 'not found'`, `! command -v gz`), never on reaching
+the end of a script.
 
-## D-02 — `docker compose` for the Lane A graph
+---
 
-**Status:** ✅ **`done` (2026-07-29)** — `docker compose up` reaches the `P0-07` result.
+## D-02 — `docker compose` for the ROS 2 graph
 
-```bash
-docker compose -f docker/compose.yaml up -d
-docker compose -f docker/compose.yaml --profile test run --rm verify   # the gate
-docker compose -f docker/compose.yaml down -v
-```
+**Status:** ✅ done 2026-07-29 → **SUPERSEDED BY DELETION (2026-08-04).** `docker/compose.yaml`
+described the Gazebo stack and went with it. The simulator's bring-up is
+`scripts/sim_up.sh`, raw `docker run`, and it never went through compose.
 
-**Verified:** full 300 s run against the composed stack — 24 `/fmu/out/*` topics, 0 sensor
-TIMEOUTs, 0 ERROR lines, aggregate RTF **0.9733**, publish rate 98.05 Hz, clean teardown.
-The `verify` service **attaches to the running stack** rather than starting its own PX4, so
-it tests the deployment rather than a private copy of it. **Re-verified after the review
-fixes below** (2026-07-30): same 0.9733 aggregate RTF, 24 topics, 0 TIMEOUTs, 97.89 Hz.
+**Marked superseded rather than deleted because the findings outlived the file.** Three of
+them are load-bearing in `sim_up.sh` today, and two are security decisions that must not be
+re-litigated by accident.
 
-### Fixed by review before merge
+### What carried over into `sim_up.sh`
 
-| Finding | Why it mattered |
+| Finding, as originally recorded | Where it lives now |
 |---|---|
-| **Ports published on `0.0.0.0`** | MAVLink is unauthenticated. On this box the offboard port 14540 was reachable at the LAN address *and* over the netbird overlay — anyone routable could arm and command the vehicle. Now `127.0.0.1` by default, `BIND_ADDR` to opt out. Confirmed at the socket level (`ss -lunt`). |
-| `verify` waited only on `px4-sitl` | The gate could start before the bridge was up, see 0 topics and fail spuriously. It passed only because PX4's healthcheck happens to take longer. Now waits on `xrce-agent: service_healthy` too. |
-| `xrce-agent` had no supervision | It is the entire PX4↔ROS 2 bridge and **has** crashed here (v2.4.2 segfaulted). A crash stopped every topic while the rest of the stack still reported healthy. Now has a healthcheck and `restart: unless-stopped`. |
-| Two `out/` directories | Compose resolved `./out` → `docker/out/` while the README used the repo root. Both existed and diverged. Compose now writes `../out`; `.gitignore` anchors `/out/`. |
-| `docker/README.md` said compose was missing | Stale in the same PR that added it. |
-| Scope drift | `D-02` was marked done against a five-service definition; only three shipped. The two others are now explicit deferrals — see below. |
+| **Shared netns is not enough for DDS** — `ros2 topic list` shows topics, `ros2 topic echo` returns **nothing**, because Fast-DDS discovers over UDP but delivers over **shared memory**, and each container has its own `/dev/shm` | `--ipc container:sim-unreal` on every joiner |
+| **The IPC donor must opt in** — otherwise `failed to join IPC namespace: non-shareable IPC` | `--ipc shareable` on `sim-unreal` |
+| **`exec` bypasses the ENTRYPOINT** — exec shells have no ROS env, so `ros2 topic list` reports **0 topics on a healthy stack**, a false negative that looks exactly like a broken deployment | `docker/ros-profile.sh` is now **baked into `drone-sim/ros2`** at `/etc/profile.d/10-ros.sh` (it used to be bind-mounted), and callers use `bash -lc` |
+| **Ports published on `0.0.0.0` are a real hazard** — MAVLink is unauthenticated; on this box offboard port 14540 was reachable at the LAN address *and* over the netbird overlay, so anyone routable could arm and command the vehicle. Confirmed at the socket level (`ss -lunt`) | **No ports are published at all.** Every service joins the renderer's netns, so there is nothing bound on the host; reach the stack with `docker exec`. If a port is ever published, this is why it must be `127.0.0.1` by default |
+| **The agent needs supervision** — it is the entire PX4↔ROS 2 bridge and **has** crashed here (v2.4.2 segfaulted); a crash stopped every topic while everything else still reported healthy | **Regressed, deliberately noted:** `sim-xrce` has no healthcheck and no restart policy. `sim_up.sh` verifies the stack once at bring-up and `run_gate.py` VOIDs a run whose origin cannot be read, but nothing watches the agent mid-flight. **Open** — the cheapest version is a liveness check in the gate |
 
-### Three bugs found by running it — none visible to `compose config`
+### What did not carry over
 
-| Bug | Symptom | Fix |
-|---|---|---|
-| Shared netns is not enough for DDS | `ros2 topic list` shows topics, `ros2 topic echo` returns **nothing** — Fast-DDS discovers over UDP but delivers over **shared memory**, and each container has its own `/dev/shm` | `ipc: "service:px4-sitl"` on every joining service |
-| IPC donor must opt in | `failed to join IPC namespace: non-shareable IPC` | `ipc: shareable` on `px4-sitl` |
-| `docker compose exec` bypasses the ENTRYPOINT | exec shells have no ROS env; `ros2 topic list` reports **0 topics on a healthy stack** — a false negative that looks exactly like a broken deployment | mount `docker/ros-env.sh` into `/etc/profile.d/`, and use `bash -lc` |
+- The **`verify` service** (`--profile test`) that attached to the running stack rather than
+  starting its own PX4. Its successor is `scripts/run_gate.py`, which does the same thing —
+  test the deployment, not a private copy of it.
+- The **`recording` service** — see `D-02c`.
+- The measured result it was accepted on: a full 300 s run against the composed stack, 24
+  `/fmu/out/*` topics, 0 sensor TIMEOUTs, 0 ERROR lines, aggregate RTF **0.9733**, publish
+  rate 98.05 Hz, clean teardown; re-verified after review at 0.9733 / 24 topics / 0 TIMEOUTs
+  / 97.89 Hz. **That is a Gazebo number and does not describe anything that runs today.**
+- The **design constraint that only one service may declare `ports:`** — inherited by
+  `sim_up.sh` in a stronger form, since none of them do.
 
-**Design constraint worth keeping in mind:** every service shares `px4-sitl`'s network *and*
-IPC namespace, because PX4 dials the agent at **127.0.0.1**:8888 and Gazebo transport is
-pinned to loopback. A conventional bridge network would break both. Consequence: only
-`px4-sitl` may declare `ports:`.
-
-### Delivered vs. defined — the two services deliberately left out
-
-The original definition (below) named five services. **Three shipped**, plus the gate:
-
-| Service | Status |
-|---|---|
-| `px4-sitl` | ✅ shipped |
-| `xrce-agent` | ✅ shipped |
-| `ros2-ws` → `ros2` | ✅ shipped (renamed; idles for `exec`, will host Phase 1 nodes) |
-| `verify` | ✅ added — not in the original definition; it is the acceptance gate under `--profile test` |
-| `qgc` | ✅ **shipped (2026-07-30)** — promoted out of `D-02b` because it turned out to be a **functional dependency of flight**, not a viewer: PX4 will not arm without a GCS datalink, and that check is deliberately left enforced. Runs headless on Xvfb via `docker/qgc.Dockerfile`. `D-02b` still owns making it *viewable*. |
-| `recording` | ✅ **shipped (2026-07-30)** via `D-02c` — attaches to the running stack under `--profile record`. One known defect: the QGC pane records black (`D-02b`). |
-
-**Ports:** all four are published (14550, 14540, 8888, 4560) but **bound to `127.0.0.1`**, not
-`0.0.0.0` — MAVLink has no authentication, so a LAN-published 14540 lets anyone routable arm
-and command the vehicle. Override with `BIND_ADDR=0.0.0.0` when a remote QGC is genuinely
-wanted. This file is the template for Phase 4 hardware bring-up, where the same default
-would point at a real Pixhawk.
-
-**Volumes:** `/rosbags` (named volume) and `/scenarios` (read-only bind) both wired.
-
-**Original definition:** ~~`todo` · Blocked by: D-01~~
-
-**What.** Compose file with the services the plan names
-(`02_development_plan.md:134`): `px4-sitl`, `xrce-agent`, `ros2-ws`, `qgc`, `recording`.
-Ports 14550 (QGC), 14540 (offboard), 4560 (Gazebo↔PX4), 8888 (uXRCE-DDS); shared volumes
-for `/rosbags`, `/scenarios`.
-
-**Why.** "Easily reproducible" means one command, not a README of steps.
-
-**Acceptance.** `docker compose up` on a clean machine reaches the `P0-07` result. A
-second machine, or this one after `docker system prune`, is the real test.
-
-**Trap.** Gazebo transport **must** stay on loopback (`PX4/PX4-Autopilot#24595`). Compose
-networking makes it easy to accidentally expose it.
+**One structural note that survived intact:** every service sharing one network *and* one
+IPC namespace is not isolation, it is one machine wearing five hats. That is `D-06`'s whole
+argument, and the renderer donating the namespace makes it sharper than it was.
 
 ---
 
 ## D-02b — Live GUI access (x11vnc + noVNC), not just recordings
 
-**Status:** `todo` · **Blocked by:** D-02
+**Status:** `todo` · **Narrowed twice**
 
 **What.** Expose the container's virtual display over the browser: `x11vnc` on the Xvfb
-display plus `noVNC` on an HTTP port, as a compose service.
+display plus `noVNC` on an HTTP port.
 
-**Scope narrowed 2026-07-30:** the `qgc` service itself already shipped — it had to, because
-PX4 will not arm without a GCS datalink, which made QGC a functional dependency of flight
-rather than a viewer. It runs headless on Xvfb today. What is left here is making that
-display **reachable and interactive**, i.e. attaching a viewer to the Xvfb that QGC is
-already drawing on.
+**Scope narrowed 2026-07-30:** the QGC service itself shipped — it had to, because PX4 will
+not arm without a GCS datalink, which made QGC a functional dependency of flight rather than
+a viewer. It runs headless on Xvfb. What was left was making that display **reachable and
+interactive**.
 
-**Why.** Today the GUIs (Gazebo, QGroundControl) render to Xvfb and are only obtainable as
-an `.mp4` — you cannot click anything. That is fine for CI evidence and useless for actually
-driving a simulation. A browser-attachable display gives an operator the Gazebo view and QGC
-without any host X11 setup, and works identically over SSH to `carbonite`, which is how this
-box is normally used.
+**Narrowed again 2026-08-04:** half of the original justification was the **Gazebo GUI**,
+which no longer exists. The remaining target is **QGC only**. The renderer has no window to
+attach to — it runs `-RenderOffScreen` by design — and streaming its viewport live is a
+different problem (`SIM-17`, Pixel Streaming), currently **blocked** on the driver:
+[`../nvenc-driver-blocker.md`](../nvenc-driver-blocker.md).
 
-**Acceptance.** Browse to the mapped port, see the Gazebo GUI and QGC live, and interact with
-them (orbit the camera, click Takeoff in QGC) while the smoke test's flight runs.
+**Why.** QGC renders to Xvfb and is only obtainable as a captured frame — you cannot click
+anything. A browser-attachable display gives an operator QGC without any host X11 setup, and
+works identically over SSH to `carbonite`, which is how this box is normally used.
+
+**Acceptance.** Browse to the mapped port, see QGC live, and interact with it (click Takeoff)
+while a flight runs.
 
 **Traps.**
-- QGC **refuses to run as root** — the demo image already carries a `qgcuser` for this.
+- QGC **refuses to run as root** — `drone-sim/qgc` already carries a `qgcuser` for this.
 - **QGC's window will not tile** under openbox (`xdotool windowsize` does not stick after its
   first-run dialog); with a live viewer this matters more, so seed a window state into
-  `~/.config` or add openbox per-app geometry rules.
-- Xvfb needs `-ac +extension GLX +extension RANDR +render -noreset` or the Gazebo GUI dies
+  `~/.config` or add openbox per-app geometry rules. See `D-02c` for why resizing it at all
+  is dangerous.
+- Xvfb needs `-ac +extension GLX +extension RANDR +render -noreset`, or a GUI client dies
   mid-session.
-- Software GL (`llvmpipe`) is the renderer; expect a slow but usable GUI, and do not confuse
-  its frame rate with simulator real-time factor.
+- Software GL (`llvmpipe`) is the renderer for QGC; expect a slow but usable GUI, and do not
+  confuse its frame rate with anything the simulator is doing.
 
 ---
 
-## D-02c — Fold the recording demo into compose as a `recording` service
+## D-02c — Recording as a first-class part of the stack
 
-**Status:** ✅ **`done` (2026-07-30)** — `docker compose --profile record run --rm recording`
+**Status:** ✅ done 2026-07-30 as a compose service → **SUPERSEDED BY DELETION
+(2026-08-04).** `docker/demo/` and the `recording` profile are gone. The simulator's
+equivalent is `scripts/record_flight.py` plus `drone-sim/video:v1.16.0` — a thin ffmpeg
+layer on the PX4 base, which no longer carries Xvfb, xterm, xdotool or openbox because those
+existed to drive the four-pane Gazebo GUI capture.
 
-**Verified by running it:** attaches to the live stack, builds `control` from the mounted
-source, flies the real ROS 2 node (4/4 waypoints, landed, disarmed) and writes a
-1920x1080 / 556-frame MP4. Exits non-zero when the flight fails.
-
-**Design:** `qgc` owns the virtual display and the `xsock` volume shares it, so there is
-ONE QGroundControl — the datalink — whose window the recorder captures, rather than a
-second QGC fighting over PX4's learned remote address. That sharing is also the attachment
-point for `D-02b`'s live viewer. The PX4 pane is a `tail -f` of the console log, because a
-`screen` session cannot be attached across a container boundary.
+**Kept in full because it caught four defects, and every one of them is a way of producing
+convincing evidence of a flight that never happened.**
 
 **Three bugs it caught, all fixed:**
 
@@ -274,8 +293,8 @@ point for `D-02b`'s live viewer. The PX4 pane is a `tail -f` of the console log,
 | Stale `mission-result.json` from a previous run | Reads `"outcome": "success"` and looks exactly like proof this recording flew. Artifacts are cleared at start. |
 | `grep … \| tail \| sed \|\| echo` cannot detect failure | Pipeline exit status is `sed`'s, always 0 — the "no result" branch was unreachable. |
 
-**Fixed 2026-07-30 — the QGC pane recorded black.** Two wrong diagnoses before the right
-one, all of which *looked* like success:
+**The fourth: the QGC pane recorded black.** Two wrong diagnoses before the right one, all of
+which *looked* like success:
 
 | Attempt | Result |
 |---|---|
@@ -283,121 +302,108 @@ one, all of which *looked* like success:
 | Window not tiling / wrong position | Refuted: `xdotool getwindowgeometry` showed exactly `960,0 960x540`. |
 | **External resize kills QGC's painting** | **The actual cause.** Qt Quick's software backend gets no repaint trigger on a headless Xvfb with no compositor, so a resized window stays mapped, viewable, correctly placed — and blank. |
 
-Fix: the `qgc` service seeds QGC's own `[MainWindowState]` so it **starts** at the target
+Fix: the QGC image seeds QGC's own `[MainWindowState]` so it **starts** at the target
 geometry and is never resized; the recorder maps and raises it but no longer moves or sizes
-it. Verified in the captured frame — QGC shows *Flying*, altitude, battery and live
-telemetry. **Remaining, cosmetic:** QGC's first-run "Measurement Units" dialog overlays the
-pane (`D-02b`).
+it. **That seeding is still in `docker/qgc.Dockerfile` and must not be removed as
+dead-looking config.** Remaining and cosmetic: QGC's first-run "Measurement Units" dialog
+overlays the window (`D-02b`).
 
-**Original definition:** ~~`todo` · Blocked by: D-02 · Deferred from: D-02~~
+**The design principle that carried over.** Recording **attaches to the running stack**; it
+never starts a second simulator. Evidence capture should be one command against the stack
+you are already testing, not a second stack that only *resembles* it. And it **exits
+non-zero if no successful flight happened** — an early version cheerfully produced a
+convincing 1080p video of a simulator that never armed, and reported success.
 
-**What.** The fifth service from the D-02 definition. The recorder already exists and works
-(as `docker/demo/lane-a-record-quad.sh`, now deleted) but started **its own** PX4,
-Gazebo and agent. As a compose service it must instead attach to the running stack — the same
-change `verify` needed (`SMOKE_ATTACH=1`).
-
-**Why.** Evidence capture should be one flag on the stack you are already running, not a
-second stack with its own PX4 that only *resembles* the one under test. It is also what CI
-would attach to for artifacts.
-
-**Acceptance.** `docker compose --profile record up recording` writes an `.mp4` of the
-**already-running** stack's flight, with no second `bin/px4` process anywhere.
-
-**Traps.**
-- The demo currently owns the display, the flight *and* the simulator; only the first two
-  survive the split. The flight is now driven by the ROS 2 controller over uXRCE-DDS
-  (`lane-a-fly.py` was removed): **only QGroundControl speaks MAVLink over IP.**
-- Two recorders (or a recorder plus `verify`) both driving the same vehicle will fight over
-  the offboard link. Make the profiles mutually exclusive, or document it.
-- QGC's pane needs the same display work as `D-02b`; a recording service without it is just
-  three panes.
+**Trap that still applies:** two things driving the same vehicle will fight over the offboard
+link. A recording and a gate run are mutually exclusive.
 
 ---
 
-## D-03 — GPU services and the two nested-Docker workarounds
+## D-03 — GPU pinning, and the nested-Docker workarounds
 
-**Status:** `todo` · **Blocked by:** D-02
+**Status:** **partly done** · **Related:** `D-04`, `D-08`
 
-**What.** GPU-consuming services (`vlm-server`, later perception) with correct device
-pinning.
+**Done: the renderer is pinned at the container boundary.** `sim_up.sh` starts `sim-unreal`
+with `--gpus '"device=nvidia.com/gpu=0"'`, which is the RTX 3080. That is the right layer —
+see the traps below.
 
-**Scope grew 2026-07-31:** Lane C's `sim` container is now the project's **primary** GPU
-consumer — a UE5.8 renderer that must be pinned to **GPU 0 (the 3080)** while `vlm-server`
-stays on **GPU 1 (the 5060 Ti)**. That makes the render/infer split a live compose concern
-rather than a Phase 3 one, and it is exactly the case where the boundary-level pin below
-matters: UE under `-RenderOffScreen` has historically ignored app-level GPU flags. See
-`D-04`.
+**Not done:** a second GPU consumer. There is no model-serving container in this repo, and
+the render/infer split is only half-exercised until something actually runs on GPU 1.
 
 **Why / traps — these are this machine's specific hazards:**
 - **`CUDA_VISIBLE_DEVICES=1` alone does not pin the 5060 Ti.** CUDA defaults to
   `FASTEST_FIRST` ordering, so with two dissimilar cards index 1 is not reliably the
   Blackwell card. **Always set `CUDA_DEVICE_ORDER=PCI_BUS_ID` as well**, and verify with
   `nvidia-smi`.
-- **`--device nvidia.com/gpu=<n>` pins a GPU at the container boundary** — a more robust
-  way to enforce the render/infer split than in-app flags. Verified with Isaac, which then
-  enumerated the 3080 as its index 0.
+- **`CUDA_VISIBLE_DEVICES` does not control a Vulkan renderer at all.** It is a CUDA
+  variable; Unreal's RHI never reads it.
+- **`--device nvidia.com/gpu=<n>` pins a GPU at the container boundary** — a more robust way
+  to enforce the split than in-app flags. **UE under `-RenderOffScreen` has historically
+  ignored app-level GPU flags and taken GPU 0 regardless**, which happens to be the card we
+  want and is therefore a trap: it works until the day the split is inverted.
 - This project's Docker runs **nested inside rootless podman**; `fuse-overlayfs` and the
-  `/etc/cdi-local` CDI spec are load-bearing (`docs/bench.md:123`). Any image that must
-  build elsewhere should not depend on those quirks.
+  `/etc/cdi-local` CDI spec are load-bearing here (`../bench.md` §4). **Re-scope pending:**
+  `D-08` decided native Docker is the target, so part of this task dissolves rather than
+  needing a solution — but the CDI *device reference* (`nvidia.com/gpu=0`) still has to be
+  confirmed on a native host, or fall back to `--gpus all`.
 
 ---
 
-## D-04 — Lane C (UE5.8 + Cosys-AirSim) containers
+## D-04 — The Unreal engine container, and the credential gate
 
-**Status:** `todo` · **PROMOTED 2026-07-31 — no longer "eventual"** · **Blocked by:**
-`C-02` · **Pairs with:** `D-06`, `D-03`
+**Status:** **partly done** · **Pairs with:** `D-06`, `D-03`, `D-08`
 
-**Why it moved.** Lane C is the **primary stack** and Phase 2 is built there, so this is no
-longer a late nice-to-have — it is on the critical path, and the reproducibility goal is not
-met while the primary simulator is unbuildable from the repo.
+**Built and flying here.** `docker/unreal.Dockerfile` produces `drone-sim/unreal:ue5.8` from
+`ghcr.io/epicgames/unreal-engine` pinned **by digest**
+(`sha256:daac02628ea880513e18ccd1364b1cac949d40609b24c040d73872d8214a0c46`, tag
+`dev-slim-5.8.0`), and `sim_up.sh` flies against it.
 
-**What.** Build on `ghcr.io/epicgames/unreal-engine:dev-slim-5.8.0`, digest
-`sha256:daac02628ea880513e18ccd1364b1cac949d40609b24c040d73872d8214a0c46`
-(was `dev-slim-5.5.4`, superseded when the engine pin moved to UE5.8 — see
-`versions.lock: lane_c.unreal_engine`).
+**Outstanding — and this is what keeps the area's goal unmet:**
 
-### Three findings that change the shape of this task
+1. the credential step **documented** in `docker/README.md` (done) and enforced by a
+   **preflight check that fails with a readable message rather than a registry 403** (not
+   done);
+2. the same credential wired into CI (`D-05`);
+3. **it has never been built anywhere but this machine.** Nothing below has been tested from
+   a clone on a second host, and that is the actual claim the goal makes.
+
+### Three findings that shaped this task
 
 **1. The base image is credential-gated.** EpicGames org membership **plus** a PAT with
-`read:packages`. Anonymous pulls are HTTP 403. This breaks the area's Lane A DoD wording
-and is why that DoD was restated at the top of this file. **Deliverables:** the credential
-step documented in `docker/README.md`, a preflight check that fails with a readable message
-instead of a registry 403, and the same credential wired into `D-05`'s CI.
+`read:packages`. Anonymous pulls are HTTP 403. This is why the area's definition of done was
+restated at the top of this file.
 
 > **Useful: inspection needs no `docker login` and no pull.** The `gh` CLI is already
 > authenticated here, and its token exchanges for a short-lived read-only ghcr bearer, so
 > the manifest and config blob can be read for ~17 KB with nothing written to disk. That is
-> how the tag, the layer count, the 24 GB size and the Ubuntu 22.04 label below were all
-> confirmed on 2026-07-31 *without* touching the 24 GB. Use this for the preflight check —
-> it can verify the pin is reachable before a build commits to the download.
+> how the tag, the layer count, the 24 GB compressed size and the Ubuntu 22.04 label were
+> confirmed on 2026-07-31 *without* touching the 24 GB. **Use this for the preflight check**
+> — it can verify the pin is reachable before a build commits to the download.
 
 **2. The engine image is Ubuntu 22.04 (jammy), not 24.04.** **ROS 2 Jazzy has no jammy
-packages**, so nothing Jazzy can be installed inside it. Lane C is therefore **at least two
-containers, mandatorily** — an engine/`sim` container and a 24.04/Jazzy `ros2` container —
+packages**, so nothing Jazzy can be installed inside it. The stack is therefore **at least
+two containers, mandatorily** — a renderer container and a 24.04/Jazzy ROS 2 container —
 with the AirSim↔ROS 2 boundary staying the **RPC (TCP 41451) / MAVLink (TCP 4560)** socket.
-This is not a packaging preference; a single-container Lane C is impossible. It also
-strengthens `D-06`'s rejection of collapsing everything into one container, with a second
-independent instance of the same constraint.
+This is not a packaging preference; a single-container simulator is impossible. It is also
+the strongest argument in `D-06` against collapsing everything into one container.
 
-**3. Disk — and this is now the real blocker, not credentials.** Measured 2026-07-31 from
-the registry manifest, without pulling:
+**3. Disk.** Measured 2026-07-31 from the registry manifest, without pulling; the on-disk
+figures were confirmed after the build:
 
 | | |
 |---|---|
 | `dev-slim-5.8.0` compressed | **24.0 GB** across 30 layers |
-| on disk after extraction | meaningfully more — and that is *before* the UE source build and Cosys-AirSim |
+| the engine image on disk | **57.4 GB** (measured 2026-08-04) |
+| `drone-sim/unreal:ue5.8` on disk | **57.5 GB** — i.e. the plugin build adds ~0.1 GB on top |
 | Docker root dir | **`/var/lib/docker`** — on the **internal NVMe** |
-| internal free | 272 GB (already holding 12.9 GB images + 17.4 GB build cache) |
+| internal free, 2026-07-31 | 272 GB |
+| internal free, 2026-08-04 | **196 GB** |
 | external free | 5.4 TB |
-
-**The project rule is that large artifacts go on the 7 TB external drive, and Docker's
-data-root currently does not.** A 24 GB pull plus a UE source build plus assets against the
-constrained volume is exactly the case the rule exists for.
 
 ### DECIDED 2026-07-31 — Unreal stays on the internal NVMe
 
-**Docker's `data-root` is not moved. The engine image, the UE source build and the live
-working set all stay on the internal NVMe.**
+**Docker's `data-root` is not moved. The engine image, the UE build and the live working set
+all stay on the internal NVMe.**
 
 **Why — and this corrects an assumption in the project rule rather than breaking it.**
 Checked the hardware before deciding:
@@ -407,9 +413,9 @@ Checked the hardware before deciding:
 | internal (`/`, holds `/var/lib/docker`) | Samsung 980 PRO 1TB | **NVMe SSD** (`rotational=0`) | 272 GB |
 | external (`/var/mnt/<uuid>`) | Seagate `ST10000NE0008` | **7200 RPM SPINNING DISK** (`rotational=1`) | 5.4 TB |
 
-The 7 TB drive is **mechanical**. UE5 shader compilation, asset streaming and Cesium tile
-paging are random-I/O-heavy and latency-sensitive; running them off a spinning disk would be
-slow in a way that shows up as poor simulator performance, not just a long build.
+The 7 TB drive is **mechanical**. UE5 shader compilation, asset streaming and tile paging are
+random-I/O-heavy and latency-sensitive; running them off a spinning disk would be slow in a
+way that shows up as poor simulator performance, not just a long build.
 
 **The rule** — *"large datasets/rosbags/assets go on the 7 TB external drive"* — was written
 for **archival, write-once, read-rarely** data. It was not written to cover a simulator's
@@ -418,169 +424,204 @@ for **archival, write-once, read-rarely** data. It was not written to cover a si
 | Goes on the internal NVMe | Goes on the external HDD |
 |---|---|
 | Docker images and build cache | rosbags and MCAP archives |
-| the UE5 engine image and source build | benchmark datasets (AerialVLN/OpenFly) |
+| the engine image and the plugin build | benchmark datasets |
 | the live UE project and its working assets | recordings, MP4s, evidence artifacts |
-| Cesium tile **cache** (latency-sensitive) | model weights not in active use |
-
-**Budget check:** 24 GB compressed, call it 50–80 GB extracted plus build output, against
-272 GB free. Comfortable. Reclaim the **17.4 GB build cache** first (`docker builder prune`)
-for headroom, and note Isaac's images were already deleted to recover ~36 GB while Lane B
-stays deferred.
+| the derived-data cache (`sim-ddc`, latency-sensitive) | model weights not in active use |
 
 **What this does not change:** unbounded, archival data still belongs on the external drive,
 still under `/var/mnt/<uuid>/Developments/projects/drone-sim/` — never `~`, and never a
 top-level directory on a drive we do not own.
 
-**Watch item:** 272 GB is enough for Lane C today, not forever. If the internal volume drops
-below ~100 GB free, revisit — the honest fix at that point is a second NVMe, not moving a
-latency-sensitive working set onto a mechanical disk.
+**Watch item, and it moved.** The 2026-07-31 note said "revisit if the internal volume drops
+below ~100 GB free". It was 272 GB then and is **196 GB** now — 76 GB consumed in four days,
+most of it the engine image. The honest fix at the threshold is a second NVMe, not moving a
+latency-sensitive working set onto a mechanical disk. **Reclaim the retired images first**:
+the pre-rename image tags and the Gazebo-era layers are both still resident, and
+`docker builder prune` has never been run since the engine build.
 
-### Target topology (from `04_ue5_stack_architecture.md`, reconciled with `D-06`)
+### The topology as built
 
-| Service | GPU | Base | Role |
+| Container | GPU | Base | Role |
 |---|---|---|---|
-| `sim` | **yes — pin GPU 0 (3080)** | Epic UE5.8 (22.04) | UE5 + Cosys-AirSim + Cesium, `-RenderOffScreen`. AirSim RPC on 41451, MAVLink sim on 4560 |
-| `px4` | no | our Lane A image | PX4 SITL in lockstep, driven by `sim`; also runs `uxrce_dds_client` |
-| `ros2` | later | our 24.04/Jazzy image | XRCE agent + the AirSim ROS 2 wrapper + our nodes |
-| `vlm` | **yes — pin GPU 1 (5060 Ti)** | vLLM | Phase 3 |
+| `sim-unreal` | **yes — GPU 0 (3080)** | Epic UE5.8 (22.04) | UE5 + Cosys-AirSim, `-RenderOffScreen`. AirSim RPC on 41451, MAVLink sim on 4560. **Donates netns + IPC + `/dev/shm`** |
+| `sim-px4` | no | `drone-sim/px4:v1.16.0` | PX4 SITL, airframe 10016, driven by the renderer; also runs `uxrce_dds_client` |
+| `sim-xrce` | no | `drone-sim/px4:v1.16.0` | the uXRCE-DDS agent on UDP 8888 |
+| `sim-qgc` | no | `drone-sim/qgc:v1.16.0` | the GCS datalink PX4 requires before it will arm |
+| `sim-ros2` | later | `drone-sim/ros2:v1.16.0` | the AirSim ROS 2 wrapper + our nodes |
 
-**Acceptance.** `docker compose --profile lane-c up` reaches a spawned vehicle that arms,
-with `/fmu/out/*` matching Lane A (`lane-c-topic-parity`), from a clone plus the documented
-credential step — on this machine first, and stated honestly if it has not been tried
-elsewhere.
+**Acceptance.** `./scripts/sim_up.sh` reaches a spawned vehicle that arms and flies, with
+`/fmu/out/*` populated, **from a clone plus the documented credential step** — on this
+machine first, and **stated honestly that it has not been tried elsewhere.**
 
 **Traps.**
 - **Headless Vulkan needs `-RenderOffScreen` explicitly**; without it UE silently falls back
   to OpenGL. Set `NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility` and mount the
   Vulkan/EGL ICD JSONs.
-- **GPU selection under `-RenderOffScreen` has historically ignored app-level flags and
-  defaulted to GPU 0.** Enforce the render/infer split **at the container boundary** with
-  `--device nvidia.com/gpu=0`, the way the Isaac probe did — not with an in-app setting.
-  See `D-03`.
+- **GPU selection under `-RenderOffScreen` has historically ignored app-level flags.**
+  Enforce the split **at the container boundary** — see `D-03`.
+- **The Vulkan ICD symlink in `docker/unreal.Dockerfile` is a `carbonite`-only workaround**
+  and must be labelled as one — `D-08`.
 - **The image sits on an NVIDIA CUDA base**; check its CUDA runtime against this bench's
-  driver 610.43.03 at first pull, rather than after a failed build. Same class of mismatch
-  that deferred Lane B.
+  driver 610.43.03 at first pull rather than after a failed build. That class of mismatch is
+  what cost this project Isaac Sim.
 - **Do not run a UE5 shader compile concurrently with other GPU work** — 64 GB will not
-  comfortably hold it alongside a heavy sim (`03_hardware_assessment.md:66`).
-- Pin the Cosys-AirSim SHA before investing in the build (`C-01`), and pin the
-  three-component image tag plus digest — `dev-slim-5.8` is a moving alias.
+  comfortably hold it alongside a heavy sim
+  (`../history/reference/03_hardware_assessment.md:86`).
+- Pin **by digest**, not by tag: `dev-slim-5.8` is a moving alias, exactly as a git branch is
+  not a pin.
 
 ---
 
 ## D-05 — CI builds the images
 
-**Status:** `todo` · **Blocked by:** D-02
+**Status:** `todo`
 
-**What.** GitHub Actions builds `lane-a.Dockerfile` and runs the seeded SITL regression
-inside it.
+**What.** GitHub Actions builds `docker/px4.Dockerfile` and runs a flight check inside it.
 
 **Why.** An image that is only ever built by hand drifts. CI is what keeps "reproducible"
 true rather than aspirational.
 
-**Acceptance.** A red build when a pin breaks — e.g. re-introducing the agent v2.4.2 pin
-must fail, since it is genuinely unbuildable.
+**Acceptance.** A red build when a pin breaks — e.g. re-introducing the agent v2.4.2 pin must
+fail, since it is genuinely unbuildable.
 
-**Added 2026-07-31 — CI needs its own Epic credential for Lane C.** Building
-`lane-c.Dockerfile` requires a token with EpicGames org membership and `read:packages`
-(`D-04`). That is a repository secret plus an org-membership dependency, so CI can build
-Lane A from nothing but cannot build Lane C from nothing. Decide deliberately whether CI
-builds Lane C at all, or whether Lane C images are built here and published — and write
-the choice down rather than letting a red build discover it.
+**What tier-1 CI does today, and what it deliberately does not.** A new check,
+`scripts/check_image_refs.py`, asserts that every `drone-sim/...` reference anywhere in the
+tracked tree names an image declared under `images:` in `versions.lock`. It replaced the
+`docker compose config` step that went with the compose file, and it catches the same *class*
+of defect — a reference to something that does not exist — which did not go away when the
+file did. **It does not build anything**, by design: it has to pass on a runner with no
+images and no daemon.
 
----
-
-## Notes carried in from the native install
-
-- **Do not** trust a build script's own success banner. One agent build printed `BUILD OK`
-  while `make` had exited 2; `ldd` showing an unresolved library and a stale binary mtime
-  is what caught it. Dockerfiles must assert on artifacts (`RUN … && test -x …`,
-  `ldd | grep -c 'not found'`), not on reaching the end of a script.
-- ROS 2's `setup.bash` is **not `set -u` clean** — entrypoint scripts must not use `set -u`.
+**CI needs its own Epic credential (added 2026-07-31).** Building the renderer image requires
+a token with EpicGames org membership and `read:packages` (`D-04`) — a repository secret plus
+an org-membership dependency. So CI can build the PX4-side images from nothing but cannot
+build the renderer from nothing. **Decide deliberately** whether CI builds it at all, or
+whether it is built here and published, and write the choice down rather than letting a red
+build discover it.
 
 ---
 
-## D-06 — Redraw the container boundaries to mirror the Phase 4 machines
+## D-06 — Redraw the container boundaries to mirror the real machines
 
-**Status:** `todo` · **Raised:** 2026-07-31 · **Do it with:** `P1-04a` (which already forces
-Gazebo into its own service) · **Related:** `D-03`
+**Status:** `todo` · **Raised:** 2026-07-31 · **Sharpened:** 2026-08-04 · **Related:** `D-03`
 
-**What.** Regroup the services so each container corresponds to a machine that will actually
-exist in Phase 4, and make the links between them swappable for their real transports.
+**What.** Regroup the containers so each corresponds to a machine that will actually exist
+when this flies for real, and make the links between them swappable for their real
+transports.
 
-| Phase 4 machine | Should be | Is today |
+| Real machine | Should be | Is today |
 |---|---|---|
-| Pixhawk 6C — PX4 firmware | `px4` | `px4-sitl`, which also runs the Gazebo server |
-| — the simulator, no hardware analogue | `gazebo` (needed for `gz sim --seed`, `P1-04a`) | inside `px4-sitl` |
-| Jetson Orin NX — companion: **XRCE agent + ROS 2 nodes** | one `companion` service | **split across `xrce-agent` and `ros2`** |
-| Ground laptop — QGroundControl | `qgc` | `qgc` ✅ |
+| Pixhawk 6C — PX4 firmware | `sim-px4` | `sim-px4` ✅ |
+| — the renderer, **no hardware analogue at all** | a container nothing else depends on | **the namespace donor the whole stack joins** |
+| Jetson Orin NX — companion: **XRCE agent + ROS 2 nodes** | one `companion` container | **split across `sim-xrce` and `sim-ros2`** |
+| Ground laptop — QGroundControl | `sim-qgc` | `sim-qgc` ✅ |
 
-**Why.** The current split does **not** buy isolation, and it is worth being honest that it
-never did: `px4-sitl`, `xrce-agent` and `ros2` share one network namespace *and* one
-`/dev/shm`. That is one machine wearing three hats — they can see each other's loopback and
-each other's shared memory, and the only real boundary left is the filesystem.
+**Why.** The current split does **not** buy isolation, and it never did: every container
+shares one network namespace *and* one `/dev/shm`. That is one machine wearing five hats —
+they can see each other's loopback and each other's shared memory, and the only real boundary
+left is the filesystem.
 
 If the split is not buying isolation, the thing it *should* buy is **sim↔real rehearsal**:
 the container boundary standing in for the machine boundary, so an accidental dependency on
-co-location fails in sim rather than on the aircraft. Measured against that goal the current
-map is drawn wrong in two places:
+co-location fails in sim rather than on the aircraft. Measured against that goal the map is
+drawn wrong in three places:
 
 - **The XRCE agent runs on the companion computer on real hardware**, not on the flight
   controller — PX4 reaches it over a serial link. So the agent and the ROS 2 nodes are the
   *same* machine, and we have split them.
 - **PX4 and the agent are different machines**, and we have given them a shared namespace.
+- **New, and the worst of the three: the renderer is the donor.** Every other container joins
+  the network and IPC namespace of a process that **has no counterpart on the aircraft at
+  all**. On real hardware there is nothing for them to join. That is the strongest possible
+  form of the accidental-co-location dependency this task exists to flush out, and it is
+  currently structural rather than accidental.
 
-**What it has cost so far** — all real, all from this week:
+**What it has cost so far** — all real:
 
 | Symptom | Cause |
 |---|---|
-| Every container `healthy`, `ros2 topic list` returns **0 topics** | recreating the netns donor alone; joiners left on a dead namespace |
-| `shm_size` on three services doing nothing | joiners use the donor's `/dev/shm`; the declaration is inert |
-| `non-shareable IPC` on startup | the donor must opt in with `ipc: shareable`, which is not discoverable |
+| Every container up, `ros2 topic list` returns **0 topics** | recreating the netns donor alone; joiners left on a dead namespace |
+| `shm_size` declared on joining services doing nothing | joiners use the donor's `/dev/shm`; the declaration is inert |
+| `non-shareable IPC` on startup | the donor must opt in with `--ipc shareable`, which is not discoverable |
 
-**Explicitly REJECTED: collapsing everything into one container.** It is tempting — the
-one-container mode already exists and works (`tests/lane-a-smoke.sh` runs PX4 and the agent
-together, and it is the configuration that proved `D-01` parity). But it erases the sim↔real
-rehearsal completely, and it cannot generalise: Lane B needs Isaac's Python 3.11 against
-ROS 2 Jazzy's 3.12, which is an architectural split, not a packaging preference. Keep the
-single-container path for the CI smoke gate; do not make it the deployment shape.
-
-**Strengthened 2026-07-31 by a second, independent instance — and this one is not
-hypothetical, because Lane C is the primary stack.** The Epic UE5.8 engine image is
-**Ubuntu 22.04 (jammy)** and **ROS 2 Jazzy has no jammy packages**, so the renderer and the
-ROS 2 graph *cannot* share a container no matter how the boundaries are drawn. Lane B's
-Python split was a deferred lane's problem; this one is the active lane's, and it converts
-the multi-container shape from a design preference into a hard constraint. It also fixes
-the AirSim↔ROS 2 boundary as a **socket** (RPC 41451 / MAVLink 4560), which is the kind of
-real link `D-06` wants standing in for a machine boundary. See `D-04`.
+**Explicitly REJECTED: collapsing everything into one container.** It erases the sim↔real
+rehearsal completely, and it **cannot be done**: the engine image is **Ubuntu 22.04 (jammy)**
+and **ROS 2 Jazzy has no jammy packages**, so the renderer and the ROS 2 graph cannot share a
+container no matter how the boundaries are drawn (`D-04`). That converts the multi-container
+shape from a design preference into a hard constraint, and it fixes the AirSim↔ROS 2 boundary
+as a **socket** (RPC 41451 / MAVLink 4560) — exactly the kind of real link this task wants
+standing in for a machine boundary. (The first instance of this constraint was Isaac Sim's
+Python 3.11 against Jazzy's 3.12. That stack is retired; the jammy/noble one is live.)
 
 **Acceptance.**
-- Containers map 1:1 onto Phase 4 machines, and `docs/lane-a/architecture.html` is redrawn
-  to match.
-- The PX4↔agent link is **configurable, not co-located** — i.e. the address is a parameter,
-  so swapping UDP for a serial link in Phase 4 touches configuration and not the ROS graph.
-- The `verify` gate still passes with unchanged numbers: 24 `/fmu/out/*` topics, 0 sensor
-  TIMEOUTs, aggregate RTF within noise of 0.9733.
+- Containers map 1:1 onto the machines that will exist on the aircraft, and there is **an
+  architecture diagram of the current stack** — there is none today. The Gazebo-era one is
+  archived at [`../history/gazebo/architecture.html`](../history/gazebo/architecture.html)
+  and describes a stack that no longer exists.
+- The PX4↔agent link is **configurable, not co-located** — the address is a parameter, so
+  swapping UDP for a serial link touches configuration and not the ROS graph.
+- **The flight gate still passes with unchanged numbers** — `scripts/run_gate.py`, success
+  rate over seeded runs, plus the sensor rates (imagery at 94% and LiDAR at 100% of the
+  ceilings `perception.launch.py` sets). Record them **before** the change.
 - A flight still succeeds end to end.
 
 **Traps.**
 - **PX4 dials `127.0.0.1:8888` today.** Moving the agent out of the shared namespace means
   that address must become a real one — PX4's `uxrce_dds_client` takes host/port parameters,
   so this is configuration, but it is *load-bearing* configuration.
-- **Gazebo transport must stay on loopback** (`PX4/PX4-Autopilot#24595`) or the Accel/Mag
-  TIMEOUTs come back. Splitting Gazebo out without keeping its transport pinned is how that
-  regression returns.
-- **Fast-DDS delivers over shared memory.** Any two services that must exchange ROS 2 topics
-  at rate still need a shared `/dev/shm`, or they fall back to UDP with different
-  performance. Measure the RTF and publish rate after the split rather than assuming.
-- **Do not split and re-measure in one step.** Change the topology, re-run the gate, and
-  compare against the recorded numbers — this area has produced several
-  looks-fine-but-is-broken states already.
+- **Fast-DDS delivers over shared memory.** Any two containers exchanging ROS 2 topics at
+  rate still need a shared `/dev/shm`, or they fall back to UDP with different performance.
+  Measure the sensor rates after the split rather than assuming.
+- **The EKF-origin settle-then-verify ordering must survive the change.** It is the reason
+  there is no compose file, and it is what stands between the stack and a vehicle that
+  reports 35 m of altitude while sitting on the ground.
+- **Do not split and re-measure in one step.** Change the topology, re-run the gate, compare
+  against the recorded numbers — this area has produced several looks-fine-but-is-broken
+  states already.
+
+---
+
+## D-07 — Automated flight gate (deferred)
+
+**Status:** `todo` · **Deferred 2026-07-31** — running it locally is accepted instead
+(`./scripts/run_local_ci.sh --gate`). **The gate is now `scripts/run_gate.py` (`SIM-07`)**,
+which scores success rate over seeded runs and VOIDs (rather than fails) a run whose EKF
+origin was stale.
+
+**What.** Run the seeded flight gate automatically, rather than when someone remembers.
+
+**Why it is not done — and one of the two blockers changed:**
+
+- **GitHub-hosted runners cannot do it, and the reason got simpler.** The original argument
+  was disk (12.6 GB image against ~14 GB) and **2 vCPU against an aggregate-RTF floor of
+  0.95**. That was about the Gazebo stack. The current one needs an **NVIDIA GPU for the
+  renderer** and a **57 GB engine image**; hosted runners have neither. This is no longer a
+  performance argument that could be won by lowering a threshold — the simulator simply
+  cannot run there.
+- **A self-hosted runner on a public repo lets fork PRs execute code on the machine** —
+  the one holding SSH keys, the netbird tunnel and the 7 TB drive. **Unchanged.**
+
+**The way in, when it is worth it.** Trigger on `push` to `main` plus a nightly schedule,
+never on `pull_request`. The runner then never executes fork code, and PRs keep tier 1. If
+PR gating is wanted later, "require approval for outside collaborators" layers on top without
+redoing anything.
+
+**Acceptance.** The gate runs unattended, uploads its MCAPs, and no workflow triggered by a
+fork can execute on the runner. Prove the second part, do not assume it.
+
+**Trap.** The recorded "19 minutes" is the **retired Gazebo gate's** wall time. The current
+gate restarts the full renderer stack per seed and has not been timed for this file — measure
+it before choosing a trigger, because a duration that is fine nightly is painful per-push.
+
+**Also unverified:** GitHub's current defaults and setting names for fork-PR approval on
+self-hosted runners were not checked against live documentation — confirm them in the
+repository's Actions settings before wiring anything, rather than trusting a recollection.
 
 ---
 
 ## D-08 — The runtime substrate itself is not captured
 
-**Status:** `todo` · **Raised:** 2026-08-01, from `C-10`.
+**Status:** `todo` · **Raised:** 2026-08-01, from `SIM-10`.
 
 **Directly against the project goal** that "a fresh machine must reach a working stack from the
 repo alone." It does not, and the gap is a whole layer below anything currently written down.
@@ -592,18 +633,18 @@ host (Bazzite, immutable)
 └── podman 5.8.4, rootless               <- runs the distrobox
     └── distrobox "drone-sim"            <- ubuntu 24.04, hostname drone-sim.carbonite
         └── dockerd (PID 6033) + containerd
-            └── lane-c-sim / -px4 / -xrce / -qgc / -ros2
+            └── sim-unreal / -px4 / -xrce / -qgc / -ros2
 ```
 
-**Every image, container, and flight test in this project lives at the bottom of that stack.**
+**Every image, container and flight test in this project lives at the bottom of that stack.**
 `dockerd` runs *inside* the distrobox — `/var/lib/docker` is the distrobox's own storage, and
 the daemon self-reports `Name=drone-sim.carbonite`. So the containers die with the distrobox,
-and `scripts/lane_c_up.sh` assumes a daemon that nothing in the repo creates.
+and `scripts/sim_up.sh` assumes a daemon that nothing in the repo creates.
 
 **What is missing:** how the `drone-sim` distrobox is created (image, flags, GPU passthrough),
 and how Docker is installed and started inside it. Both were done by hand before any of this was
-written down. `D-01` captured the *Lane A install* as a Dockerfile; nothing captured the thing
-the Dockerfile is built by.
+written down. `D-01` captured the *install* as a Dockerfile; nothing captured the thing the
+Dockerfile is built by.
 
 **Second, subtler gap — the data is NOT inside the distrobox.** `/home/deck` is the host home
 (`/dev/nvme0n1p6[/home/deck]`, btrfs) passed through by distrobox's default home mount, so every
@@ -620,12 +661,12 @@ That *shrinks* this task rather than growing it: there is no need to capture
 `distrobox create`, because a fresh machine should never make one. What is needed instead is an
 audit that nothing in the stack has quietly come to depend on the distrobox or on this host.
 
-**Good news first:** `scripts/lane_c_up.sh` is plain `docker run` throughout and should port to
+**Good news first:** `scripts/sim_up.sh` is plain `docker run` throughout and should port to
 native Docker unchanged. The nesting was never load-bearing for the bring-up logic.
 
 **The real risk is host-specific workarounds baked into portable-looking images:**
 
-1. **The Vulkan ICD symlink in `docker/lane-c.Dockerfile` is a Bazzite/Fedora workaround.** It
+1. **The Vulkan ICD symlink in `docker/unreal.Dockerfile` is a Bazzite/Fedora workaround.** It
    exists solely because *this* host's CDI spec injects an ICD naming `/usr/lib64/…` into an
    Ubuntu container. On a native Ubuntu host with `nvidia-container-toolkit` the multiarch path
    is already correct and the symlink is dead weight — harmless, but it encodes a foreign host's
@@ -643,46 +684,13 @@ native Docker unchanged. The nesting was never load-bearing for the bring-up log
 2. **Audit the three host-specific items above** and mark each as either genuinely required or a
    `carbonite`-only workaround, in the file where it lives.
 3. **Re-scope `D-03`.** It was framed around "the two nested-Docker workarounds"; if nesting is
-   not the target, some of it may dissolve rather than need solving.
+   not the target, some of it dissolves rather than needing a solution.
 
-**Related housekeeping:** `out/lane-c` already holds 21 MB of flight video on the host home. It
-is gitignored, but the project rule keeps big data out of `~` and on the 7 TB drive. Small now,
-grows with every recording — decide a destination before it is a problem.
+**Related housekeeping:** flight video is accumulating in `out/` on the host home. It is
+gitignored, but the project rule keeps big data out of `~` and on the 7 TB drive — which is
+also where it belongs on the SSD/HDD split in `D-04`, since recordings are archival. Small
+now, grows with every run; decide a destination before it is a problem.
 
-**Done when:** a fresh machine running **native Docker** can reach a flying Lane C stack from
-documented steps alone, and no image carries a `carbonite`-specific workaround without it being
-labelled as one.
-
----
-
-## D-07 — Automated flight gate (deferred)
-
-**Status:** `todo` · **Deferred 2026-07-31** — running it locally is accepted instead
-(`./scripts/run_local_ci.sh --gate`). **Related:** `../lane-a/todo.md` `P1-07`
-
-**What.** Run the 10-seed SITL flight gate automatically, rather than when someone
-remembers.
-
-**Why it is not done.** Not effort — two blockers:
-
-- **GitHub-hosted runners cannot do it.** 12.6 GB image against ~14 GB disk, 20–40 min to
-  build, and **2 vCPU against an aggregate-RTF floor of 0.95**. The CPU limit is fatal on
-  its own: the floor would fail on hardware, and the only fix would be lowering it, which
-  removes the assertion that caught this box's nested-Docker deficit.
-- **A self-hosted runner on a public repo lets fork PRs execute code on the machine** —
-  the one holding SSH keys, the netbird tunnel and the 7 TB drive.
-
-**The way in, when it is worth it.** Trigger on `push` to `main` plus a nightly schedule,
-never on `pull_request`. The runner then never executes fork code, and PRs keep tier 1. If
-PR gating is wanted later, "require approval for outside collaborators" layers on top
-without redoing anything.
-
-**Acceptance.** The gate runs unattended, uploads its MCAPs, and no workflow triggered by a
-fork can execute on the runner. Prove the second part, do not assume it.
-
-**Trap.** 19 minutes is fine nightly and painful per-push. Split the triggers deliberately
-rather than discovering it through a queue of stacked runs.
-
-**Also unverified:** GitHub's current defaults and setting names for fork-PR approval on
-self-hosted runners were not checked against live documentation — confirm them in the
-repository's Actions settings before wiring anything, rather than trusting a recollection.
+**Done when:** a fresh machine running **native Docker** reaches a flying stack from
+documented steps alone, and no image carries a `carbonite`-specific workaround without it
+being labelled as one.

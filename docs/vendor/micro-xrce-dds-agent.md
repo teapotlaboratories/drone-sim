@@ -7,12 +7,17 @@ Built with: `-DUAGENT_USE_SYSTEM_FASTDDS=ON -DCMAKE_PREFIX_PATH=/opt/ros/jazzy`
 **Source patches: none.** The vendored tree is byte-identical to upstream `v2.4.3`. The
 only deviations are a version bump and build flags, both recorded below.
 
+**Where it sits.** The agent is the PX4↔ROS 2 bridge and the reason `/fmu/*` looks the same
+in simulation and on the aircraft. It is built into `drone-sim/px4:v1.16.0` and runs as the
+`sim-xrce` container, which shares the renderer's network namespace with PX4 — so PX4's
+`uxrce_dds_client` reaches it on `127.0.0.1:8888` with nothing published on the host.
+
 ---
 
 ## 1. Version bump: `v2.4.2` → `v2.4.3`
 
-**Date:** 2026-07-28 · **Deviates from:** `docs/reference/02_development_plan.md:33`, which
-pins the agent at v2.4.2.
+**Date:** 2026-07-28 · **Deviates from:** `docs/history/reference/02_development_plan.md:51`
+(and its setup snippet at `:121`), which pins the agent at v2.4.2.
 
 **Why: v2.4.2 cannot be built on this platform, by either available route.**
 
@@ -63,9 +68,12 @@ exactly **one** Fast-DDS on the machine, shared with the ROS 2 graph the agent t
 to. It also avoids compiling Fast-DDS from source entirely.
 
 **Consequence:** the binary links `/opt/ros/jazzy/lib/libfastrtps.so.2.14`, so **ROS 2 must
-be sourced for the agent to run.** Fine for the current workflow (the launch scripts source
-Jazzy first), but if the agent is ever run as a bare systemd unit or in an image without
-Jazzy, either source the setup file in the unit or switch to the superbuild.
+be sourced for the agent to run.** That is satisfied structurally rather than by convention:
+`docker/px4-entrypoint.sh` sources Jazzy before `exec "$@"`, so anything launched through the
+image's ENTRYPOINT — including `sim_up.sh`'s `MicroXRCEAgent udp4 -p 8888` — has the library
+on its path. The entrypoint says so in a comment, because it is the kind of line that looks
+removable. If the agent is ever run as a bare systemd unit, or in an image without Jazzy,
+either source the setup file in the unit or switch to the superbuild.
 
 ## Rebase notes
 

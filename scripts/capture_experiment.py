@@ -41,10 +41,10 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SIM_IMAGE = "drone-sim/lane-c:ue5.8"
+SIM_IMAGE = "drone-sim/unreal:ue5.8"
 CLIENT_IMAGE = "drone-sim/airsim-client:1"
 SIM_NAME = "capture-exp-sim"
-DDC_VOLUME = "lane-c-ddc"          # shared shader/DDC cache: without it every run recompiles
+DDC_VOLUME = "sim-ddc"          # shared shader/DDC cache: without it every run recompiles
 ENGINE = "/home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor"
 
 # The Scene camera settings under test. `None` means "leave the key out", i.e. take AirSim's
@@ -136,7 +136,7 @@ def client_run(script_args, timeout, outdir=None):
     a caller's images somewhere it will not look for them -- silently, since the write itself
     succeeds.
     """
-    outdir = Path(outdir) if outdir else (REPO / "out/lane-c/capture-exp")
+    outdir = Path(outdir) if outdir else (REPO / "out/capture-exp")
     outdir.mkdir(parents=True, exist_ok=True)
     cmd = [
         "docker", "run", "--rm",
@@ -209,7 +209,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--world", required=True, help="path to the .uproject to capture in")
     ap.add_argument("--gpu", default="0", help="render GPU (0 = the 3080 on carbonite)")
-    # Defaults are the pose that framed the trees in out/lane-c/trees_pointed.png.
+    # Defaults are the pose that framed the trees in out/trees_pointed.png.
     ap.add_argument("--x", type=float, default=50.0)
     ap.add_argument("--y", type=float, default=-30.0)
     ap.add_argument("--z", type=float, default=-12.0)
@@ -222,7 +222,7 @@ def main():
     ap.add_argument("--only", help="comma-separated variant names to run")
     args = ap.parse_args()
 
-    outdir = REPO / "out/lane-c/capture-exp"
+    outdir = REPO / "out/capture-exp"
     outdir.mkdir(parents=True, exist_ok=True)
 
     wanted = set(args.only.split(",")) if args.only else None

@@ -3,10 +3,10 @@
   "SettingsVersion": 2.0,
 
   "_comment_purpose": [
-    "Lane C, C-03: put Cosys-AirSim into PX4 EXTERNAL-AUTOPILOT mode so PX4 SITL flies the",
+    "SIM-03: put Cosys-AirSim into PX4 EXTERNAL-AUTOPILOT mode so PX4 SITL flies the",
     "vehicle over the MAVLink Simulator API, while PX4's own uxrce_dds_client exposes the",
-    "SAME /fmu/* topics Lane A produces. MAVLink drives the sim physics handshake; XRCE-DDS",
-    "drives the autonomy code. Coupling: lane-c-topic-parity.",
+    "SAME /fmu/* topics real hardware produces. MAVLink drives the sim physics handshake; XRCE-DDS",
+    "drives the autonomy code. Coupling: topic-parity.",
     "Passed with --settings rather than dropped in ~/Documents/AirSim/, so the config is a",
     "reviewable repo artifact instead of per-machine state."
   ],
@@ -25,9 +25,9 @@
     "zero occurrences across a full session, while other addStatusMessage output from the",
     "same path did appear. Measured RTF 0.9193 (10.960 s sim over 11.922 s wall), i.e.",
     "tracking wall time rather than stepping. LockStep is left true deliberately - it states",
-    "the INTENT and will start working the moment the vendor patch lands (C-09). Until then,",
-    "treat every Lane C timing number as free-running. See versions.lock",
-    "lane_c.px4.THREE_DEFECTS_TO_EXPECT (2)."
+    "the INTENT and will start working the moment the vendor patch lands (SIM-09). Until then,",
+    "treat every timing number here as free-running. See versions.lock",
+    "simulator.px4.THREE_DEFECTS_TO_EXPECT (2)."
   ],
   "ClockType": "SteppableClock",
 
@@ -51,7 +51,7 @@
 
       "_comment_gpulidar_AND_WHY_THIS_COMMENT_IS_OUT_HERE": [
         "SensorType 8 = GPULidar (SensorBase::SensorType: 6 is the CPU Lidar, 8 is the GPU one).",
-        "GPU-LiDAR is a large part of why Lane C replaced Lane B: tunable noise and ground-truth",
+        "GPU-LiDAR is a large part of why this stack replaced Isaac Sim: tunable noise and ground-truth",
         "labels at a point count a CPU lidar cannot reach.",
         "The gpulidar entry is ADDED to the four sensors below, not replacing them.",
         "THIS COMMENT LIVES AT VEHICLE LEVEL ON PURPOSE. loadSensorSettings iterates the KEYS of",
@@ -103,9 +103,9 @@
       },
 
       "_comment_cameras": [
-        "C-04. Without this block the vehicle has NO cameras as far as settings are concerned,",
+        "SIM-04. Without this block the vehicle has NO cameras as far as settings are concerned,",
         "so the ROS 2 wrapper publishes no image or camera_info topics at all - which is why",
-        "the first C-04 topic sweep found 14 topics and no imagery. The UE pawn does carry",
+        "the first SIM-04 topic sweep found 14 topics and no imagery. The UE pawn does carry",
         "default cameras (simGetImages over RPC works on front_center etc.), but the wrapper",
         "enumerates vehicle_setting->cameras, and loadCameraSettings starts with cameras.clear().",
         "Unlike the Sensors block above, adding this REPLACES an empty default, so nothing is",
@@ -121,7 +121,7 @@
           "CaptureSettings": [
             {
               "_comment_image_quality": [
-                "These three keys are why Lane C imagery stopped looking washed out. Measured",
+                "These three keys are why the imagery stopped looking washed out. Measured",
                 "2026-08-03 against Unreal's own HighResShot of the SAME camera actor at the",
                 "same transform; with them the two agree to 1.15 of 255, without them AirSim is",
                 "up to 8.6 brighter and 20.3 flatter. All three apply to ImageType 0 only.",
@@ -139,7 +139,7 @@
                 "measurable frame-rate cost. A Lumen-off control showed it is specifically",
                 "denoising Lumen's stochastic GI sampling, so it pairs with the two keys above.",
                 "Upstream flags it 'costly for performance!' and the cost scales with the number",
-                "of ENABLED cameras - see lane-c-sensor-rates for the measured rates here."
+                "of ENABLED cameras - see sensor-rates for the measured rates here."
               ],
               "ImageType": 0,
               "Width": 640, "Height": 480,
@@ -165,12 +165,12 @@
       "_comment_params_deliberately_absent": [
         "Upstream's PX4 example sets NAV_RCL_ACT=0 and NAV_DLL_ACT=0 to disable the RC-loss",
         "and datalink-loss failsafes. NOT done here, deliberately.",
-        "Lane A leaves the GCS-datalink check ENFORCED (NAV_DLL_ACT=2, set by the x500",
+        "The GCS-datalink check is left ENFORCED (NAV_DLL_ACT=2, set by the x500",
         "airframe) and satisfies it with a real QGroundControl service, because PX4 refusing",
         "to arm without a datalink is a property of the real aircraft too. Disabling it in",
-        "Lane C would make the two lanes diverge exactly where sim-to-real parity matters,",
+        "disabling it would diverge from real hardware exactly where sim-to-real parity matters,",
         "and would hide an arming failure that the real Pixhawk 6C would still have.",
-        "Consequence: arming in Lane C will need a datalink the same way Lane A does. That is",
+        "Consequence: arming here needs a datalink the same way a real Pixhawk does. That is",
         "the intended behaviour, not an oversight."
       ]
     }

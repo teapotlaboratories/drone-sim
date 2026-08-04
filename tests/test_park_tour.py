@@ -1,4 +1,4 @@
-"""Tests for the example mission's pure logic (`C-16`).
+"""Tests for the example mission's pure logic (`SIM-16`).
 
 Off-target: no simulator, no ROS 2 runtime. This file exists because `park_tour.py` was the
 most defect-dense code in its PR -- four bugs, every one found by flying rather than by

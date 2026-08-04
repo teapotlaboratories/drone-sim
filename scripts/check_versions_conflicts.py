@@ -2,7 +2,7 @@
 """Assert every `status: CONFLICT` in versions.lock carries a summary.
 
 NOT "there are no conflicts". There is a real, accepted one - the NVIDIA driver against
-Isaac Sim's validated version, which is why Lane B is deferred. Failing on a known,
+Isaac Sim's validated version, which is why Isaac is retired. Failing on a known,
 deliberate state makes a job people learn to ignore. What is worth enforcing is that a
 CONFLICT never sits there unexplained.
 
@@ -31,7 +31,7 @@ def main() -> int:
 
     # A `why_not_<STATUS>_yet:` key inside a block whose status IS that status is a stale
     # leftover from an earlier state, and it says the opposite of the status line above it.
-    # This is not hypothetical: lane_c.unreal_engine shipped `status: LOCKED` alongside
+    # This is not hypothetical: renderer.unreal_engine shipped `status: LOCKED` alongside
     # `why_not_LOCKED_yet: Nothing has been COMPILED against it` -- a direct self-
     # contradiction, in the file this project treats as authoritative, that survived review
     # until someone read the whole block. Mechanically detectable, so detect it.

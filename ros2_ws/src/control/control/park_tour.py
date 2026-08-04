@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fly a closed circuit of the world, using ONLY the ROS 2 interface.              (C-16)
+"""Fly a closed circuit of the world, using ONLY the ROS 2 interface.              (SIM-16)
 
 SITL ONLY. This arms and flies a SIMULATED vehicle. Never point it at real hardware.
 

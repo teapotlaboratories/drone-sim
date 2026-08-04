@@ -34,14 +34,15 @@ REPO = Path(__file__).resolve().parent.parent
 
 # .repos entry -> the path through versions.lock that owns its version
 MAP: dict[str, tuple[str, ...]] = {
-    "PX4-Autopilot-v1.16":  ("lane_a", "px4"),
-    "Micro-XRCE-DDS-Agent": ("lane_a", "micro_xrce_dds_agent"),
-    "px4_msgs":             ("lane_a", "px4_msgs"),
-    "px4_ros_com":          ("lane_a", "px4_ros_com"),
-    "Cosys-AirSim":         ("lane_c", "cosys_airsim"),
-    # Lane B trees stay commented out in .repos while the lane is deferred:
-    "PX4-Autopilot-v1.14.3": ("lane_b", "px4"),
-    "PegasusSimulator":      ("lane_b", "pegasus"),
+    "PX4-Autopilot-v1.16":  ("autopilot", "px4"),
+    "Micro-XRCE-DDS-Agent": ("autopilot", "micro_xrce_dds_agent"),
+    "px4_msgs":             ("autopilot", "px4_msgs"),
+    "px4_ros_com":          ("autopilot", "px4_ros_com"),
+    "Cosys-AirSim":         ("renderer", "cosys_airsim"),
+    # Retired trees stay commented out in .repos; the mapping is kept so that
+    # uncommenting one is checked the moment it comes back:
+    "PX4-Autopilot-v1.14.3": ("retired", "px4"),
+    "PegasusSimulator":      ("retired", "pegasus"),
 }
 
 
@@ -107,7 +108,7 @@ def main() -> int:
     # (check_worklog_renders.py) has had this guard since it was written; this one did not,
     # and a merge-gate review caught it.
     #
-    # EXPECTED_ACTIVE is the set that must be uncommented at the current phase. Lane B is
+    # EXPECTED_ACTIVE is the set that must be uncommented right now. The Isaac path is
     # deliberately commented out while deferred, so it is not listed.
     EXPECTED_ACTIVE = {
         "PX4-Autopilot-v1.16", "Micro-XRCE-DDS-Agent", "px4_msgs", "px4_ros_com",

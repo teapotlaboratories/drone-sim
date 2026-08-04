@@ -1,4 +1,8 @@
-# Lane C quickstart — run the simulator, read its sensors, fly the drone
+# Quickstart — run the simulator, read its sensors, fly the drone
+
+**The simulator is Unreal Engine 5.8 + Cosys-AirSim + PX4 v1.16 SITL + ROS 2 Jazzy.** Bring
+your own Unreal world, place the vehicle in it, choose which sensors it carries, and fly it
+over ROS 2 — the same graph you would fly on real hardware.
 
 **Everything here is SITL.** Nothing in this guide touches real hardware. The `sim ↔ real`
 boundary in this project is the *transport swap*, not the commands — so the ROS 2 interface
@@ -16,12 +20,18 @@ Every number in this document was **measured on 2026-08-03**, not taken from ups
 ## 1. Start the simulator
 
 ```bash
-./scripts/lane_c_up.sh
+./scripts/sim_up.sh
 ```
 
 That brings up five containers (renderer, XRCE agent, PX4 SITL, QGC, ROS 2), waits for the
 vehicle to settle, and then **verifies the EKF origin** before declaring the stack usable. It
 prints `stack up and origin verified -- safe to fly` when it is ready — typically ~80 s.
+
+> **First run only: the images have to exist.** Building them is described in the repository
+> README. One step cannot be automated away — the Unreal engine base image
+> (`ghcr.io/epicgames/unreal-engine`) is **credential-gated**: it needs EpicGames organisation
+> membership and a PAT with `read:packages`. "Reproducible from this repo alone" carries that
+> one documented credential step, and pretending otherwise would just move the surprise later.
 
 > **Why it verifies rather than just waits.** PX4 sets its EKF local origin **once**. If it
 > initialises before the simulated vehicle has settled, every altitude PX4 reports is silently
@@ -44,7 +54,7 @@ Each has an environment equivalent: `WORLD`, `SETTINGS_FILE`, `SPAWN`, `SPAWN_VE
 
 ```bash
 # your own world, drone placed deliberately, 10 m above the origin facing north-west
-./scripts/lane_c_up.sh \
+./scripts/sim_up.sh \
     --world /path/to/YourProject.uproject \
     --spawn 50,-30,-10,315
 ```
@@ -68,7 +78,7 @@ artifact, so your configuration and the reviewed default cannot drift into each 
 ```bash
 cp sim/ue5/settings.json my-settings.json
 $EDITOR my-settings.json
-./scripts/lane_c_up.sh --settings my-settings.json
+./scripts/sim_up.sh --settings my-settings.json
 ```
 
 A worked example ships at **`sim/ue5/examples/minimal-no-lidar.json`** — GPU-LiDAR disabled and
@@ -107,9 +117,10 @@ The camera pose keys are **not optional**. A camera declared without `X/Y/Z/Pitc
 keeps AirSim's NaN sentinels, reaches `FRotator::Quaternion` as `P=nan Y=nan R=nan`, and
 **SIGSEGVs the simulator during `BeginPlay`** — a crash, not a validation error.
 
-Those last three keys are why Lane C imagery is photorealistic; drop them and the capture
-renders with global illumination and reflections **forced off**. They cost ~8.6% RGB and ~10%
-LiDAR throughput. See `docs/worklog/2026-08-03-c11-washout-root-cause.md`.
+Those last three keys are why the imagery is photoreal — with them the capture matches Unreal's
+own render to **1.15 of 255**; drop them and it renders with global illumination and reflections
+**forced off**. They cost ~8.6% RGB and ~10% LiDAR throughput. See
+`docs/worklog/2026-08-03-c11-washout-root-cause.md`.
 
 ### Useful sensor keys
 
@@ -129,16 +140,26 @@ LiDAR throughput. See `docs/worklog/2026-08-03-c11-washout-root-cause.md`.
 Published by `airsim_node`. Start it after the stack is up:
 
 ```bash
-docker exec -d lane-c-ros2 bash -lc '
+docker exec -d sim-ros2 bash -lc '
   source /opt/ros/jazzy/setup.bash
   source /airsim_root/ros2/install/setup.bash
   source /ros2_ws/install/setup.bash
-  ros2 launch bringup lane_c_perception.launch.py'
+  ros2 launch bringup perception.launch.py'
 ```
 
-> **The wrapper must be rebuilt after every `lane_c_up.sh`** — that script deletes the ROS 2
-> container, which is where the wrapper lives. Run `./scripts/build_airsim_wrapper.sh` (~2 min)
-> if `ros2 launch` reports `package 'airsim_ros_pkgs' not found`.
+> **The wrapper must be rebuilt after every `sim_up.sh`** — that script does
+> `docker rm -f sim-ros2 …` on every bring-up, and the wrapper is built *inside* that
+> container (`/airsim_root`), not baked into the image. Run `./scripts/build_airsim_wrapper.sh`
+> (~2 min) if `ros2 launch` reports `package 'airsim_ros_pkgs' not found`. The order is always
+> `sim_up.sh` → `build_airsim_wrapper.sh` → `ros2 launch`.
+
+> **Launch it — do not `ros2 run` it.** A bare `ros2 run airsim_ros_pkgs airsim_node` starts,
+> looks healthy, and its clock is silently dead: `publish_clock` defaults to false, and when
+> enabled it publishes to `/airsim_node/clock`, never `/clock`. `perception.launch.py` flips
+> that default, remaps the topic, and passes the five sensor-timer periods that the wrapper
+> otherwise reads out of *uninitialised stack memory* — measured 1.1 Hz imagery and 1.6 Hz
+> LiDAR when they are left unset. Add `use_sim_time:=true` to put your graph on simulator time;
+> it is only safe because this launch file guarantees the `/clock` publisher.
 
 | topic | type | rate | notes |
 |---|---|---|---|
@@ -160,8 +181,10 @@ docker exec -d lane-c-ros2 bash -lc '
 | `/clock` | `rosgraph_msgs/msg/Clock` | 333 Hz | remapped by the launch file |
 | `/tf`, `/tf_static` | `tf2_msgs/msg/TFMessage` | | 4 static frames |
 
-Vehicle state comes from PX4 itself — **24 `/fmu/out/*` topics**, byte-identical to what Lane A
-and real hardware publish. The ones you will actually use:
+Vehicle state comes from PX4 itself — **24 `/fmu/out/*` topics**, byte-identical to what a real
+Pixhawk publishes over the same `px4_msgs` definitions. That identity is the whole sim-to-real
+argument: your node cannot tell which side of the transport swap it is on. The ones you will
+actually use:
 
 | topic | type |
 |---|---|
@@ -270,15 +293,22 @@ Stream setpoints **before** requesting OFFBOARD, or the mode change is rejected.
 
 ## 5. Verify it works
 
+Both scripts live in the repo, not in the image, so copy them in first — and run them
+through a **login** shell, because `docker exec` bypasses the entrypoint and a non-login
+shell has no ROS environment at all (`import rclpy` fails before anything is checked).
+
 ```bash
+docker cp scripts/verify_sensors.py       sim-ros2:/tmp/verify.py
+docker cp scripts/verify_nav_interface.py sim-ros2:/tmp/verify_nav.py
+
 # sensors — checks VALUES, not topic presence
-docker exec lane-c-ros2 python3 /tmp/verify.py          # scripts/verify_lane_c_sensors.py
+docker exec sim-ros2 bash -lc 'python3 /tmp/verify.py'
 
 # the command interface — arms and flies, SITL only
-docker exec lane-c-ros2 python3 /tmp/verify_nav.py     # scripts/verify_nav_interface.py
+docker exec sim-ros2 bash -lc 'python3 /tmp/verify_nav.py'
 ```
 
-`verify_lane_c_sensors.py` deliberately asserts values: an all-black camera and a working one
+`verify_sensors.py` deliberately asserts values: an all-black camera and a working one
 both "publish an image", and only one has pixel variance. `verify_nav_interface.py` proves each
 command kind by the **vehicle moving**, never by a publisher existing.
 
@@ -298,13 +328,13 @@ spawn look like it was ignored.
 ## 6. Known limits
 
 - **Lockstep is dead code** in Cosys-AirSim — `"LockStep": true` is silently ineffective, so
-  **every Lane C timing number is free-running**. Never quote a Lane C RTF as deterministic.
+  **every timing number here is free-running**. Never quote an RTF as deterministic.
 - **Frame rate is capped by the launch file, not by the hardware.**
-  `lane_c_perception.launch.py` pins imagery at 20 Hz and LiDAR at 10 Hz; measured throughput
+  `perception.launch.py` pins imagery at 20 Hz and LiDAR at 10 Hz; measured throughput
   sits at 94% and 100% of those ceilings.
 - **Frames are NWU, not ENU**, despite what the upstream docs say.
 - **The capture carries ~2.5× the high-frequency speckle** of Unreal's own render. `ForceUpdate`
-  removes the Lumen-attributable part; the residual is deferred as `C-12`, and the metric itself
+  removes the Lumen-attributable part; the residual is deferred as `SIM-12`, and the metric itself
   is not fully trustworthy.
 - **A simulator segfault was seen once** after ~57 minutes of continuous running
   (`Array index out of bounds: 18823 into an array of size 0`, preceded by a MAVLink `hil`
@@ -316,3 +346,9 @@ spawn look like it was ignored.
   interval (ran clean through it under heavier load). **Not reproduced is not fixed** — treat it
   as a rare, uncharacterised event rather than a known ceiling. Detail in
   `docs/vendor/cosys-airsim.md`.
+
+---
+
+**Where to go next.** The backlog for the simulator is [`todo.md`](todo.md) — every `SIM-NN`
+task, what is done, and what it cost. The wire conventions the graph is held to (frames, units,
+topic names, QoS) are in [`conventions.md`](conventions.md).
