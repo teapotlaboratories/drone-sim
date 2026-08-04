@@ -2201,6 +2201,75 @@ flown end to end over ROS 2 with its MCAP kept.
 
 ---
 
+## `SIM-19` — review the Dockerfiles properly
+
+**Status:** `todo` · **Filed 2026-08-04** by the owner, immediately after `SIM-18` merged.
+The images were *changed* during the consolidation — Gazebo stripped, the `/clock` bridge
+removed, a video image rewritten — but they were changed to make the pivot correct, not
+because anyone had sat down and reviewed them as a set. That review is this task.
+
+**Nothing here is broken.** All six images build and the stack flies on them. This is about
+what they cost and what they contain, and it is worth doing while the shape is fresh.
+
+### Where to start — measured 2026-08-04, not estimated
+
+```
+drone-sim/px4:v1.16.0      11.0 GB   FROM ubuntu:24.04
+drone-sim/ros2:v1.16.0     11.1 GB   FROM drone-sim/px4:v1.16.0
+drone-sim/qgc:v1.16.0      12.1 GB   FROM drone-sim/px4:v1.16.0
+drone-sim/video:v1.16.0    11.1 GB   FROM drone-sim/px4:v1.16.0
+drone-sim/unreal:ue5.8     57.5 GB   FROM ghcr.io/epicgames/unreal-engine (credential-gated)
+drone-sim/airsim-client:1   0.4 GB   FROM python:3.11-slim
+```
+
+**Read those numbers carefully before optimising anything.** Docker counts a shared layer once
+per image in this listing, so the four `drone-sim/*` images derived from one base do NOT cost
+46 GB on this disk — `docker system df` reports ~80 GB total across everything, dominated by
+the engine. The cost that is real is **pull size and build time on a fresh machine**, which is
+exactly the reproducibility goal's scenario.
+
+Four concrete leads, in the order they are likely to pay:
+
+1. **`ros-jazzy-desktop` in the base is almost certainly the wrong metapackage**
+   (`docker/px4.Dockerfile:75`). It pulls rviz2, rqt and the demo nodes. `grep -rn 'rviz\|rqt'`
+   over `scripts/` and `ros2_ws/src/` returns **nothing** — no runtime consumer. `ros-base`
+   plus the handful of packages actually used is the obvious trade. **Do not assume it is
+   safe:** `px4_ros_com` and the AirSim wrapper both build against this image, so the
+   acceptance is a clean wrapper build plus a flight, not a smaller number.
+
+2. **`qgc` and `video` inherit the PX4 base and use almost none of it.** QGroundControl needs
+   Qt, Xvfb and the AppImage; it does not need PX4, NuttX or `px4_msgs`. The video image needs
+   ffmpeg and nothing else. Both could come `FROM ubuntu:24.04` directly. The counter-argument
+   is layer sharing on a machine that already has the base — which is why this is a *review*
+   and not a foregone conclusion. Weigh it for the fresh-machine case.
+
+3. **The NuttX toolchain is kept deliberately** (`docker/px4.Dockerfile`, `--no-nuttx` not
+   passed) because real Pixhawk 6C firmware is flashed from that tree. That is a real
+   capability and the reason is recorded — but it is worth measuring what it costs and asking
+   whether flashing wants its own image rather than sitting in the one every container runs.
+
+4. **The reinstate list after `--no-sim-tools` is partly redundant.** Raised in the `SIM-18`
+   review and confirmed: `pkg-config` and `libxml2-utils` are also installed by `ubuntu.sh`'s
+   general and NuttX blocks, so naming them at `docker/px4.Dockerfile:112` is belt-and-braces
+   rather than load-bearing. Harmless, but the comment above it implies otherwise.
+
+### One thing that is NOT a size question
+
+**`docker/unreal.Dockerfile:76-98` carries a host-specific workaround.** The Vulkan ICD symlink
+(`/usr/lib64/libGLX_nvidia.so.0`) exists because this host is Bazzite/Fedora-family and its CDI
+spec injects an ICD naming a Fedora path that does not exist in an Ubuntu container — without
+it UE's renderer cannot start at all. It is documented and it works, but it is a **host
+assumption baked into an image**, which is precisely what the reproducible-as-Docker goal
+exists to eliminate. A Debian-family host would not need it; a different driver injection might
+need something else. Decide whether it belongs in the image, in the run command, or behind a
+detection step.
+
+**Acceptance.** Whatever changes, the bar is unchanged: the wrapper builds, the stack comes up
+through all three barriers, and the example mission flies. A smaller image that does not fly is
+a regression, and image size has never been this project's constraint.
+
+---
+
 ## SIM-08 — Cesium georeferenced terrain
 
 **Status:** `todo` · **Rescoped 2026-08-02** — the photoreal-scene and dynamic-actor work
