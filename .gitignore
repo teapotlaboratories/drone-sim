@@ -17,8 +17,24 @@ log/
 
 # Recorded flight data — these belong on the 7 TB external drive, not in git.
 # RGB-D at 640x480@30Hz is tens of GB/hour.
+#
+# EVERY bag format and sidecar, not just the two this project happens to write. Verified
+# 2026-08-04 against a real recording (out/park-tour-<stamp>/ holds metadata.yaml +
+# <name>_0.mcap) and by probing each form:
+#   *.mcap        rosbag2 default storage here
+#   *.db3         rosbag2 sqlite3 storage
+#   *.db3-shm/-wal/-journal   sqlite sidecars — left behind by an INTERRUPTED recording,
+#                 which is exactly when nobody is thinking about `git add`
+#   *.active      rosbag2 marks the in-progress split with this suffix
+#   *.bag         ROS 1. Nothing here writes one, but an imported dataset would.
+# The bag DIRECTORY is covered too: its metadata.yaml and rosbag2_*/ are ignored below.
 *.mcap
 *.db3
+*.db3-shm
+*.db3-wal
+*.db3-journal
+*.active
+*.bag
 rosbags/
 
 # Large simulator assets — external drive, referenced by path
