@@ -152,3 +152,49 @@ def test_the_default_plugin_source_is_the_BUILT_copy():
     assert "Environments/Blocks" in str(inj.BUILT_PLUGIN), (
         "default must be the built plugin inside Blocks, not Unreal/Plugins/AirSim"
     )
+
+
+# ---------------------------------------------------------------------------------------
+# shadowing plugin copies
+#
+# Regression tests for the defect that invalidated a full day of capture measurements: a
+# backup copy of the plugin left inside Plugins/ is a SECOND registration of plugin "AirSim"
+# v3, and Unreal keeps one and ignores the rest. The freshly injected copy was the ignored
+# one, so a rebuilt and md5-verified plugin was never actually loaded.
+
+
+def _mk_plugin(root, relpath):
+    p = root / relpath
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "AirSim.uplugin").write_text('{"FileVersion":3,"FriendlyName":"AirSim"}')
+    return p
+
+
+def test_a_lone_canonical_plugin_is_not_flagged(tmp_path):
+    _mk_plugin(tmp_path, "Plugins/AirSim")
+    assert inj.shadowing_plugin_copies(tmp_path) == []
+
+
+def test_a_backup_left_inside_Plugins_is_flagged(tmp_path):
+    _mk_plugin(tmp_path, "Plugins/AirSim")
+    _mk_plugin(tmp_path, "Plugins/AirSim.bak.1785739115")
+    found = [str(p) for p in inj.shadowing_plugin_copies(tmp_path)]
+    assert found == ["Plugins/AirSim.bak.1785739115/AirSim.uplugin"]
+
+
+def test_a_backup_OUTSIDE_Plugins_is_not_flagged(tmp_path):
+    """Where the fixed injector puts them -- Unreal never scans there."""
+    _mk_plugin(tmp_path, "Plugins/AirSim")
+    _mk_plugin(tmp_path, "AirSimBackups/AirSim.bak.1785739115")
+    assert inj.shadowing_plugin_copies(tmp_path) == []
+
+
+def test_nested_copies_are_found_too(tmp_path):
+    """The manager recurses, so a copy buried deeper still shadows."""
+    _mk_plugin(tmp_path, "Plugins/AirSim")
+    _mk_plugin(tmp_path, "Plugins/Marketplace/Vendor/AirSim")
+    assert len(inj.shadowing_plugin_copies(tmp_path)) == 1
+
+
+def test_no_Plugins_dir_is_not_an_error(tmp_path):
+    assert inj.shadowing_plugin_copies(tmp_path) == []

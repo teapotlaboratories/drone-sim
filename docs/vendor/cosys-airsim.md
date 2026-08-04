@@ -5,12 +5,38 @@ Upstream: https://github.com/Cosys-Lab/Cosys-AirSim
 migrated 5.5 → 5.6dev → 5.7pdev → 5.8, and there is no `5.5` branch upstream at all).
 
 **The vendored tree is byte-identical to upstream.** `git status --porcelain vendor/` reports
-zero modifications. All three deviations below live in `patches/cosys-airsim/` and are applied
-by `scripts/build_airsim_wrapper.sh` to a **container-local copy** at `/airsim_root`, never to
-`vendor/`.
+zero modifications. The three applied deviations below live in `patches/cosys-airsim/` and are
+applied by `scripts/build_airsim_wrapper.sh` to a **container-local copy** at `/airsim_root`,
+never to `vendor/`.
 
 **All three are upstream defects, not local preferences, and all three are worth reporting to
 Cosys-Lab.** Each was found by running the thing, not by reading it.
+
+**All three patch the ROS 2 wrapper (`ros2/src/airsim_ros_pkgs/`), not the UE plugin.** The
+plugin binary `libUnrealEditor-AirSim.so` is **stock upstream** (md5 `2122e037`), which is the
+configuration every image-quality measurement on 2026-08-03 was taken against — so those
+findings apply to vanilla Cosys-AirSim, not to a patched tree.
+
+> **A fourth patch exists and is deliberately NOT applied.**
+> `patches/cosys-airsim/experimental/0004-scene-capture-ldr.patch` changes the `Scene` capture
+> source from `SCS_FinalToneCurveHDR` to `SCS_FinalColorLDR` (`PIPCamera.cpp:178`). It is the
+> only patch that would touch the **UE plugin**, and it is excluded because the build script
+> globs `patches/cosys-airsim/*.patch` — the `experimental/` subdirectory is outside that glob.
+>
+> **It has never actually run.** It was built and deployed on 2026-08-02 and recorded as a
+> negative result, but on 2026-08-03 the plugin loader was found to have been resolving a
+> *different* copy: `inject_airsim.py --force` had left backups inside `Plugins/`, Unreal
+> de-duplicates plugins by name+version and kept the stale one, so the patched binary was
+> ignored. The md5 check that "verified" it inspected the file on disk, not the one the engine
+> loaded. **The negative result says nothing about the patch.**
+>
+> **It is not needed.** The washout it was written to fix was traced to three other causes
+> entirely (RGB read as BGR in the measurement client, the camera being inside world geometry,
+> and Lumen GI being explicitly disabled). With those addressed on the **stock** plugin,
+> AirSim's capture matches Unreal's own render of the same view to 1.15 of 255.
+>
+> See `patches/cosys-airsim/experimental/README.md` and
+> `docs/worklog/2026-08-03-c11-washout-root-cause.md`.
 
 > **Line endings.** Cosys-AirSim sources are **CRLF**. A hand-written LF hunk fails with
 > `Hunk 1 FAILED (different line endings)` — this cost a build cycle. Every hunk here was
@@ -162,9 +188,103 @@ Assertion failed: (Index >= 0) & (Index < ArrayNum) [Array.h:1339]
 Array index out of bounds: 18823 into an array of size 0
 ```
 
-preceded by one MAVLink `hil` `TcpClientPort socket send failed with error: 32` (EPIPE). Same
-*shape* as `0001` — a read against something concurrently emptied — but **not diagnosed**, and
-not addressed by any patch here. It is a stability ceiling that matters for long missions.
+preceded by one MAVLink `hil` `TcpClientPort socket send failed with error: 32` (EPIPE).
+
+**Observed once (n = 1).** The "~57 minutes" is a single data point, not a measured period. An
+earlier version of the Lane C backlog claimed it "gets more likely with more actors" — that had
+no measurement behind it and is **withdrawn**; the crash predates any actor work.
+
+### Source-level analysis — 2026-08-03, a candidate mechanism (not yet proven)
+
+This is characterisable from the vendored source, and **upstream half-documents it**:
+
+```cpp
+// RenderRequest.cpp, ExecuteTask() — render thread
+//below is undocumented method that avoids flushing, but it seems to
+//segfault every 2000 or so calls
+RHICmdList.ReadSurfaceData(rhi_texture, FIntRect(0,0,size.X,size.Y), results_[i]->bmp, flags);
+```
+
+The ordering matters. `setupRenderResource()` writes `result->width`/`height` **before**
+`ReadSurfaceData` populates `bmp` — so a read that fails to populate leaves the dimensions set
+and the buffer empty. The consumer then checks the wrong thing:
+
+```cpp
+// RenderRequest.cpp — game thread, after the wait
+if (results[i]->width != 0 && results[i]->height != 0) {   // <- DIMENSIONS only, never bmp.Num()
+    ...
+    UAirBlueprintLib::CompressImageArray(width, height, results[i]->bmp, ...);
+}
+
+// AirBlueprintLib.cpp:1067 — indexes by width*height
+for (int32 Index = 0; Index < width * height; Index++)
+    uint8 TempRed = MutableSrcData[Index].R;               // <- empty src => exactly our assert
+```
+
+That reproduces the observed message shape precisely: an index bounded by `width*height` into an
+array of size 0.
+
+**But our ROS 2 wrapper does not take that path**, which is why this is a candidate rather than
+a conclusion. `airsim_ros_wrapper.cpp` requests Scene as `ImageRequest(name, type, false, false)`
+(`compress = false`) and Depth as `ImageRequest(name, type, true)` (`pixels_as_float = true`).
+Both land in `else` branches that **iterate** `bmp` / `bmp_float` rather than indexing it, and
+iteration over an empty array is safe. So either the crash came from an **RPC client requesting
+`compress = true`** (the AirSim default — `ImageCaptureBase.hpp:41`), or it is a different array
+entirely. Unresolved.
+
+**A second, quieter defect in the same block**, independent of the crash: those safe branches do
+`image_data_uint8.SetNumUninitialized(width * height * 3)` and then fill only `bmp.Num()` entries.
+On an empty buffer that yields a **fully uninitialised image** — garbage pixels, published as if
+valid, no error. Silent corruption is worse than a crash, and it is on the path Lane C actually
+uses.
+
+**The EPIPE is plausibly a symptom, not the cause.** The caller blocks in
+`while (!wait_signal_->waitFor(5))`, logging `Failed: timeout waiting for screenshot` and looping
+forever. A stalled capture therefore stalls the calling thread in 5-second blocks, which is
+enough to time out PX4's MAVLink link and produce the EPIPE *before* the crash surfaces.
+
+### Soak result — 2026-08-03: NOT REPRODUCED, and both hypotheses refuted
+
+`scripts/soak_capture.py` (A/B) and `scripts/soak_full_stack.sh` (arm C). GPU 0 only.
+
+| arm | configuration | result |
+|---|---|---|
+| A | isolated sim, one camera, no PX4, RPC `compress=true` | **6,000 calls / 249 s — survived**, 0 anomalies |
+| C | **full Lane C stack** — PX4 + MAVLink + wrapper polling Scene/Depth/GPU-LiDAR, **plus** concurrent RPC `compress=true` | **74,253 calls / 90 min — survived**, 0 anomalies |
+
+**Both candidate mechanisms are refuted as stated:**
+
+- **The count hypothesis is dead.** Upstream's own comment claims the read "seems to segfault
+  every 2000 or so calls". Arm C made **74,253** `compress=true` calls without incident — wrong
+  by more than an order of magnitude. That comment should not be treated as characterising the
+  failure.
+- **The time hypothesis is dead.** Arm C ran clean *through* the 57-minute window, under a
+  heavier load than the session that crashed, and continued to the 90-minute cap. The
+  "~57 minutes" was almost certainly incidental to that one run, not a property of the simulator.
+
+**The silent-corruption path also never fired**: zero empty buffers, zero short buffers, zero
+frame-statistic outliers across 80k+ captures over both arms.
+
+**This is "not reproduced", NOT "fixed".** The original is `n = 1` with no stack trace beyond the
+assertion line. A clean 90-minute run is weak evidence against a rare event, and nothing here
+identifies what actually fired that day. Arm B (`compress=false`) was not run: it exists only to
+discriminate *if* an arm crashes, and with nothing crashing it would answer no question.
+
+**What survives regardless of the crash.** The source-level defects found while forming these
+hypotheses are real and independent of whether they caused this event:
+
+1. the consumer guard checks `width`/`height` but never `bmp.Num()`, while `CompressImageArray`
+   indexes by `width * height`;
+2. the iterate-not-index branches `SetNumUninitialized(w*h*3)` and then fill only `bmp.Num()`
+   entries, so an empty buffer yields a **fully uninitialised image published as valid** — on the
+   path Lane C actually uses.
+
+Both are worth reporting to Cosys-Lab on their own merits. (2) is the more dangerous: silent
+corruption beats a crash for cost-to-diagnose.
+
+**Status: an uncharacterised stability ceiling that has resisted one deliberate attempt to
+reproduce it.** If it recurs, capture the full simulator log and the wrapper's state at the time
+— the assertion line alone was not enough to work from.
 
 ---
 

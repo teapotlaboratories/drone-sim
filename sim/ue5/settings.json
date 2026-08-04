@@ -120,9 +120,33 @@
           "Pitch": 0.0, "Roll": 0.0, "Yaw": 0.0,
           "CaptureSettings": [
             {
+              "_comment_image_quality": [
+                "These three keys are why Lane C imagery stopped looking washed out. Measured",
+                "2026-08-03 against Unreal's own HighResShot of the SAME camera actor at the",
+                "same transform; with them the two agree to 1.15 of 255, without them AirSim is",
+                "up to 8.6 brighter and 20.3 flatter. All three apply to ImageType 0 only.",
+                "LumenGIEnable / LumenReflectionEnable: these do NOT merely skip Lumen when",
+                "false. PIPCamera.cpp:701-715 takes an else branch that FORCES",
+                "DynamicGlobalIlluminationMethod::None and ReflectionMethod::None, so a world",
+                "authored for Lumen (any modern UE5 environment) renders with GI and reflections",
+                "off through the capture path while its own viewport keeps them.",
+                "ForceUpdate: cameras start as nodisplay, so bCaptureEveryFrame is false",
+                "(PIPCamera.cpp:186-188, :455-459) and the capture renders one shot per request.",
+                "bAlwaysPersistRenderingState is true, so the temporal history buffer exists but",
+                "nothing accumulates into it and TSR/TAA never converges - which shows up as",
+                "colour fringing on foliage. Setting it true (-> setCameraTypeUpdate(Scene,",
+                "false), PIPCamera.cpp:730) cut high-frequency noise 13.9% at 1080p with no",
+                "measurable frame-rate cost. A Lumen-off control showed it is specifically",
+                "denoising Lumen's stochastic GI sampling, so it pairs with the two keys above.",
+                "Upstream flags it 'costly for performance!' and the cost scales with the number",
+                "of ENABLED cameras - see lane-c-sensor-rates for the measured rates here."
+              ],
               "ImageType": 0,
               "Width": 640, "Height": 480,
-              "FOV_Degrees": 90
+              "FOV_Degrees": 90,
+              "LumenGIEnable": true,
+              "LumenReflectionEnable": true,
+              "ForceUpdate": true
             },
             {
               "_comment": [

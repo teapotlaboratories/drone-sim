@@ -132,6 +132,28 @@ def ini_add_once(path: Path, section: str, line: str) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def shadowing_plugin_copies(root: Path) -> list:
+    """Every AirSim.uplugin under Plugins/ other than the canonical Plugins/AirSim one.
+
+    Unreal's plugin manager walks Plugins/ recursively and de-duplicates by plugin name and
+    version, keeping one location and ignoring the others -- at Warning level, in a log nobody
+    reads on a successful boot. Any second copy therefore makes "which code is actually
+    running" unanswerable from the filesystem, which is precisely how a verified-by-md5 plugin
+    ended up not being the one loaded.
+
+    Returned paths are relative to `root` so the error message stays readable.
+    """
+    plugins = root / "Plugins"
+    if not plugins.is_dir():
+        return []
+    canonical = (plugins / "AirSim" / "AirSim.uplugin").resolve()
+    found = []
+    for up in sorted(plugins.rglob("AirSim.uplugin")):
+        if up.resolve() != canonical:
+            found.append(up.relative_to(root))
+    return found
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Inject Cosys-AirSim into a user's UE project (C-11 A1).")
     ap.add_argument("uproject", type=Path, help="path to the user's .uproject")
@@ -192,14 +214,34 @@ def main() -> int:
         if not a.force:
             die(f"{dest} already exists.\n"
                 f"       Refusing to replace it — it may contain local modifications.\n"
-                f"       Re-run with --force to move it aside to AirSim.bak.<timestamp> "
-                f"and replace it.")
-        backup = dest.with_name(f"AirSim.bak.{int(time.time())}")
+                f"       Re-run with --force to move it aside to "
+                f"AirSimBackups/AirSim.bak.<timestamp> and replace it.")
+        # The backup must land OUTSIDE Plugins/. Unreal's plugin manager scans that directory
+        # RECURSIVELY and keys plugins by name+version, so a backup left as a sibling is a
+        # second copy of plugin "AirSim" v3 -- and the manager keeps exactly one, silently:
+        #     LogPluginManager: Warning: The same version (v3) of plugin 'AirSim' exists at
+        #     'AirSim.bak.<ts>/AirSim.uplugin' and 'AirSim/AirSim.uplugin'
+        #       - second location will be ignored
+        # The freshly injected plugin is the one ignored. This cost a full day: a rebuilt,
+        # md5-verified plugin sat at Plugins/AirSim while the engine loaded a stale backup, and
+        # the resulting "the patch changes nothing" was recorded as a negative result about the
+        # patch rather than about the loader.
+        backups = root / "AirSimBackups"
+        backups.mkdir(parents=True, exist_ok=True)
+        backup = backups / f"AirSim.bak.{int(time.time())}"
         dest.rename(backup)
-        warn(f"existing plugin moved aside -> {backup.name}")
+        warn(f"existing plugin moved aside -> AirSimBackups/{backup.name}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(a.plugin, dest, symlinks=True)
     log(f"copied plugin -> Plugins/AirSim")
+
+    shadows = shadowing_plugin_copies(root)
+    if shadows:
+        die("Plugins/ contains more than one copy of the AirSim plugin:\n"
+            + "".join(f"         {s}\n" for s in shadows)
+            + "       Unreal keeps ONE and silently ignores the rest, and the one it keeps is\n"
+              "       not necessarily the copy just injected. Move the extras out of Plugins/\n"
+              "       (anywhere else in the project is fine) and re-run.")
 
     # 2. the .uproject ---------------------------------------------------------------
     plugins = data.setdefault("Plugins", [])

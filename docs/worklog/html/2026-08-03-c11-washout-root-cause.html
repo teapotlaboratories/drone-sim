@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C-11 — Three Bugs Wearing One Costume — 2026-08-03</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style></head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog · 2026-08-03 · C-11</span>
+  <nav><a href="#wrong">Why it stalled</a><a href="#source">The source</a><a href="#loader">Void result</a><a href="#factorial">2&times;2</a><a href="#fog">Fog</a><a href="#rgb">My bug</a><a href="#premise">Vs native</a><a href="#noise">Noise</a><a href="#rates">Cost</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog · 2026-08-03 · C-11 · Lane C · SITL only, nothing flies here</span>
+  <h1>Three Bugs<br>Wearing One Costume</h1>
+  <p class="sub">A day of "the AirSim capture looks washed out" had produced seven failed fixes and one confident negative result. All of it was chasing a single defect that did not exist: the symptom was three unrelated faults, one of which was in the measuring instrument, and one of which made the previous day's conclusion void.</p>
+  <div class="mastmeta"><span>Agreement with Unreal <b>1.15 / 255</b></span><span>Causes <b>3</b></span><span>Prior results voided <b>1</b></span><span>Cost of the fix <b>8.6% RGB</b></span><span>Plugin <b>stock</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">The premise, finally measured</div><div class="v">1.15 / 255</div><div class="n">AirSim vs Unreal, same actor, same frame, 6 scenes</div></div>
+<div class="stat stop"><div class="k">Yesterday's negative result</div><div class="v">VOID</div><div class="n">the patched plugin was never loaded</div></div>
+<div class="stat"><div class="k">Contrast, before &rarr; after</div><div class="v">144 &rarr; 198</div><div class="n">p01&ndash;p99 luminance at z = &minus;10 m</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#wrong">Why seven fixes all missed</a></li>
+  <li><a href="#source">Reading the source instead of guessing</a></li>
+  <li><a href="#loader">The rig voided its own premise</a></li>
+  <li><a href="#factorial">The 2&times;2: gamma refuted, Lumen real</a></li>
+  <li><a href="#fog">Altitude, and the fog nobody looked for</a></li>
+  <li><a href="#rgb">A bug in the measuring instrument</a></li>
+  <li><a href="#premise">AirSim vs Unreal, same pose</a></li>
+  <li><a href="#noise">The residual: aliasing, and a metric that lies</a></li>
+  <li><a href="#rates">What it costs on the real graph</a></li>
+  <li><a href="#open">Still open</a></li>
+</ol></div>
+
+<h2 id="wrong"><span class="secnum">01</span> Why seven fixes all missed</h2>
+<p>The thread arrived here with a <strong>negative result</strong>: the
+<code>SCS_FinalToneCurveHDR</code> &rarr; <code>SCS_FinalColorLDR</code> patch was built, deployed,
+verified by md5, and did not change the washout. That retired the hypothesis the whole
+investigation rested on and left the mechanism unknown.</p>
+<p>Seven interventions had failed by then &mdash; six world-side (a scalability <code>.ini</code>,
+SM5&rarr;SM6, the UE4&rarr;UE5 package conversion, <code>AtmosphericFog</code>&rarr;<code>SkyAtmosphere</code>)
+and one plugin-side (the capture source). Every one targeted <em>the world</em> or <em>the output
+encoding</em>.</p>
+<div class="callout"><span class="lbl">What the accumulated failures were actually saying</span>
+<p><strong>None of them targeted how the capture component itself is configured.</strong> If the
+world renders correctly in Unreal's own screenshot and incorrectly through <code>simGetImages</code>,
+in the same process on the same frame, the difference has to live in the component doing the
+capturing. So this session started by reading the vendor source rather than proposing an eighth
+fix.</p></div>
+
+<h2 id="source"><span class="secnum">02</span> Reading the source instead of guessing</h2>
+<p>Grepping <code>PIPCamera.cpp</code> for the capture setup killed the leading hypothesis
+immediately and turned up two better ones.</p>
+
+<h3>Killed on sight &mdash; <code>bAlwaysPersistRenderingState</code></h3>
+<p>Expected to be <code>false</code> (the UE default), which would discard temporal history every
+capture and break auto-exposure, TSR and Lumen accumulation. It is explicitly <code>true</code> at
+<code>PIPCamera.cpp:459</code>. Not the cause; cost nothing to rule out. <em>(This dismissal turns
+out to be too broad &mdash; see &sect;08.)</em></p>
+
+<h3>Candidate 1 &mdash; a gamma applied to the Scene camera and nothing else</h3>
+<pre><span class="c">AirSimSettings.hpp:170</span>    static constexpr float kSceneTargetGamma = <b>1.4f</b>;
+<span class="c">AirSimSettings.hpp:1526</span>   capture_setting.target_gamma = settings_json.getFloat("TargetGamma",
+<span class="c">AirSimSettings.hpp:1527</span>       capture_setting.image_type == <b>0</b> ? CaptureSetting::kSceneTargetGamma : Utils::nan&lt;float&gt;());
+<span class="c">PIPCamera.cpp:747-748</span>     if (!std::isnan(setting.target_gamma))
+                             render_target-&gt;TargetGamma = setting.target_gamma;</pre>
+<p><code>ImageType 0</code> is Scene. Every other image type gets <code>NaN</code> and leaves the
+render target's gamma alone. So Scene &mdash; and only Scene &mdash; gets <strong>gamma 1.4 on top of
+an already tone-curved image</strong>, which lifts midtones. That is a milky wash, and it would
+explain why the defect is specific to the one image type anyone looks at.</p>
+
+<h3>Candidate 2 &mdash; Lumen explicitly turned OFF for the capture</h3>
+<pre><span class="c">AirSimSettings.hpp:217-218</span>   bool lumen_gi_enabled = <b>false</b>;
+                             bool lumen_reflections_enabled = <b>false</b>;
+<span class="c">PIPCamera.cpp:701-715</span>        if (capture_setting.lumen_gi_enabled) { ... Lumen ... }
+                             <b>else</b> { bOverride_DynamicGlobalIlluminationMethod = 1;
+                                    DynamicGlobalIlluminationMethod = <b>::None</b>; }
+                             (same shape for ReflectionMethod)</pre>
+<div class="callout warn"><span class="lbl">The <code>else</code> branch is the load-bearing part</span>
+<p>When the setting is false the code does not simply leave the capture alone &mdash; it
+<strong>overrides</strong> global illumination and reflections to <code>None</code>. City Park is
+authored for Lumen and Unreal's own render uses it, so the AirSim capture had been rendering with
+GI and reflections disabled the entire time. Missing GI reads exactly as flat, ambient-only,
+hazy lighting.</p></div>
+<p>Both are <code>settings.json</code> keys &mdash; <code>TargetGamma</code>,
+<code>LumenGIEnable</code>, <code>LumenReflectionEnable</code> (note upstream's typo in the
+neighbouring <code>LumenSceneLightningDetail</code>, which must be matched exactly).
+<strong>No plugin rebuild is needed to test either</strong>, the first time in this thread an
+experiment was cheap.</p>
+
+<h2 id="loader"><span class="secnum">03</span> The rig voided its own premise</h2>
+<p>The first run crashed the simulator at startup, and the crash log carried something far more
+important than the crash:</p>
+<pre>LogPluginManager: Warning: The same version (v3) of plugin 'AirSim' exists at
+  '<b>AirSim.bak.1785739115</b>/AirSim.uplugin' and '<b>AirSim</b>/AirSim.uplugin'
+  - second location will be ignored</pre>
+<p>Unreal's plugin manager walks <code>Plugins/</code> <strong>recursively</strong> and
+de-duplicates by name+version, keeping one location and ignoring the rest. The world had four
+copies, because <code>inject_airsim.py --force</code> moved the previous plugin aside to
+<code>Plugins/AirSim.bak.&lt;ts&gt;</code> &mdash; a <strong>sibling inside the scanned
+directory</strong>.</p>
+<div class="tw"><table>
+<thead><tr><th>Location</th><th class="mono">md5</th><th>Build</th><th>Engine verdict</th></tr></thead>
+<tbody>
+<tr><td class="mono">Plugins/AirSim.bak.1785739115</td><td class="mono">2122e037</td><td>stock upstream</td><td><span class="pill p-warn">KEPT</span></td></tr>
+<tr><td class="mono">Plugins/AirSim</td><td class="mono">1599713e</td><td>LDR-patched</td><td><span class="pill p-stop">IGNORED</span></td></tr>
+</tbody></table></div>
+<div class="callout stop"><span class="lbl">So the previous day's negative result is void</span>
+<p>The LDR patch was <strong>never loaded</strong>. The md5 check that "verified" it examined the
+right file and answered the wrong question: what sat on disk at <code>Plugins/AirSim</code>, not
+what the engine resolved. The companion check &mdash; <code>strings | grep -c FinalToneCurve</code>
+returning 0 &mdash; proved nothing either: it returns 0 on the <em>stock</em> build too, because
+those enum names are not stored as strings.</p></div>
+<p>This is a defect in the injector shipped in PR #33. Fixed three ways: backups now go to
+<code>&lt;project&gt;/AirSimBackups/</code>, <strong>outside</strong> <code>Plugins/</code>;
+<code>shadowing_plugin_copies()</code> refuses to finish an injection that would leave a second
+copy; and five regression tests cover it, including the case that matters &mdash; a backup
+<em>outside</em> <code>Plugins/</code> must not be flagged.</p>
+<p>The crash itself was also self-inflicted: a camera declared without explicit
+<code>X/Y/Z/Pitch/Roll/Yaw</code> keeps AirSim's NaN sentinels and reaches
+<code>FRotator::Quaternion</code> as <code>P=nan Y=nan R=nan</code>, taking the simulator down in
+<code>BeginPlay</code>. Not a validation error &mdash; a SIGSEGV.</p>
+
+<h2 id="factorial"><span class="secnum">04</span> The 2&times;2: gamma refuted, Lumen real</h2>
+<p>Run against the <strong>stock upstream</strong> plugin (<code>2122e037</code>), so any fix found
+applies to vanilla Cosys-AirSim rather than to a patched tree.</p>
+<div class="tw"><table>
+<thead><tr><th>Variant</th><th>Mean</th><th>Std</th><th>Range (p01&ndash;p99)</th></tr></thead>
+<tbody>
+<tr><th>baseline (AirSim defaults)</th><td class="mono">179.57</td><td class="mono">44.00</td><td class="mono">143.98</td></tr>
+<tr><th><code>TargetGamma: 1.0</code></th><td class="mono">179.59</td><td class="mono">43.96</td><td class="mono">143.58</td></tr>
+<tr><th><code>LumenGIEnable</code> + <code>LumenReflectionEnable</code></th><td class="mono">174.89</td><td class="mono">46.90</td><td class="mono"><strong>160.42</strong></td></tr>
+<tr><th>both</th><td class="mono">174.97</td><td class="mono">46.89</td><td class="mono">160.57</td></tr>
+</tbody></table></div>
+<p><strong><code>TargetGamma</code> is refuted</strong> &mdash; a clean negative from a proper
+factorial. 1.4 &rarr; 1.0 moves the image by &minus;0.4 range, i.e. noise. The setting is real and
+is applied, but the render target's gamma does not reach this output path.
+<strong>Lumen is real</strong>: +16.4 range, +2.9 std, and the combined cell adds nothing over
+Lumen alone, so the two factors do not interact.</p>
+
+<h2 id="fog"><span class="secnum">05</span> Altitude, and the fog nobody looked for</h2>
+<p>Both frames were <em>still</em> badly washed, and both still carried the out-of-focus concrete
+border that means the camera is inside geometry. Capture settings are parsed at startup but
+<strong>pose is free over RPC</strong>, so one simulator run can walk many positions.</p>
+
+<figure>
+<svg viewBox="0 0 720 250" role="img" aria-label="Bar chart: capture contrast against camera altitude. Contrast peaks at 198.5 at 10 m and collapses to 68.4 at 300 m.">
+  <text x="0" y="12" class="axl">CONTRAST (p01&ndash;p99), LUMEN ON &mdash; BARS TO SCALE, MAX 198.51</text>
+  <g>
+    <rect x="86" y="26" width="255" height="16" class="n-box"/><text x="0" y="39" class="axl">z = 2 m</text><text x="349" y="39" class="axl">168.54</text>
+    <rect x="86" y="50" width="288" height="16" class="n-box"/><text x="0" y="63" class="axl">z = 5 m</text><text x="382" y="63" class="axl">190.52</text>
+    <rect x="86" y="74" width="300" height="16" class="n-done"/><text x="0" y="87" class="axl">z = 10 m</text><text x="394" y="87" class="axl">198.51 &larr; peak</text>
+    <rect x="86" y="98" width="285" height="16" class="n-box"/><text x="0" y="111" class="axl">z = 20 m</text><text x="379" y="111" class="axl">188.51</text>
+    <rect x="86" y="122" width="255" height="16" class="n-box"/><text x="0" y="135" class="axl">z = 40 m</text><text x="349" y="135" class="axl">168.60</text>
+    <rect x="86" y="146" width="201" height="16" class="n-a"/><text x="0" y="159" class="axl">z = 80 m</text><text x="295" y="159" class="axl">132.93</text>
+    <rect x="86" y="170" width="151" height="16" class="n-a"/><text x="0" y="183" class="axl">z = 150 m</text><text x="245" y="183" class="axl">100.08</text>
+    <rect x="86" y="194" width="103" height="16" class="n-b"/><text x="0" y="207" class="axl">z = 300 m</text><text x="197" y="207" class="axl">68.36</text>
+  </g>
+  <line x1="86" y1="20" x2="86" y2="212" class="e"/>
+  <text x="0" y="236" class="axl">BLACK POINT (p01) OVER THE SAME SWEEP: 83.4 &rarr; 53.6 &rarr; 83.5 &rarr; 120.2 &rarr; 153.1 &rarr; 184.1 &mdash; DARKS LIFTED TOWARD ONE BRIGHT COLOUR</text>
+</svg>
+<figcaption>Contrast rises to a peak once the camera clears geometry, then collapses monotonically with altitude &mdash; the signature of aerial perspective, not of a broken capture path.</figcaption>
+</figure>
+
+<div class="callout ok"><span class="lbl">The washout scales with altitude</span>
+<p>Mean climbs monotonically to near-white (242.3 at 300 m), contrast collapses to 68, and the
+<em>black point</em> rises from 53 to 184 &mdash; darks lifted toward one bright colour. That is
+<strong>atmospheric fog / aerial perspective</strong>, a property of the world. It also
+retro-explains the original side-by-side "proof" that AirSim renders worse than Unreal: those two
+frames were taken from <strong>different viewpoints</strong>, a caveat recorded at the time and
+then reasoned past.</p></div>
+
+<h2 id="rgb"><span class="secnum">06</span> A bug in the measuring instrument</h2>
+<p>The sweep left a cyan cast that no hypothesis explained, so the client was checked against
+AirSim's own PNG encoder on an identical frame
+(<code>scripts/_check_channel_order.py</code>):</p>
+<pre>raw  as-BGR  B= 183.53 G= 178.21 R= 158.47
+png  (BGR)   B= 158.47 G= 178.21 R= 183.53
+mean|raw - png|         = 19.59
+mean|raw_swapped - png| =  <b>0.00</b>      &larr; exact</pre>
+<div class="callout stop"><span class="lbl">Cosys-AirSim returns the uncompressed buffer as RGB, not BGR</span>
+<p>Reading it as BGR swaps red and blue &mdash; which does not look like a bug, <strong>it looks
+like a plausible cyan colour cast</strong>, and was read as one for a full day. Every PNG saved in
+this investigation had red and blue swapped. Fixed, along with the luminance weights, which were
+applying 0.299/0.114 to the wrong channels.</p></div>
+
+<h3>Three problems, one symptom</h3>
+<div class="grid g3">
+<div class="stat stop"><div class="k">1 &mdash; colour cast</div><div class="v">CLIENT</div><div class="n">RGB read as BGR. Affects saved images only, never the simulator.</div></div>
+<div class="stat warn"><div class="k">2 &mdash; veiling haze</div><div class="v">GEOMETRY</div><div class="n">Camera inside the world; a near surface blurred by depth-of-field is a film over everything behind it.</div></div>
+<div class="stat"><div class="k">3 &mdash; flat lighting</div><div class="v">LUMEN OFF</div><div class="n">GI and reflections forced to <code>None</code> in a world authored for Lumen.</div></div>
+</div>
+<p>With all three addressed, at z = &minus;10 m contrast went <strong>143.98 &rarr; 197.8</strong> and
+the frame reads as a park &mdash; blue sky, white cloud, green foliage, the lake, a car on the road
+(<code>out/lane-c/capture-exp/before_after.png</code>). The residual brightness (mean 191, p99
+pinned at 251) is the sky blowing out on a bright day &mdash; an exposure-tuning question
+(<code>AutoExposureCompensation</code>), not a defect.</p>
+
+<h2 id="premise"><span class="secnum">07</span> AirSim vs Unreal, same pose</h2>
+<p>Everything above <em>explained</em> the gap without <em>measuring</em> it, and this thread had
+twice mistaken one for the other. Making the comparison apples-to-apples turns on one line:</p>
+<pre><span class="c">SimModeBase.cpp:2120</span>  CameraDirector-&gt;initializeForBeginPlay(..., getCamera(<b>"fpv"</b>), ...)</pre>
+<p>The viewport's FPV camera is the PIPCamera literally <strong>named <code>"fpv"</code></strong>
+&mdash; which is why earlier attempts comparing the viewport against <code>front_center</code> were
+comparing two different cameras, and why "FPV &ne; front_center" looked like a mystery.</p>
+
+<figure>
+<svg viewBox="0 0 720 220" role="img" aria-label="Diagram: one APIPCamera actor feeds two render paths that were finally compared on the same frame.">
+  <rect x="250" y="14" width="220" height="42" class="n-v"/>
+  <text x="268" y="34" class="nid">APIPCamera "fpv"</text>
+  <text x="268" y="48" class="nlb">one actor · one transform · one frame</text>
+
+  <path d="M310 56 L190 96" class="e"/>
+  <path d="M410 56 L530 96" class="e"/>
+
+  <rect x="60" y="96" width="260" height="42" class="n-box"/>
+  <text x="76" y="116" class="nid">UCineCameraComponent</text>
+  <text x="76" y="130" class="nlb">showToScreen() → view target → HighResShot</text>
+
+  <rect x="400" y="96" width="280" height="42" class="n-box"/>
+  <text x="416" y="116" class="nid">USceneCaptureComponent2D</text>
+  <text x="416" y="130" class="nlb">simGetImages() · bCaptureEveryFrame = false</text>
+
+  <path d="M190 138 L190 168" class="e"/>
+  <path d="M540 138 L540 168" class="e"/>
+
+  <rect x="60" y="168" width="260" height="38" class="n-done"/>
+  <text x="76" y="186" class="nid">Unreal's own render</text>
+  <text x="76" y="199" class="nlb">continuous → TSR/TAA converges</text>
+
+  <rect x="400" y="168" width="280" height="38" class="n-a"/>
+  <text x="416" y="186" class="nid">AirSim capture</text>
+  <text x="416" y="199" class="nlb">one shot per request → no accumulation</text>
+</svg>
+<figcaption>Both paths resolve to the same actor. Tone agrees to 1.15/255; what differs is temporal accumulation &mdash; the right-hand branch never gets any.</figcaption>
+</figure>
+
+<p>Both captures are issued inside a single pose-holding loop, so the vehicle cannot drift between
+them. <code>HighResShot</code> letterboxes to the viewport aspect, so the bars are cropped before
+scoring &mdash; left in, they would manufacture the very difference being measured.</p>
+
+<h3>With Lumen enabled &mdash; they match</h3>
+<div class="tw"><table>
+<thead><tr><th>Scene</th><th>AirSim mean</th><th>Native mean</th><th>&Delta;mean</th><th>AirSim contrast</th><th>Native contrast</th><th>&Delta;contrast</th></tr></thead>
+<tbody>
+<tr><th>treeline_close</th><td class="mono">200.38</td><td class="mono">201.20</td><td class="mono">&minus;0.82</td><td class="mono">169.59</td><td class="mono">160.95</td><td class="mono"><strong>+8.64</strong></td></tr>
+<tr><th>treeline_mid</th><td class="mono">195.86</td><td class="mono">194.54</td><td class="mono">+1.32</td><td class="mono">198.32</td><td class="mono">197.35</td><td class="mono">+0.97</td></tr>
+<tr><th>treeline_far</th><td class="mono">206.90</td><td class="mono">205.97</td><td class="mono">+0.93</td><td class="mono">170.34</td><td class="mono">169.31</td><td class="mono">+1.03</td></tr>
+<tr><th>park_high</th><td class="mono">220.57</td><td class="mono">220.16</td><td class="mono">+0.41</td><td class="mono">133.97</td><td class="mono">134.27</td><td class="mono">&minus;0.30</td></tr>
+<tr><th>lakeside</th><td class="mono">197.78</td><td class="mono">196.42</td><td class="mono">+1.36</td><td class="mono">176.00</td><td class="mono">173.28</td><td class="mono">+2.72</td></tr>
+<tr><th>path_north</th><td class="mono">183.86</td><td class="mono">181.64</td><td class="mono">+2.22</td><td class="mono">192.14</td><td class="mono">189.61</td><td class="mono">+2.53</td></tr>
+</tbody></table></div>
+<p>Worst brightness disagreement is <strong>2.2 levels out of 255</strong>. AirSim is slightly
+<em>more</em> saturated in every scene and has <em>more</em> contrast at close range.
+<strong><code>simGetImages</code> does not render worse than Unreal.</strong> The claim this
+investigation was built on is false.</p>
+
+<h3>With AirSim's stock defaults &mdash; the gap is real, and it is Lumen</h3>
+<div class="tw"><table>
+<thead><tr><th>Configuration</th><th>&Delta;mean vs native</th><th>&Delta;contrast vs native</th><th>&Delta;saturation</th></tr></thead>
+<tbody>
+<tr><th>stock (Lumen off)</th><td class="mono">+2.6 &hellip; <strong>+8.6</strong></td><td class="mono">&minus;20.3 &hellip; +3.7</td><td class="mono">&minus;6.4 &hellip; +0.3</td></tr>
+<tr><th>Lumen on</th><td class="mono">&minus;0.8 &hellip; +2.2</td><td class="mono">&minus;0.3 &hellip; +8.6</td><td class="mono">+0.4 &hellip; +2.7</td></tr>
+</tbody></table></div>
+<p>Turning Lumen on closes a <strong>20-point contrast gap</strong> at close range and 16.8 at
+altitude. The one scene that barely moves (<code>path_north</code>, +3.7) is mostly open sky,
+where GI contributes little &mdash; the right sanity check on the mechanism.</p>
+
+<h2 id="noise"><span class="secnum">08</span> The residual: aliasing, and a metric that lies</h2>
+<p>Re-run at 1920&times;1080, tone agreement is tighter still &mdash; worst |&Delta;mean| is
+<strong>1.15</strong>. But AirSim's frames carry hard aliased leaf edges with red/blue colour
+fringing where the native render is cleanly resolved.</p>
+<div class="tw"><table>
+<thead><tr><th>Scene</th><th>AirSim hf</th><th>Native hf</th><th>Ratio (worst window)</th><th>Ratio (full frame)</th></tr></thead>
+<tbody>
+<tr><th>treeline_close</th><td class="mono">46.21</td><td class="mono">15.41</td><td class="mono"><strong>3.00&times;</strong></td><td class="mono">2.66&times;</td></tr>
+<tr><th>treeline_mid</th><td class="mono">49.43</td><td class="mono">17.97</td><td class="mono">2.75&times;</td><td class="mono">2.44&times;</td></tr>
+<tr><th>lakeside</th><td class="mono">46.80</td><td class="mono">17.84</td><td class="mono">2.62&times;</td><td class="mono">2.51&times;</td></tr>
+</tbody></table></div>
+
+<h3>The mechanism is in the source, and it is deliberate</h3>
+<pre><span class="c">PIPCamera.cpp:186-188</span>  //We set all cameras to start as nodisplay
+                       //This improves performance because the capture components are no longer
+                       //updating every frame and only update while requesting an image
+<span class="c">PIPCamera.cpp:455-459</span>  setCaptureUpdate(capture, nodisplay)
+                           capture-&gt;bCaptureEveryFrame = <b>!nodisplay</b>;
+                           capture-&gt;bAlwaysPersistRenderingState = true;</pre>
+<p>Every camera starts as <code>nodisplay</code>, so <code>bCaptureEveryFrame</code> is
+<strong>false</strong> and the capture renders one shot per <code>simGetImages</code>. The history
+<em>buffer</em> survives &mdash; but with no per-frame captures nothing accumulates into it, so
+TSR/TAA never converges. The viewport, rendering continuously, does. That is the entire
+difference &mdash; and it means the &sect;02 dismissal of
+<code>bAlwaysPersistRenderingState</code> correctly ruled out one failure mode and was then
+wrongly treated as ruling out the temporal path entirely.</p>
+<p>One further check: <code>showToScreen()</code> (<code>PIPCamera.cpp:406</code>) touches only the
+cine-camera component, never the scene captures &mdash; so running in <code>Fpv</code> view mode does
+<strong>not</strong> enable per-frame capture, which is why the aliasing survived the vs-native run.</p>
+
+<h3>Stock levers, priced</h3>
+<p>Absolute high-frequency energy at <code>treeline_mid</code> (native reference &asymp; 7.0), with
+the achievable <code>simGetImages</code> rate alongside &mdash; because a fix that halves the frame
+rate is not obviously a fix.</p>
+<div class="tw"><table>
+<thead><tr><th>Variant</th><th>hf_airsim</th><th>vs baseline</th><th>Capture fps</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><th>baseline (stock defaults)</th><td class="mono">20.71</td><td class="mono">&mdash;</td><td class="mono">10.6</td><td>&mdash;</td></tr>
+<tr><th><code>ForceUpdate: true</code></th><td class="mono"><strong>17.83</strong></td><td class="mono"><strong>&minus;13.9%</strong></td><td class="mono">10.4</td><td><span class="pill p-ok">SHIPPED</span></td></tr>
+<tr><th><code>r.AntiAliasingMethod 1</code> (FXAA)</th><td class="mono">21.12</td><td class="mono">+2.0%</td><td class="mono">10.9</td><td><span class="pill p-stop">REJECTED</span></td></tr>
+<tr><th>ForceUpdate + FXAA</th><td class="mono">18.03</td><td class="mono">&minus;12.9%</td><td class="mono">10.7</td><td><span class="pill p-warn">no gain</span></td></tr>
+<tr><th>supersample 2&times; &rarr; downsample</th><td class="mono">19.98</td><td class="mono">&minus;3.5%</td><td class="mono"><strong>4.5</strong></td><td><span class="pill p-stop">REJECTED</span></td></tr>
+</tbody></table></div>
+<div class="callout stop"><span class="lbl">FXAA is a trap in the ratio metric</span>
+<p>Its <em>ratio</em> looked best of everything (2.04&times; vs 2.94&times;) purely because it degraded
+the <strong>native reference</strong> too (hf 7.04 &rarr; 10.36) &mdash; FXAA is worse than TSR.
+AirSim's own noise went slightly <em>up</em>. <strong>Ratios are only meaningful when the
+denominator holds still</strong>; the absolute column is the one to read.</p></div>
+
+<h3>What <code>ForceUpdate</code> is actually fixing</h3>
+<div class="tw"><table>
+<thead><tr><th>&nbsp;</th><th>Lumen on</th><th>Lumen off</th></tr></thead>
+<tbody>
+<tr><th>baseline</th><td class="mono">20.71</td><td class="mono">17.56</td></tr>
+<tr><th>ForceUpdate</th><td class="mono">17.83</td><td class="mono">17.61</td></tr>
+</tbody></table></div>
+<p>Lumen costs <strong>+3.15</strong> of noise and <code>ForceUpdate</code> recovers essentially all
+of it. With Lumen off, <code>ForceUpdate</code> does nothing. So it is denoising
+<strong>stochastic Lumen GI sampling</strong>, via the temporal accumulation that per-frame capture
+finally makes possible &mdash; the two settings belong together.</p>
+
+<div class="callout warn"><span class="lbl">An honest limit on the metric</span>
+<p>A residual ~17.6 vs native ~7.0 survives every lever &mdash; not Lumen, not temporal, and
+tellingly <strong>not meaningfully reduced by 2&times; supersampling</strong>. Genuine geometric edge
+aliasing would have collapsed under a box filter. That points at a large part of this "2.5&times;"
+being <strong>native's TSR softening the reference</strong> rather than AirSim adding noise:
+<code>|image &minus; median3|</code> cannot distinguish speckle from sharpness, and the native frame
+is measurably blurrier. It also undercuts a number reported above &mdash; AirSim's apparent
+<em>contrast advantage</em> at 1080p (+6.6 to +13.8) is most likely its own speckle widening the
+p01&ndash;p99 spread. Deferred as <code>C-12</code>, where the first task is a better metric, not a
+better fix.</p></div>
+
+<h2 id="rates"><span class="secnum">09</span> What it costs on the real graph</h2>
+<p>The fix was validated on one camera at 1080p in a standalone simulator. Lane C runs two cameras
+plus a GPU-LiDAR at 640&times;480, and <code>ForceUpdate</code> renders every <em>enabled</em> camera
+every frame &mdash; so the cost scales with the graph, not with the setting
+(<code>scripts/measure_lane_c_rates.sh</code>, Blocks).</p>
+<div class="tw"><table>
+<thead><tr><th>Config</th><th>RGB</th><th>Depth</th><th>LiDAR</th><th>IMU</th></tr></thead>
+<tbody>
+<tr><th>stock settings</th><td class="mono">18.7 Hz</td><td class="mono">18.1 Hz</td><td class="mono">10.0 Hz</td><td class="mono">333 Hz</td></tr>
+<tr><th>+ Lumen GI/reflections</th><td class="mono">17.3 Hz</td><td class="mono">16.8 Hz</td><td class="mono">9.9 Hz</td><td class="mono">333 Hz</td></tr>
+<tr><th>+ <code>ForceUpdate</code></th><td class="mono">17.1 Hz</td><td class="mono">16.6 Hz</td><td class="mono">9.0 Hz</td><td class="mono">333 Hz</td></tr>
+</tbody></table></div>
+<p>Lumen costs ~7% of RGB; <code>ForceUpdate</code> ~1% more on RGB but ~9% on LiDAR. Total ~8.6%
+RGB and ~10% LiDAR for the image quality. All 14 sensor checks pass.</p>
+<div class="callout"><span class="lbl">Correction &mdash; the 31 Hz claim is retired, and nothing regressed</span>
+<p>Stock settings on the same grey-box world now measure <strong>18.7 / 18.1 / 10.0 Hz</strong>, not
+the recorded 31 / 29.6 / 17.4. The old figure predates
+<code>lane_c_perception.launch.py</code>, which pins
+<code>update_airsim_img_response_every_n_sec = 0.05</code> (<strong>20 Hz</strong>) and
+<code>update_gpulidar_every_n_sec = 0.1</code> (<strong>10 Hz</strong>) &mdash; so 18.7 Hz is 94% of
+its ceiling and the LiDAR sits exactly on target. That same file records the measured Scene+Depth
+RPC ceiling as <strong>~21.7 Hz</strong>, so 31 Hz was never sustainable. The clearest tell is the
+LiDAR: 17.4 Hz from a sensor configured <code>RotationsPerSecond: 10</code> was reporting poll rate,
+not data rate. <strong>The old number was measuring the wrong thing.</strong></p></div>
+
+<h2 id="open"><span class="secnum">10</span> Still open</h2>
+<ul>
+<li><strong>Spawn placement remains unfixed</strong> (<code>C-13</code>). <code>z = &minus;10</code>
+was found by sweeping, not derived; an arbitrary world has no obligation to put usable ground at
+the origin. Four investigations in this thread were confounded by it.</li>
+<li><strong>The aliasing residual</strong> (<code>C-12</code>) &mdash; deferred, and the metric is
+the first thing to fix, not the rendering.</li>
+<li><strong>The LDR patch has still never run.</strong> Moved to
+<code>patches/cosys-airsim/experimental/</code>, excluded from the applied set. If it is ever
+revisited, re-test <code>TargetGamma</code> with it: gamma came back a clean null on stock, which
+is odd for a setting genuinely applied at <code>PIPCamera.cpp:747</code>, and plausibly because the
+HDR capture source bypasses the render target's gamma encode. The "gamma is refuted" finding is
+strictly a <em>stock-HDR</em> result.</li>
+</ul>
+
+<div class="panel">
+<h3 style="margin-top:0">What shipped</h3>
+<p>Three keys in <code>sim/ue5/settings.json</code>, on a <strong>stock</strong> plugin binary
+&mdash; the only applied patches (<code>0001</code>&ndash;<code>0003</code>) touch
+<code>ros2/src/airsim_ros_pkgs/</code>, not the UE plugin:</p>
+<pre>"LumenGIEnable": <b>true</b>, "LumenReflectionEnable": <b>true</b>, "ForceUpdate": <b>true</b></pre>
+<p style="margin:0"><strong>Method note.</strong> Every conclusion here that survived came from a
+control, and three that did not survive were killed by one: the gamma null (factorial), the FXAA
+"win" (absolute vs ratio), and the <code>ForceUpdate</code> frame-rate scare (stock baseline was
+already 18.7 Hz). The recurring failure mode in this thread was not bad hypotheses &mdash; it was
+measuring one thing and attributing it to another.</p>
+</div>
+
+<footer>
+  <span>drone-sim · Lane C · C-11</span>
+  <span>2026-08-03 · SITL only · plugin stock</span>
+  <span><a href="index.html">&larr; Worklog index</a></span>
+</footer>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
