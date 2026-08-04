@@ -987,7 +987,13 @@ would put the perception stack on the wrong side of the split.
 
 ## C-11 — Load the user's own world (bring-your-own `.uproject`)
 
-**Status:** 🔴 **open — the current focus.** Filed 2026-08-02; **rescoped 2026-08-03** after the
+**Status:** 🟡 **half done — actors are the remaining work and the current focus.**
+Photorealism landed 2026-08-03 (PR 33): `simGetImages` matches Unreal's own render of the
+same camera actor to **1.15 of 255** across six scenes, via three `settings.json` keys on a
+**stock** plugin. `C-13` gives deliberate vehicle placement, `C-15` confirms the command
+interface, `C-16` provides a recorded mission to demonstrate against. **What the world still
+lacks is people, vehicles and moving obstacles** — nothing to navigate *around*.
+Filed 2026-08-02; **rescoped 2026-08-03** after the
 owner corrected the goal.
 
 **The goal is a MECHANISM, not a scene.** The user builds or buys a photorealistic world
@@ -1557,7 +1563,7 @@ is unmaintained and tornado ≥ 5 breaks its IOLoop usage.
 
 ## `C-13` — operator-supplied spawn coordinates
 
-**Status:** `todo` · **Planned 2026-08-03, before implementation** · **Phase 4** · **Scoped
+**Status:** ✅ **done 2026-08-03**, merged in PR 33 · **Phase 4** · **Scoped
 down deliberately:** automatic derivation is deferred to `C-14`. Ship the manual coordinate
 first — it unblocks everything `C-14` would, at a fraction of the cost, and the operator
 already knows where their own world is usable.
@@ -1693,7 +1699,8 @@ Its value is that a user pointing Lane C at an unfamiliar world needs no coordin
 
 ## `C-15` — the navigation command interface, confirmed end to end
 
-**Status:** `todo` · **Planned 2026-08-03, before implementation** · **Phase 2** · **SITL only —
+**Status:** ✅ **done 2026-08-03** — all five capabilities confirmed by measurement, merged in
+PR 33 · **Phase 2** · **SITL only —
 nothing real is armed or flown.**
 
 **Why this comes before navigation code.** Autonomy is about to be built on top of a command
@@ -1749,7 +1756,8 @@ this interface.
 
 ## `C-16` — an example mission: fly a circuit of the park over ROS 2, recorded
 
-**Status:** `todo` · **Planned 2026-08-03, before implementation** · **Phase 2** · **SITL only.**
+**Status:** ✅ **done 2026-08-03** — waypoint + smooth-orbit modes, recorded to the Lane A
+artifact layout with video and ground-track plot, merged in PR 33 · **Phase 2** · **SITL only.**
 
 **The change.** A runnable example that flies the drone a closed circuit of a world using
 **only** the ROS 2 interface, and records the run in the **same artifact layout Lane A uses**
