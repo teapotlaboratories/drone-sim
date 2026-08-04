@@ -1196,3 +1196,29 @@ images:
     role: recording only — the `recording` service (D-02c). Not needed by CI or by flight.
     adds: ffmpeg, xterm, xdotool, openbox, imagemagick, mesa-utils
     status: observed
+
+  airsim_client:
+    tag: drone-sim/airsim-client:1
+    dockerfile: docker/airsim-client.Dockerfile
+    base: python:3.11-slim
+    local_image_id: sha256:ea41cfc19e06a9e41d643bb3db2c15ae74e6c12df04d8bad06386b984c828366
+    size_approx: 0.6 GB
+    role: >-
+      AirSim RPC client for measurement — talks to a running simulator and pulls images.
+      Used by the C-11/C-12 capture harness (scripts/capture_*.py, noise_experiment.py,
+      measure_lane_c_rates.sh). Not needed by CI or by flight.
+    note: >-
+      The Cosys-AirSim Python client is deliberately NOT baked in; it is mounted from
+      vendor/Cosys-AirSim/PythonClient at run time so the client always matches the
+      vendored tree that built the plugin. This image is dependencies only.
+    pins:
+      msgpack-rpc-python: 0.4.1
+      tornado: "<5"
+      numpy: 1.26.4
+      opencv-python-headless: 4.10.0.84
+    why_pinned: >-
+      msgpack-rpc-python is unmaintained — 0.4.1 is the last release — and it drags in
+      tornado, whose >=5 IOLoop rewrite breaks it. These two are a coupling, not a
+      preference. Added 2026-08-03 to replace ad-hoc `pip install`s in throwaway
+      containers, which is why earlier capture measurements were hard to reproduce.
+    status: observed
