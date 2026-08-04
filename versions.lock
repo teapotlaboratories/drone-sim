@@ -1266,3 +1266,30 @@ images:
       preference. Added 2026-08-03 to replace ad-hoc `pip install`s in throwaway
       containers, which is why earlier capture measurements were hard to reproduce.
     status: observed
+
+  lane_a:
+    tag: drone-sim/lane-a:v1.16.0
+    dockerfile: docker/lane-a.Dockerfile
+    entrypoint: docker/lane-a-entrypoint.sh
+    base: ubuntu:24.04
+    role: >-
+      Lane A — PX4 v1.16 + Gazebo Harmonic + ROS 2 Jazzy + uXRCE-DDS. The original
+      regression baseline stack, containerized. Reproduces the 2026-07-28 native install.
+      CPU-only; Gazebo runs headless.
+    note: >-
+      Added for the Fern/Runpod full-stack image publisher (PR #31). This image is the
+      flattened single-container batch runtime for cloud deployment.
+    status: added
+
+  lane_c:
+    tag: drone-sim/lane-c:ue5.8
+    dockerfile: docker/lane-c.Dockerfile
+    base: ghcr.io/epicgames/unreal-engine:dev-slim-5.8.0
+    size_approx: 57.5 GB (same base as drone-sim/unreal)
+    role: >-
+      Lane C — UE5.8 plus the build tools Cosys-AirSim's build.sh needs. Thin layer on
+      Epic's dev-slim image, adding cmake, python3, ninja, and a vulkan-sdk ICD path.
+      Used to build the Cosys-AirSim plugin against the engine.
+    note: >-
+      Added for the Fern/Runpod full-stack image publisher (PR #31).
+    status: added
