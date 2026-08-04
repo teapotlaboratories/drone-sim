@@ -1,244 +1,339 @@
 # drone-sim
 
-A **triple-lane drone simulation framework** — PX4 · ROS 2 Jazzy · Gazebo · Unreal/AirSim ·
-Isaac Sim — built toward **VLM-based sim-to-real drone navigation**, reproducing and
-extending the SPF / Fly0 / OnFly line of work: a slow VLM target-generator paired with a
-fast geometric planner, first in simulation, then onboard a Jetson Orin NX on a
-Pixhawk 6C / X500 airframe.
+**A photoreal drone simulator you fly over ROS 2** — Unreal Engine 5.8 + Cosys-AirSim renders
+the world and the sensors, PX4 v1.16 SITL flies the aircraft, and ROS 2 Jazzy is the only
+control interface. Bring your own Unreal world, place the vehicle in it, choose which sensors
+exist and how they are tuned, and fly **the same ROS 2 graph you would fly on real hardware**.
+
+Everything here is SITL. The `sim ↔ real` boundary in this project is the *transport swap*,
+not the commands — which is why the controller that flies here is the controller that flies on
+a Pixhawk 6C.
 
 ---
 
-## Project goals
+## Goals, in order
 
-### 1. Reproducible as Docker
+### 1. A photoreal simulator that flies, on your world
 
-> **The whole setup must be easily reproducible as Docker.**
->
-> A fresh machine must reach a working stack from this repository alone — **no
-> undocumented manual steps, no "it works on `carbonite`".**
+Not a demo world with a drone bolted on. `scripts/sim_up.sh --world YourProject.uproject
+--spawn 50,-30,-10` loads a project you authored, puts the vehicle where you asked, and hands
+back a stack whose EKF origin has been **verified rather than assumed**. Imagery is
+photorealistic on a **stock upstream plugin** — `simGetImages` matches Unreal's own render of
+the same camera actor at the same transform to **1.15 of 255**, across six scenes from close-up
+to 70 m.
 
-This is a first-class goal, not packaging polish. The stack is an assembly of pinned
-upstreams whose interactions are fragile, and the difference between "we got it working"
-and "anyone can get it working" is entirely whether the recipe is captured.
+### 2. Reproducible as Docker
+
+> A fresh machine must reach a working stack from this repository alone — **no undocumented
+> manual steps, no "it works on `carbonite`".**
+
+This is a first-class goal, not packaging polish. The stack is an assembly of pinned upstreams
+whose interactions are fragile, and the difference between "we got it working" and "anyone can
+get it working" is entirely whether the recipe is captured.
 
 Two rules follow from it, both learned the hard way here:
 
-- **Pin what you actually built and smoke-tested — a SHA, never a branch.** A tagged
-  upstream release in this stack became unbuildable retroactively because it pinned a
-  dependency by *branch* and that branch was deleted. A branch is not a pin.
-- **Write Dockerfiles from evidence, not from documentation.** Three of the steps needed
-  to stand up Lane A deviate from the project's own reference docs. A Dockerfile written
-  from those docs reproduces a **broken** stack.
+- **Pin what you actually built and smoke-tested — a SHA, never a branch.** A tagged upstream
+  release in this stack became unbuildable retroactively because its superbuild pinned a
+  dependency by *branch* and that branch was deleted (`fatal: invalid reference: 2.12.x`).
+  A branch is not a pin.
+- **Write Dockerfiles from evidence, not from documentation.** Getting to a running
+  `airsim_node` took **four undocumented discoveries**, every one of them now a comment in
+  `scripts/build_airsim_wrapper.sh`; three of the steps that stood up the original Gazebo
+  baseline likewise deviated from this project's own reference docs. A Dockerfile written from
+  the docs reproduces a **broken** stack.
 
-Backlog: [`docs/docker/todo.md`](docs/docker/todo.md).
+**One credential step cannot be removed from this side, and is stated up front rather than
+buried:** the Unreal engine base image `ghcr.io/epicgames/unreal-engine` is credential-gated —
+it needs EpicGames GitHub org membership **plus** a PAT with `read:packages`. Everything else
+builds from a clone. Backlog: [`docs/docker/todo.md`](docs/docker/todo.md).
 
-### 2. Reuse and integrate upstream — don't reinvent
+### 3. Reuse and integrate upstream — don't reinvent
 
-PX4, the Micro-XRCE-DDS Agent, `px4_msgs`, Cosys-AirSim, Pegasus, Isaac ROS (cuVSLAM,
-nvblox), EGO-Planner and vLLM are consumed as **pinned upstreams**. The original work is
-the *glue*: one ROS 2 graph, launch composition, the scenario/eval harness, and the VLM
-client — identical across sim and real, with only the transport swapped.
+PX4, the Micro-XRCE-DDS Agent, `px4_msgs`, Cosys-AirSim and QGroundControl are consumed as
+**pinned upstreams**. The original work is the *glue*: the ROS 2 graph and its launch
+composition, the bring-up ordering, the scenario/eval harness, the measurement scripts, and the
+bring-your-own-world path. Vendored trees stay **byte-identical to upstream** — the three
+patches this stack needs live in [`patches/cosys-airsim/`](patches/cosys-airsim/) and are
+applied to a container-local copy, never to `vendor/`.
 
-### 3. VLM-based sim-to-real navigation
+### 4. Sim-to-real parity — one ROS 2 graph, swap only the transport
 
-Reproduce AerialVLN/OpenFly-style evaluation, then fly it — SITL → HITL → real flight,
-with the same ROS 2 graph throughout.
+Demonstrated, not argued: an **unmodified** offboard controller written against the Gazebo
+baseline reached **4/4 waypoints, max error 0.79 m**, reproduced three times including once
+from a cold start. The controller was never patched; only the transport was swapped. PX4's
+topic surface is identical either way — 51 `/fmu/` topics, 24 `/fmu/out`, verified by diffing
+rather than by inspection.
+
+**What people build *on* this** — vision-based navigation, VLM agents, planners, perception
+stacks, benchmark reproduction — are applications, not the repo's purpose. The deliverable is
+the simulator.
 
 ---
 
 ## Quickstart
 
-**Prerequisites:** Docker, ~15 GB free disk. **No GPU and no display required** — Lane A is
-CPU-bound and runs fully headless.
+**Prerequisites.** Docker with GPU access, an NVIDIA GPU for the renderer, and disk: the engine
+image is **24.0 GB compressed / ~57 GB on disk**, the PX4 image **11.0 GB**, the vendored
+Cosys-AirSim tree ~1.3 GB. The renderer is pinned to **GPU 0** at the container boundary
+(`--gpus '"device=nvidia.com/gpu=0"'`, in `sim_up.sh`) because `-RenderOffScreen` has
+historically ignored application-level GPU hints; see [`docs/bench.md`](docs/bench.md) for the
+render/infer split.
 
-### 1. Build the Lane A image
-
-```bash
-git clone <this repo> && cd drone-sim
-docker build -f docker/lane-a.Dockerfile -t drone-sim/lane-a:v1.16.0 .
-docker build -f docker/qgc.Dockerfile   -t drone-sim/qgc:v1.16.0 .      # thin, ~1 min
-docker build -f docker/ros2.Dockerfile  -t drone-sim/ros2:v1.16.0 .     # thin, ~30 s
-```
-
-**All three images are required.** The second is not optional tooling: PX4 refuses to arm
-without a ground-station datalink, and QGroundControl provides it — so without
-`drone-sim/qgc` the stack comes up and nothing can fly.
-
-QGC itself is **baked into that image**, pinned to 5.0.8 and SHA256-verified during the
-build, so there is nothing to download by hand and a checksum mismatch fails the build
-rather than surfacing later as a vehicle that will not arm.
-
-Pulls PX4 v1.16.0 + submodules, Gazebo Harmonic, ROS 2 Jazzy, the uXRCE-DDS agent and
-branch-matched `px4_msgs`, then **verifies every pin against its recorded SHA** and fails the
-build on a mismatch. Expect 20–40 minutes and ~11.6 GB; the pins land in
-`/etc/drone-sim-versions` inside the image.
-
-### 2. Bring the stack up and prove it flies
+### 1. Authenticate, then build the images
 
 ```bash
-docker compose -f docker/compose.yaml up -d                          # PX4 + Gazebo + XRCE agent + ROS 2
-docker compose -f docker/compose.yaml --profile test run --rm verify # the acceptance gate
-docker compose -f docker/compose.yaml down -v
+gh auth token | docker login ghcr.io -u <github-user> --password-stdin   # EpicGames org + read:packages
+
+docker build -f docker/px4.Dockerfile    -t drone-sim/px4:v1.16.0 .
+docker build -f docker/qgc.Dockerfile    -t drone-sim/qgc:v1.16.0 .
+docker build -f docker/ros2.Dockerfile   -t drone-sim/ros2:v1.16.0 .
+docker build -f docker/unreal.Dockerfile -t drone-sim/unreal:ue5.8 .
 ```
 
-Compose declares the constraints that are otherwise easy to forget — `shm_size: 2gb`, shared
-network **and** IPC namespaces (Fast-DDS delivers over shared memory), loopback-pinned Gazebo
-transport, and a `/dev/shm` sweep so a killed run cannot poison the next one.
+The PX4 image pulls PX4 v1.16.0 plus submodules, the uXRCE-DDS agent and branch-matched
+`px4_msgs`, then **verifies every pin against its recorded SHA** and fails the build on a
+mismatch; the pins land in `/etc/drone-sim-versions` inside the image. Expect 20–40 minutes.
 
-Single-container equivalent, if you prefer no compose:
+> **It no longer installs Gazebo.** `Tools/setup/ubuntu.sh --no-sim-tools` plus an explicit
+> reinstall of the build dependencies that are *not* Gazebo (`bc`, `libeigen3-dev`,
+> `protobuf-compiler`, `pkg-config`, `libxml2-utils`) — measured **11.6 GB → 11.0 GB**, and the
+> build asserts Gazebo is absent rather than trusting the flag. **NuttX is still installed on
+> purpose**: real Pixhawk 6C firmware is flashed from that tree.
+
+**QGroundControl is required, not optional tooling.** PX4 refuses to arm without a
+ground-station datalink and `NAV_DLL_ACT` is left enforced deliberately — a real Pixhawk
+refuses too, so relaxing it in simulation would hide a real-flight failure. QGC is **baked into
+the image**, pinned and SHA256-verified at build time, so a checksum mismatch fails the build
+instead of surfacing later as a vehicle that will not arm.
+
+The ROS 2 image is the companion-computer side: ROS 2 Jazzy plus the wrapper's build
+dependencies (`ros-jazzy-geographic-msgs`, `ros-jazzy-mavros-msgs`, `python3-msgpack`, `patch`)
+and `docker/ros-profile.sh` at `/etc/profile.d/10-ros.sh`. It deliberately carries **no
+`ros-gz-bridge`** — `/clock` now comes from the simulator, remapped in `perception.launch.py`,
+so the bridge has no consumer.
+
+### 2. Fetch the pinned upstream trees and build the plugin once
 
 ```bash
-docker run --rm --shm-size=2g -e DURATION=300 \
-  -v "$PWD/tests/lane-a-smoke.sh:/smoke.sh:ro" \
-  drone-sim/lane-a:v1.16.0 bash /smoke.sh
+vcs import vendor < .repos          # ~1.3 GB — Cosys-AirSim at the pinned SHA, not a branch
+
+docker run --rm -v "$PWD/vendor/Cosys-AirSim:/src" drone-sim/unreal:ue5.8 \
+  bash -lc './build.sh --ue-root /home/ue4/UnrealEngine'
 ```
 
-Runs headless SITL for 5 minutes and asserts 24 populated `/fmu/out/*` topics, zero sensor
-TIMEOUTs, moving telemetry, and aggregate real-time factor ≥ 0.95. Exits non-zero on any
-miss. Reference: **RTF 1.0000 native · 0.9967 host podman · 0.9767 nested Docker**.
+> **`--ue-root` is mandatory, not advisory.** The engine image ships **no system clang** — the
+> compiler is the engine's bundled `v26_clang-20.1.8-rockylinux8`, and a build without
+> `--ue-root` has no compatible compiler at all rather than a graceful fallback. Verified on the
+> artifact rather than on the build script's own banner: `readelf -p .comment libAirLib.a`
+> reads `clang version 20.1.8`. Detail:
+> [`docs/worklog/2026-08-01-c02-ue58-engine-image.md`](docs/worklog/2026-08-01-c02-ue58-engine-image.md).
 
-> **`--shm-size=2g` is required, not optional.** Docker defaults `/dev/shm` to 64 MB and
-> Fast-DDS uses shared memory as its default transport; at the default it starves.
+To fly a world of your own, inject the plugin into it once with
+`scripts/inject_airsim.py /path/to/YourProject.uproject` — pure text edits plus a folder copy,
+no editor, no GUI, no display.
 
-### 3. Poke at it interactively
-
-With the stack up:
+### 3. Bring the stack up
 
 ```bash
-docker compose -f docker/compose.yaml exec px4-sitl screen -r px4sitl   # live PX4 shell
-docker compose -f docker/compose.yaml exec ros2 bash -lc 'ros2 topic list | grep /fmu/out'
+./scripts/sim_up.sh
 ```
 
-> **Use `bash -lc`.** `docker compose exec` bypasses the image entrypoint, so a plain
-> `exec ros2 ros2 topic list` runs without a ROS environment and reports **0 topics on a
-> perfectly healthy stack**. The login shell picks up `/etc/profile.d/10-ros.sh`.
+Five containers — `sim-unreal` (renderer), `sim-xrce` (uXRCE-DDS agent), `sim-px4`, `sim-qgc`,
+`sim-ros2` — brought up **in the only order that works**. It waits for the vehicle to settle,
+then **verifies the EKF origin** before declaring the stack usable, printing
+`stack up and origin verified -- safe to fly` in roughly 80 s.
 
-> **`stty min 1` is required.** PX4's `pxh` shell clears `ICANON` without setting `VMIN`, so
-> with a pipe or a `screen` pty it busy-spins its prompt — ~1.45 M writes/s, **4.1 GB of
-> escape codes per 300 s run** and a fully consumed CPU core.
+> **Why it verifies rather than just waits.** PX4 sets its EKF local origin **once**. If it
+> initialises before the simulated vehicle has settled onto geometry, `ref_alt` freezes at the
+> wrong height and every altitude PX4 reports is silently offset for the rest of the session —
+> measured once at **35.167 m**, i.e. the vehicle "was" 35 m up while sitting on the ground, the
+> controller commanded a descent, nothing moved, and every symptom pointed at flight code that
+> was fine. That cost a day. If the origin is stale the script restarts PX4 and re-checks; a
+> stack it cannot repair is refused, and `run_gate.py` scores such runs **VOID**, never FAIL —
+> they never measured the flight code.
 
-### 4. Watch it fly — record a video
-
-Lane A runs headless by design: the smoke test starts the Gazebo *server* only, and the
-interactive path gives you the PX4 shell but no windows. The `recording` profile renders
-all four interfaces onto a virtual display and captures them.
-
-**This is fully repeatable — it is a compose profile, not a one-off.**
-
-```bash
-# one-time: the demo image adds ffmpeg, xterm, xdotool and openbox (~1 min, layers cached)
-docker build -f docker/demo/lane-a-video.Dockerfile -t drone-sim/lane-a-video:v1.16.0 .
-
-# with the stack already up (step 2), record a flight
-docker compose -f docker/compose.yaml --profile record run --rm recording
-```
-
-You get **`out/quad-flight.mp4`** — 1920x1080, ~37 s, four panes:
-
-| Pane | Shows |
+| flag | what it does |
 |---|---|
-| top-left | **Gazebo**, camera locked onto the drone for the whole flight |
-| top-right | **QGroundControl** — *Flying*, altitude, battery, live telemetry |
-| bottom-left | the real **PX4 console** |
-| bottom-right | the **ROS 2 controller** stepping arm → takeoff → waypoints → land |
+| `--world PATH.uproject` | load **your own** Unreal world instead of the bundled Blocks environment |
+| `--settings PATH.json` | your own `settings.json` — which sensors are active and how they are tuned |
+| `--spawn X,Y,Z[,YAW]` | where to put the vehicle, in metres **NED** |
+| `--vehicle NAME` | required only if your settings define several vehicles |
+| `--allow-below-origin` | permit a positive `Z` (i.e. genuinely below the origin) |
 
-Knobs, all optional:
+Each has an environment equivalent: `WORLD`, `SETTINGS_FILE`, `SPAWN`, `SPAWN_VEHICLE`,
+`SPAWN_ALLOW_BELOW`. **`Z` is NED — negative is UP**; `Z=10` puts the drone 10 m *underground*,
+which is why the script refuses a positive `Z` without the opt-in. The committed
+`sim/ue5/settings.json` is never modified: a run-time copy is written beside it.
+
+### 4. Build the wrapper and start the perception graph
 
 ```bash
-RES=1280x720 ALT=5 FOLLOW_X=-2 FOLLOW_Y=-2 FOLLOW_Z=1 \
-  docker compose -f docker/compose.yaml --profile record run --rm recording
+./scripts/build_airsim_wrapper.sh      # ~2 min
+
+docker exec -d sim-ros2 bash -lc '
+  source /opt/ros/jazzy/setup.bash
+  source /airsim_root/ros2/install/setup.bash
+  source /ros2_ws/install/setup.bash
+  ros2 launch bringup perception.launch.py'
 ```
 
-`RES` capture size · `ALT` takeoff altitude · `FOLLOW_*` camera offset from the drone in
-metres.
+> **The wrapper must be rebuilt after every `sim_up.sh`** — that script recreates the ROS 2
+> container, which is where the wrapper lives. If `ros2 launch` reports
+> `package 'airsim_ros_pkgs' not found`, this is why.
+>
+> **Use `bash -lc`.** `docker exec` bypasses the image entrypoint, so a plain
+> `docker exec sim-ros2 ros2 topic list` runs without a ROS environment and reports **0 topics
+> on a perfectly healthy stack**. The login shell picks up `/etc/profile.d/10-ros.sh`.
 
-**It attaches to the running stack** rather than starting its own PX4 — the Gazebo GUI
-client talks to the live server, the PX4 pane tails the real console, and the flight is the
-same ROS 2 node the acceptance gate runs. So the video is evidence about the deployment you
-are testing, not about a private copy of it.
+### 5. Fly it, and keep the evidence
 
-**It exits non-zero if no successful flight happened**, and clears the previous run's
-artifacts first. That matters: an early version cheerfully produced a convincing 1080p
-video of a simulator that never armed, and reported success. Check the exit status, or read
-`out/mission-result.json`.
+```bash
+./scripts/run_park_tour.sh                                    # Blocks — the known-good control
+./scripts/run_park_tour.sh --world /path/CityPark.uproject \
+    --spawn 50,-30,-10 --mode circle --radius 25 --altitude 8
+```
 
-> **Recordings, not live windows.** Everything renders to Xvfb inside the container, so you
-> get an `.mp4`, not something you can click. Attaching a browser-reachable viewer
-> (x11vnc + noVNC on the same display) is `D-02b` in
-> [`docs/docker/todo.md`](docs/docker/todo.md).
+This is the end-to-end example: it brings the stack up itself (steps 3 and 4), starts the bag
+**before** the mission node and stops it after, flies a closed circuit using **only** the ROS 2
+interface — no RPC, no MAVLink — then lands and reports a verdict.
 
-Details and the gotchas that cost time: [`docker/demo/README.md`](docker/demo/README.md).
+```
+out/park-tour-<UTC>/
+  park-tour_0.mcap   every /fmu/out/*, /airsim_node/*, /tf and /clock for the whole run
+  metadata.yaml      ros2 bag's own
+  summary.json       waypoints, per-leg error, verdict
+  mission.log        the node's stdout
+  stack.log          bring-up, for when a run dies before it flies
+```
 
-### Ports
+`--mode circle` streams a continuously moving setpoint with velocity feed-forward, so PX4 tracks
+a smooth arc instead of braking at every corner. `scripts/render_run_video.py` and
+`scripts/plot_run_path.py` derive an mp4 and a ground-track plot **from the bag**, so the picture
+and the verdict come from the same evidence and cannot drift apart.
 
-All four are published on **`127.0.0.1` only**.
+### 6. Verify by value, not by topic list
 
-| Port | Use |
-|---|---|
-| 18570/udp | **GCS datalink — PX4's actual GCS MAVLink port** (`px4-rc.mavlink:11`) |
-| 14550/udp | the port a ground station conventionally listens on |
-| 14540/udp | offboard + programmatic control |
-| 8888/udp | uXRCE-DDS agent (→ ROS 2 topics) |
-| 4560/tcp | Gazebo ↔ PX4 |
+```bash
+docker cp scripts/verify_sensors.py sim-ros2:/tmp/verify.py
+docker exec sim-ros2 bash -lc '
+  source /opt/ros/jazzy/setup.bash
+  source /airsim_root/ros2/install/setup.bash
+  source /ros2_ws/install/setup.bash
+  python3 /tmp/verify.py'
+```
 
-> **18570, not 14550.** PX4 SITL's GCS MAVLink instance binds `18570+instance`. Nothing is
-> ever sent to 14550 — verified by binding it and receiving nothing while PX4 already held
-> 18570. A heartbeat aimed at 14550 is discarded silently, with no error and no log line,
-> and the datalink simply never comes up.
+Every failure this project has hit here **looked healthy from the outside**: topics listed while
+publishing nothing because the subscriber QoS did not match, an IMU at 1501 Hz of which 78% were
+the same sample republished, a `camera_info` whose `frame_id` no TF-aware node could resolve, a
+stale origin reporting 35 m of rock-steady altitude with `z_valid: true`. So the check asserts
+**values** — an all-black camera and a working one both publish an image, and only one has pixel
+variance.
 
-> **MAVLink has no authentication.** Published on `0.0.0.0`, port 14540 lets anyone routable
-> arm and command the vehicle. To reach the stack from another machine, opt in explicitly:
-> ```bash
-> BIND_ADDR=0.0.0.0 docker compose -f docker/compose.yaml up -d
-> ```
-> Do that on a trusted network only — and note that this compose file is the template for
-> Phase 4 hardware bring-up, where the same setting points at a real Pixhawk.
+### Network and ports
+
+`sim_up.sh` **publishes nothing to the host.** The renderer owns the network namespace and every
+other container joins it with `--network container:` **and** `--ipc container:` — sharing the
+network namespace alone gets you topic names in `ros2 topic list` and **silence** from
+`ros2 topic echo`, because Fast-DDS discovers over UDP but *delivers* over shared memory.
+
+Inside that namespace: **4560/tcp** simulator ↔ PX4 MAVLink, **8888/udp** uXRCE-DDS agent,
+**18570/udp** the GCS datalink, **14540/udp** offboard.
+
+> **18570, not 14550.** PX4 SITL's GCS MAVLink instance binds `18570+instance`. A heartbeat
+> aimed at 14550 is discarded silently, with no error and no log line, and the datalink simply
+> never comes up — verified by binding 14550 and receiving nothing while PX4 already held 18570.
+
+> **MAVLink has no authentication.** Nothing above is reachable from outside the namespace
+> today, and that is the safe default. If you publish any of these ports onto a host interface,
+> anyone routable can arm and command the vehicle — do that on a trusted network only, and note
+> that the same setting later points at a **real** Pixhawk.
 
 ---
 
 ## Status
 
-**Phase 0 — Environment & Version Lock.** 4 of 5 exit criteria met.
+| Capability | State | Evidence |
+|---|---|---|
+| Flies over ROS 2 | ✅ | 4/4 waypoints, max error **0.79 m**, reproduced 3× including a cold start |
+| `/fmu/*` parity with real hardware | ✅ | 51 `/fmu/` topics, 24 `/fmu/out` — diffed **identical** against the retired Gazebo baseline the controller came from |
+| Sensors in the ROS 2 graph | ✅ | RGB, depth, GPU-LiDAR, IMU, GPS, magnetometer, odometry — all pass **value-based** checks |
+| Photorealistic imagery | ✅ | matches Unreal's own render to **1.15 of 255** across six scenes, on a **stock** plugin |
+| Bring your own world + deliberate spawn | ✅ | `--world` / `--spawn`, with a ground probe for unknown terrain |
+| Deterministic bring-up | 🟡 | origin verified and repaired, or the run is refused — but verified **once**, not N cold starts in a row |
+| Recorded example mission | ✅ | `scripts/run_park_tour.sh` — MCAP, `summary.json`, video, ground track |
+| Flight gate | 🟡 | `scripts/run_gate.py` — success rate over N seeded runs, VOID excluded from the rate but blocking the criterion |
+| Dynamic actors in the world | 📋 | the RPC surface (`simSpawnObject`, `simSetObjectPose`) is known live in this build; nothing spawned yet — and it needs **no** project C++ and no plugin change |
+| Wind / environment control | 📋 | needs Cosys-AirSim's own wind API |
 
-| Lane | Stack | Role | Status |
-|---|---|---|---|
-| **A** | PX4 v1.16.0 + Gazebo Harmonic + ROS 2 Jazzy | CI/iteration backbone | ✅ **working, smoke-tested** |
-| **B** | Isaac Sim 5.1 + Pegasus | photoreal perception | ⛔ **deferred** — [why](docs/lane-b/isaac-driver-decision.md) |
-| **C** | UE5.5 + Cosys-AirSim | photoreal perception + benchmark reproduction | **promoted**, next up |
+**Measured sensor throughput.** Rates are capped by `perception.launch.py`, not by the
+hardware — imagery at **20 Hz**, LiDAR at **10 Hz** — and measured throughput sits at **94% and
+100%** of those ceilings. The per-topic table, with types and measured rates, is in
+[`docs/quickstart.md`](docs/quickstart.md).
 
-Lane A verified end to end: headless SITL for 300 s with **0 sensor TIMEOUTs**, real-time
-factor **1.000**, **24 `/fmu/out/*` topics at 100 Hz**, and QGroundControl connected.
+### Known limits — measured, not guessed
+
+- **Lockstep is dead code** in Cosys-AirSim: `initialize()` sets the flag and
+  `openAllConnections()` clears it twice, so `"LockStep": true` is silently ineffective.
+  **Every timing number here is free-running** — never quote an RTF from this stack as
+  deterministic.
+- **A seed controls the spawn pose and nothing else.** The retired Gazebo harness varied wind
+  and vehicle mass through a generated world overlay; there is no equivalent yet. Ten seeded
+  runs are closer to ten repeats — still worth running, since flaky failures surface under
+  repetition, but **do not describe a gate run as covering varied conditions**.
+- **Runs are not bit-reproducible.** Two back-to-back runs with identical config gave waypoint
+  errors `[0.225, 0.104, 0.154, 0.204]` and `[0.118, 0.076, 0.158, 0.187]`. A failing seed
+  cannot be replayed — which is exactly why every run keeps its MCAP.
+- **Frames are NWU, not ENU**, despite the upstream documentation.
+- **Video capture is latency-bound, not bandwidth-bound.** Every route funnels through a
+  blocking GPU→CPU readback: **14.1 Hz at 960×540, 10.3 Hz at 1920×1080** — ~71 ms fixed plus
+  ~5 ms/MB. GPU encode would sidestep it, but **NVENC cannot open a session on driver
+  610.43.03**, and Isaac Sim is deferred on the same driver: two capabilities, one host-side
+  decision. See [`docs/nvenc-driver-blocker.md`](docs/nvenc-driver-blocker.md).
+- **One simulator segfault, n=1**, after ~57 minutes of continuous running. A deliberate
+  90-minute soak of the *full* stack ran **74,253 captures with zero anomalies** and refuted
+  both standing hypotheses. **Not reproduced is not fixed** — treat it as a rare,
+  uncharacterised event, not a known ceiling.
 
 ---
 
 ## Layout
 
 ```
-versions.lock          pinned SHAs + the couplings CI must assert — the authority
-.repos                 vcstool manifest for third-party trees (phase-gated)
-docker/                compose.yaml + the Lane A Dockerfile + entrypoint
-docker/demo/           video/flight demos (not needed by CI)
-tests/                 lane-a-smoke.sh — the acceptance gate
-ros2_ws/src/           the original glue: interfaces, bringup, perception,
-                       state_estimation, planning, control, vlm_client, evaluation
-sim/{gazebo,isaac,ue5} per-lane worlds and scenes
-scenarios/             seeded worlds + instruction sets
-configs/               per-lane YAML overrides
-vendor/                pinned upstream checkouts (git-ignored; see .repos)
-docs/                  bench briefing, reference designs, backlogs, worklogs
+versions.lock            every pin, its status, and how it was verified — the authority
+.repos                   vcstool manifest for the vendored upstream trees
+docker/                  one Dockerfile per image — unreal, px4, ros2, qgc, video,
+                         airsim-client — plus the two entrypoints and the ROS profile
+scripts/sim_up.sh        the stack, in the only order that works
+scripts/                 wrapper build, flight gate, scenario runner, the example mission,
+                         and the measurement harnesses that produced the numbers above
+ros2_ws/src/             the glue: interfaces (mission contracts), bringup (launch
+                         composition), control (offboard + the park tour); perception,
+                         state_estimation, planning and evaluation are placeholders
+sim/ue5/                 settings.json — which sensors exist and how they are tuned,
+                         plus worked examples
+scenarios/               seeded mission definitions the gate runs
+patches/cosys-airsim/    three upstream defects, applied to a container-local copy only
+tests/                   off-target tests — the tier-1 CI suite
+vendor/                  pinned upstream checkouts (git-ignored; see .repos)
+out/                     run artifacts — MCAP, summary.json, video (git-ignored)
+docs/                    quickstart, the backlog, graph conventions, bench briefing,
+                         worklogs, and the retired stacks under history/
 ```
 
 ## Where to start
 
 | Doc | What it is |
 |---|---|
-| [`docs/roadmap.html`](docs/roadmap.html) | **Phases and timeline** — what is done, what is next, what is deferred and why |
-| [`docs/drone-sim-todo.md`](docs/drone-sim-todo.md) | Master backlog index — start here |
+| [`docs/quickstart.md`](docs/quickstart.md) ([HTML](docs/quickstart.html)) | **Run it** — launch, world selection, sensor selection and tuning, the topic/type/rate table, and the ROS 2 command interface |
+| [`docs/todo.md`](docs/todo.md) | **The backlog** — every `SIM-NN` with its acceptance criterion and its evidence. The one cross-cutting area keeps its own file: [`docs/docker/todo.md`](docs/docker/todo.md) |
+| [`docs/roadmap.html`](docs/roadmap.html) | Where the simulator is and which capability comes next |
+| [`docs/conventions.md`](docs/conventions.md) | The **frozen** ROS 2 graph — these names reach the aircraft unchanged |
 | [`versions.lock`](versions.lock) | Every pin, its status, and how it was verified |
-| [`docs/lane-a/architecture.html`](docs/lane-a/architecture.html) | **What runs where and how it is wired** — container topology, ports, the traps |
-| [`docs/bench.md`](docs/bench.md) | The machine and container this runs on |
-| [`docs/reference/`](docs/reference/) | Simulator landscape, development plan, hardware assessment |
-| [`docs/worklog/`](docs/worklog/) | Running record of each investigation, with evidence |
+| [`docs/bench.md`](docs/bench.md) | The machine and container this runs on, and the GPU split |
+| [`docs/nvenc-driver-blocker.md`](docs/nvenc-driver-blocker.md) | Why GPU video encode is unreachable on this driver |
+| [`docs/worklog/`](docs/worklog/) | Dated record of each investigation, with the evidence and the dead ends |
+| [`docs/history/`](docs/history/) | Retired backlogs and design docs — the Gazebo baseline, Isaac Sim, and the original research plan |
 
 ---
 
@@ -246,21 +341,29 @@ docs/                  bench briefing, reference designs, backlogs, worklogs
 
 ```bash
 ./scripts/run_local_ci.sh          # fast checks, ~30 s
-./scripts/run_local_ci.sh --gate   # + the 10-seed flight gate, ~19 min
+./scripts/run_local_ci.sh --gate   # + the seeded flight gate
 ```
 
-The fast checks are the same ones GitHub Actions runs on every push, so a local pass means
-the same thing. **The flight gate is not automated** — it cannot run on a hosted runner
-(12.6 GB image, 2 vCPU against an RTF floor of 0.95), and a self-hosted runner on a public
-repo would let fork pull requests execute on the machine. Running it here is accepted as
-having run it; see `P1-07` and `D-07`.
+The fast checks are the same ones GitHub Actions runs on every push, so a local pass means the
+same thing: off-target tests, shell and Python parse checks, **every `drone-sim/…` image
+reference names an image declared in `versions.lock`** (`scripts/check_image_refs.py`), `.repos`
+agrees with the lock, every worklog has an HTML render and an index card, the attribution sweep
+over every tracked file (`scripts/check_attribution.sh`), and every `versions.lock` CONFLICT is
+documented.
+
+**The flight gate is not automated.** It cannot run on a hosted runner — it needs a GPU and tens
+of gigabytes of images, and the retired Gazebo gate already missed that budget without one
+(12.6 GB image, 2 vCPU against an RTF floor of 0.95) — and a self-hosted runner on a public repo
+would let fork pull requests execute on the workstation. Running it here is accepted as having
+run it.
 
 Skipping `--gate` is fine for docs or tooling. It is **not** fine for the controller, the
-scenario runner, the overlay or the compose stack — nothing else in this repo would catch a
-regression there.
+scenario runner, the bring-up ordering or the gate itself — nothing else in this repo would
+catch a regression there.
 
 ## Verifying changes
 
 A clean build proves nothing about flight. Behaviour is verified by **running it in the
-target lane** — headless SITL on a seeded scenario, with the evidence recorded (MCAP bag,
-metric table, measured latency). A success rate over N seeded runs, never a single pass.
+simulator** — headless, on a seeded scenario, with the evidence recorded (MCAP bag, metric
+table, measured latency) — and a success *rate* over N runs, never a single green pass. If a
+change cannot be verified that way, say so and name the blocker.

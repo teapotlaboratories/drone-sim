@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render an mp4 from a recorded run's MCAP, with telemetry burned in.             (C-16)
+"""Render an mp4 from a recorded run's MCAP, with telemetry burned in.             (SIM-16)
 
 Runs inside drone-sim/ros2 with the run directory mounted. Reads the bag rather than the live
 simulator, which matters for three reasons: the video is derived from the SAME evidence the
@@ -8,8 +8,8 @@ was actually recorded.
 
 COLOUR, AND A BUG IN THE OLDER RECORDER
 --------------------------------------
-`scripts/record_lane_c_flight.py:36` reshapes AirSim's raw buffer and hands it straight to
-`cv2.VideoWriter`, which expects BGR -- but Cosys-AirSim returns **RGB**. The Lane C flight
+`scripts/record_flight.py:36` reshapes AirSim's raw buffer and hands it straight to
+`cv2.VideoWriter`, which expects BGR -- but Cosys-AirSim returns **RGB**. The first flight
 videos recorded that way have red and blue swapped. This reads through `cv_bridge` with an
 explicit `desired_encoding`, so the `Image.encoding` field decides rather than an assumption.
 """
@@ -114,7 +114,7 @@ def main():
         for k, text in enumerate(rows):
             cv2.putText(canvas, text, (12, h + 26 + k * 24), cv2.FONT_HERSHEY_SIMPLEX,
                         0.6, (210, 235, 210) if k < 2 else (140, 220, 255), 1, cv2.LINE_AA)
-        cv2.putText(canvas, "Lane C - SITL - ROS 2 interface", (w - 330, h + 26),
+        cv2.putText(canvas, "SITL - ROS 2 interface", (w - 330, h + 26),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1, cv2.LINE_AA)
 
         if writer is None:

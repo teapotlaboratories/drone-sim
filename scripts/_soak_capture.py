@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hammer simGetImages until something breaks, and record exactly where.          (C-04 soak)
+"""Hammer simGetImages until something breaks, and record exactly where.          (SIM-04 soak)
 
 Runs INSIDE drone-sim/airsim-client, joined to the simulator's network namespace.
 
@@ -29,7 +29,7 @@ SECOND DEFECT THIS ALSO WATCHES FOR
 -----------------------------------
 The "safe" branches do `SetNumUninitialized(w*h*3)` and then fill only `bmp.Num()` entries. On
 an empty buffer that publishes a FULLY UNINITIALISED image -- garbage pixels, no error. That is
-silent corruption on the path Lane C actually uses, and nothing currently detects it. Every
+silent corruption on the path the graph actually uses, and nothing currently detects it. Every
 frame's statistics are recorded so an outlier is visible after the fact.
 
 PROGRESS IS FLUSHED EVERY CALL. When the simulator dies it takes this container's network

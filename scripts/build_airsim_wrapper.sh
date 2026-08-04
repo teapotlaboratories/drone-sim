@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Build the Cosys-AirSim ROS 2 wrapper (airsim_node) inside the running lane-c-ros2 service.
-#                                                                          (C-04)
+# Build the Cosys-AirSim ROS 2 wrapper (airsim_node) inside the running sim-ros2 service.
+#                                                                          (SIM-04)
 # WHY THIS SCRIPT EXISTS
 #
 # The wrapper build is NOT reproducible by reading the upstream docs. Getting to a running
 # airsim_node took four undocumented discoveries, and the whole thing lives in a container
-# whose next `lane_c_up.sh` run deletes it. Everything below is one of those discoveries; none
+# whose next `sim_up.sh` run deletes it. Everything below is one of those discoveries; none
 # of it is style.
 #
 #   1. drone-sim/ros2 lacks geographic_msgs and mavros_msgs. CMake fails on find_package.
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SVC=${SVC:-lane-c-ros2}
+SVC=${SVC:-sim-ros2}
 ROOT=/airsim_root
 PATCHDIR=patches/cosys-airsim
 
@@ -31,7 +31,7 @@ die() { printf '\033[31m[airsim-build] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
 
 docker inspect "$SVC" >/dev/null 2>&1 || die "$SVC is not running - bring the stack up first"
 
-log "installing the two ROS deps the image lacks"
+log "confirming the wrapper's ROS deps (baked into drone-sim/ros2; this is a no-op guard)"
 docker exec "$SVC" bash -lc '
   set -e
   need=""

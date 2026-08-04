@@ -1,13 +1,26 @@
-# `configs/` — per-lane YAML overrides
+# `configs/` — empty placeholder
 
-**Status:** placeholder. Populated in **Phase 1**.
+**Nothing reads this directory.** It contains this README and no configuration, and no
+script, launch file or Dockerfile in the repo references it. Said plainly so nobody goes
+looking for the file that overrides something.
 
-Parameter overlays applied on top of the shared launch composition, so the same graph
-runs in every lane with only its transport and timing swapped.
+Configuration today lives where the thing it configures reads it, in three places:
 
-Expected contents: per-lane `use_sim_time` / transport settings, EKF2 parameter sets,
-planner tuning (`d_safe`, `v_max`), VLM endpoint + model config, and the **evaluation
-success threshold** (5 m vs 20 m — parameterized deliberately).
+| What | Where | Read by |
+|---|---|---|
+| the vehicle, its sensors, their tuning | [`../sim/ue5/settings.json`](../sim/ue5/settings.json) | the simulator, via `sim_up.sh --settings` |
+| the mission, tolerances, recorded topics | [`../scenarios/*.yaml`](../scenarios/) | `scripts/run_scenario.py`, `scripts/run_gate.py` |
+| the ROS 2 graph — namespace, `use_sim_time`, node parameters | launch arguments in [`../ros2_ws/src/bringup/launch/`](../ros2_ws/src/bringup/launch/) | `ros2 launch` |
 
-Secrets never live here. Pass tokens, Wi-Fi credentials, and setup keys via environment
-or secret files, never committed (`.ai/AGENTS.md:465`).
+**What would earn a place here:** parameters that belong to *none* of those — a set that
+has to be identical in sim and on the aircraft, and so cannot live in a simulator settings
+file or a scenario. EKF2 parameter sets for GPS-denied or HITL flight are the obvious
+candidate: the same values must reach a real Pixhawk, and the transport swap is supposed to
+be the only difference between the two.
+
+The rule when something does land here: **it must have a reader.** A directory of YAML that
+no code loads is worse than no directory, because it looks authoritative.
+
+Secrets never live here — pass tokens, Wi-Fi credentials and setup keys via environment or
+secret files, never committed (`.ai/AGENTS.md` → "Simulation & hardware notes"). That
+includes the GitHub PAT the Unreal engine base image needs.

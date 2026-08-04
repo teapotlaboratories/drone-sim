@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
-"""Run one seeded scenario against the Lane A stack and emit a structured result (P1-04).
+"""Run one seeded scenario against the simulator and emit a structured result.
 
     ./scripts/run_scenario.py scenarios/square-10m.yaml --seed 3
 
 WHY THIS IS A HOST SCRIPT AND NOT A ROS NODE
 --------------------------------------------
-It orchestrates the *simulator*, not the flight: it restarts the stack with seed-derived
-environment, then runs the controller inside it. In-graph metrics belong in
-`ros2_ws/src/evaluation/` later; driving `docker compose` does not.
+It orchestrates the *simulator*, not the flight: it brings the stack up with seed-derived
+placement, then runs the controller inside it. In-graph metrics belong in
+`ros2_ws/src/evaluation/` later; driving containers does not.
 
 WHAT A SEED MEANS HERE
 ----------------------
 A seed selects a scenario VARIANT. It does NOT reproduce a trajectory. The stack is not
 bit-reproducible — measured, not assumed: two back-to-back runs with identical config
-against the same simulator gave waypoint errors [0.225, 0.104, 0.154, 0.204] and
-[0.118, 0.076, 0.158, 0.187]. A run is therefore evidence about conditions, and only a
-success RATE over many seeds is evidence about reliability. That is exactly why the Phase 1
-exit criterion is SR over 10 seeded runs rather than one green run.
+gave waypoint errors [0.225, 0.104, 0.154, 0.204] and [0.118, 0.076, 0.158, 0.187]. A run
+is therefore evidence about conditions, and only a success RATE over many seeds is
+evidence about reliability.
+
+**And right now a seed controls LESS than it used to — say so rather than let a reader
+assume otherwise.** The retired Gazebo harness seeded wind and vehicle mass through a
+generated world overlay. This simulator has no equivalent yet: environmental diversity
+needs Cosys-AirSim's own wind API, which is `SIM-07`. Until that lands, a seed moves the
+**spawn pose** and nothing else, so N seeded runs are closer to N repeats. They are still
+worth running — flaky failures surface under repetition — but do not describe them as
+seeded *conditions*.
 """
 
 from __future__ import annotations
@@ -33,7 +40,12 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-COMPOSE = ["docker", "compose", "-f", str(REPO / "docker" / "compose.yaml")]
+SIM_UP = REPO / "scripts" / "sim_up.sh"
+
+# The ROS 2 container the bring-up script creates. Kept as a module constant because
+# run_gate.py reaches for it too, and two spellings of a container name is exactly the
+# drift that turns a healthy stack into "No such container" halfway through a gate.
+ROS2 = "sim-ros2"
 
 
 def sh(cmd: list[str], *, env: dict | None = None, timeout: int = 900,
@@ -43,10 +55,15 @@ def sh(cmd: list[str], *, env: dict | None = None, timeout: int = 900,
                           capture_output=capture, text=True)
 
 
+def dexec(*args: str) -> list[str]:
+    """`docker exec` into the ROS 2 container, argv-style (no shell unless asked for one)."""
+    return ["docker", "exec", "-i", ROS2, *args]
+
+
 # A scenario `name` becomes part of container paths and of an `rm -rf`, so it is
 # validated rather than trusted. Today scenarios are repo-local and this is latent; it
-# stops being latent in Phase 4, which ingests AerialVLN/OpenFly scenario sets — external
-# files driving a delete. A name like "sq; touch /out/PWNED; echo" or "../../opt/px4/build"
+# stops being latent as soon as external scenario sets are ingested — external files
+# driving a delete. A name like "sq; touch /out/PWNED; echo" or "../../opt/px4/build"
 # would otherwise be interpolated straight into a shell command.
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
@@ -71,98 +88,56 @@ def derive_variant(scenario: dict, seed: int) -> dict:
     """Everything the seed controls, in one place, so it is auditable.
 
     Uses random.Random(seed) rather than the global RNG: the global one is process-wide
-    state that anything else could disturb, which would make "seed 3" mean different things
-    in different runs of this script.
+    state that anything else could disturb, which would make "seed 3" mean different
+    things in different runs of this script.
 
-    WIND is the knob that actually changes the physics. The spawn pose is kept because it
-    becomes load-bearing in Phase 2, where obstacles sit at fixed world coordinates — but
-    in an empty world it changes almost nothing the controller sees.
+    ONLY the spawn pose is returned, because only the spawn pose is applied. An earlier
+    version of this function also drew wind and mass; those fed a Gazebo world overlay
+    that no longer exists. Returning numbers nothing consumes is worse than returning
+    none — the gate printed a wind speed for every run while every run flew in still air.
     """
     rng = random.Random(seed)
     cfg = scenario.get("seeded", {}) or {}
     xy = float(cfg.get("spawn_xy_jitter_m", 0.0))
     yaw = float(cfg.get("spawn_yaw_jitter_rad", 0.0))
-    wind_max = float(cfg.get("wind_speed_max_ms", 0.0))
-    wind_speed = rng.uniform(0.0, wind_max)
-    wind_heading = rng.uniform(-math.pi, math.pi)
-    spawn = (round(rng.uniform(-xy, xy), 3),
-             round(rng.uniform(-xy, xy), 3),
-             round(rng.uniform(-yaw, yaw), 4))
-    # Drawn LAST on purpose: appending a draw keeps every earlier seed's wind and spawn
-    # unchanged, so adding this knob does not silently invalidate recorded gate results.
-    mass_pct = float(cfg.get("mass_jitter_pct", 0.0))
-    mass_scale = rng.uniform(1.0 - mass_pct / 100.0, 1.0 + mass_pct / 100.0)
     return {
-        "spawn_x": spawn[0],
-        "spawn_y": spawn[1],
-        "spawn_yaw": spawn[2],
-        "wind_speed_ms": round(wind_speed, 3),
-        "wind_heading_rad": round(wind_heading, 4),
-        "mass_scale": round(mass_scale, 4),
+        "spawn_x": round(rng.uniform(-xy, xy), 3),
+        "spawn_y": round(rng.uniform(-xy, xy), 3),
+        "spawn_yaw": round(rng.uniform(-yaw, yaw), 4),
     }
 
 
-def wait_healthy(container: str, timeout_s: int = 240) -> bool:
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        r = sh(["docker", "inspect", "--format", "{{.State.Health.Status}}", container],
-               timeout=30)
-        if r.stdout.strip() == "healthy":
-            return True
-        time.sleep(5)
-    return False
+def stack_is_up() -> bool:
+    r = sh(["docker", "inspect", "--format", "{{.State.Running}}", ROS2], timeout=30)
+    return r.returncode == 0 and r.stdout.strip() == "true"
 
 
-def build_variant_overlay(scenario: dict, variant: dict, tag: str) -> str:
-    """Generate the per-seed world/model overlay INSIDE a container.
+def restart_stack(variant: dict, world: str = "", settings: str = "") -> None:
+    """Cold-start the whole simulator at the seed's spawn pose.
 
-    It has to run in the container because it reads PX4's world and model out of the image.
-    Returns the container-side overlay path, or "" when the scenario declares no diversity
-    at all (no wind band and no mass jitter) — in which case every run uses the stock world
-    and they remain comparable to each other.
+    `sim_up.sh` is the ONLY supported bring-up: it waits for the vehicle to settle before
+    PX4 connects and then VERIFIES the EKF origin, restarting PX4 if it came up stale. A
+    stack assembled any other way flies or does not depending on container start order,
+    and the failure looks exactly like a control bug (SIM-09/SIM-10).
+
+    It blocks until the origin is verified and exits non-zero if it cannot be, so there is
+    no separate health-wait here — the script IS the barrier.
     """
-    # Decide on what the SCENARIO DECLARES, never on the value this seed happened to draw.
-    #
-    # Keying off the drawn value meant a seed that sampled ~0 wind ran on the stock world
-    # with no air drag while every other seed ran on the overlay — two different aircraft
-    # inside one success rate. Not a small difference either: 0.16 m mean error stock
-    # against 0.358 m on the overlay at zero wind.
-    seeded = scenario.get("seeded") or {}
-    declares = (float(seeded.get("wind_speed_max_ms", 0.0)) > 0.0
-                or float(seeded.get("mass_jitter_pct", 0.0)) > 0.0)
-    if not declares:
-        return ""
-    out = f"/out/variants/{tag}"
-    r = sh(["docker", "run", "--rm",
-            "-v", f"{REPO}/scripts:/s:ro", "-v", f"{REPO}/out:/out",
-            "--entrypoint", "bash", "drone-sim/lane-a:v1.16.0", "-lc",
-            f"python3 /s/make_variant.py --world {scenario.get('world', 'default')} "
-            f"--wind-speed {variant['wind_speed_ms']} "
-            f"--wind-heading {variant['wind_heading_rad']} "
-            f"--mass-scale {variant.get('mass_scale', 1.0)} --outdir {out}"], timeout=300)
+    # NED, and the script takes yaw in DEGREES while the variant carries radians. Z stays 0:
+    # the vehicle is released at the level's own ground height, which is what every scenario
+    # in this repo assumes. Converting in one place, next to the units comment, because a
+    # silent radians/degrees mix-up yields a vehicle facing the wrong way and a plausible,
+    # wrong, waypoint error.
+    spawn = (f"{variant['spawn_x']},{variant['spawn_y']},0,"
+             f"{round(math.degrees(variant['spawn_yaw']), 3)}")
+    cmd = [str(SIM_UP), "--spawn", spawn]
+    if world:
+        cmd += ["--world", world]
+    if settings:
+        cmd += ["--settings", settings]
+    r = sh(cmd, timeout=1200, capture=False)
     if r.returncode != 0:
-        raise RuntimeError(f"variant overlay failed: {r.stderr[-400:]}")
-    return out
-
-
-def restart_stack(variant: dict, variant_dir: str = "") -> None:
-    """Recreate the WHOLE stack, never just px4-sitl.
-
-    Every other service joins px4-sitl's network namespace, so recreating it alone leaves
-    them attached to a namespace that no longer exists: `ros2 topic list` returns ZERO
-    topics against a stack that looks healthy. Verified 2026-07-30 — 0 topics after
-    recreating px4-sitl alone, 24 after recreating everything.
-    """
-    pose = f"{variant['spawn_x']},{variant['spawn_y']},0,0,0,{variant['spawn_yaw']}"
-    env = {"PX4_GZ_MODEL_POSE": pose, "VARIANT_DIR": variant_dir}
-    sh(COMPOSE + ["down"], timeout=300)
-    sh(COMPOSE + ["up", "-d", "--force-recreate"], env=env, timeout=600)
-    # lane-a-ros2 included deliberately: it is healthy only once colcon has finished, and
-    # without waiting the runner execs into a container still building and flies before the
-    # controller exists.
-    for svc in ("lane-a-px4", "lane-a-qgc", "lane-a-ros2"):
-        if not wait_healthy(svc):
-            raise RuntimeError(f"{svc} never became healthy")
+        raise RuntimeError(f"sim_up.sh failed (exit {r.returncode}) — stack not flyable")
 
 
 def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
@@ -185,9 +160,9 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
     if flat:
         args += ["-p", "waypoints_enu:=[" + ",".join(str(v) for v in flat) + "]"]
 
-    # MCAP alongside the result (P1-05): named by scenario AND seed, so an artifact can
-    # always be traced back to the run that produced it, and recording the topic set the
-    # SCENARIO declares rather than a list baked into the harness.
+    # MCAP alongside the result: named by scenario AND seed, so an artifact can always be
+    # traced back to the run that produced it, and recording the topic set the SCENARIO
+    # declares rather than a list baked into the harness.
     topics = scenario.get("record_topics") or [
         "/fmu/out/vehicle_local_position", "/fmu/out/vehicle_status_v1",
         "/mission/status", "/mission/result",
@@ -203,7 +178,7 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
     # controller died at import reported `success 4/4` from a file written twenty minutes
     # earlier. The gate calls this for every seed, so that is a mechanism for laundering a
     # failure into a pass. `rm` as argv, with no shell involved at all.
-    sh(COMPOSE + ["exec", "-T", "ros2", "rm", "-rf", bag, result_in_container], timeout=60)
+    sh(dexec("rm", "-rf", bag, result_in_container), timeout=60)
     host_result_path = REPO / "out" / f"{tag}.json"
     host_result_path.unlink(missing_ok=True)
 
@@ -211,10 +186,10 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
     # topic list go in through -e and are referenced as variables. The shell then expands
     # VALUES; it never parses scenario text as code.
     recorder = subprocess.Popen(
-        COMPOSE + ["exec", "-T", "-e", f"TAG={tag}", "-e", f"TOPICS={' '.join(topics)}",
-                   "ros2", "bash", "-lc",
-                   '. /opt/ros/jazzy/setup.bash && cd /out && '
-                   'ros2 bag record -s mcap -o "$TAG" $TOPICS'],
+        ["docker", "exec", "-i", "-e", f"TAG={tag}", "-e", f"TOPICS={' '.join(topics)}",
+         ROS2, "bash", "-lc",
+         '. /opt/ros/jazzy/setup.bash && . /ros2_ws/install/setup.bash && cd /out && '
+         'ros2 bag record -s mcap -o "$TAG" $TOPICS'],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(5)
 
@@ -222,13 +197,12 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
     # Without it, `sh()` raising TimeoutExpired skipped the pkill entirely and left an
     # orphaned `ros2 bag record` running — precisely when clean evidence matters most.
     try:
-        cmd = COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
-                         "cd /ros2_ws && . install/setup.bash && "
-                         "ros2 run control offboard_control --ros-args " + " ".join(args)]
+        cmd = dexec("bash", "-lc",
+                    "cd /ros2_ws && . install/setup.bash && "
+                    "ros2 run control offboard_control --ros-args " + " ".join(args))
         proc = sh(cmd, timeout=600)
     finally:
-        sh(COMPOSE + ["exec", "-T", "ros2", "bash", "-lc",
-                      "pkill -INT -f '[r]os2 bag record' || true"], timeout=60)
+        sh(dexec("bash", "-lc", "pkill -INT -f '[r]os2 bag record' || true"), timeout=60)
         try:
             recorder.wait(timeout=60)
         except subprocess.TimeoutExpired:
@@ -248,10 +222,12 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Run one seeded scenario against Lane A.")
+    ap = argparse.ArgumentParser(description="Run one seeded scenario against the simulator.")
     ap.add_argument("scenario", type=Path)
     ap.add_argument("--seed", type=int, required=True)
     ap.add_argument("--outdir", type=Path, default=REPO / "out")
+    ap.add_argument("--world", default="", help=".uproject to load (default: bundled Blocks)")
+    ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
     ap.add_argument("--no-restart", action="store_true",
                     help="reuse the running stack; the spawn pose from the seed is then "
                          "NOT applied, so say so in any result you report")
@@ -263,17 +239,17 @@ def main() -> int:
 
     print(f"scenario : {scenario.get('name')}  seed {a.seed}")
     print(f"variant  : spawn ({variant['spawn_x']}, {variant['spawn_y']}) "
-          f"yaw {variant['spawn_yaw']}")
+          f"yaw {variant['spawn_yaw']} rad")
 
     started = time.time()
     if a.no_restart:
+        if not stack_is_up():
+            sys.exit(f"--no-restart given but container {ROS2} is not running; "
+                     "bring the stack up with ./scripts/sim_up.sh first")
         print("stack    : reusing (spawn pose NOT applied)")
     else:
-        vdir = build_variant_overlay(scenario, variant, f"{scenario.get('name')}-seed{a.seed}")
-        print(f"stack    : restarting  wind {variant['wind_speed_ms']} m/s "
-              f"heading {variant['wind_heading_rad']}"
-              + ("" if vdir else "  (no wind declared — stock world)"))
-        restart_stack(variant, vdir)
+        print("stack    : cold-starting via sim_up.sh")
+        restart_stack(variant, a.world, a.settings)
 
     result = run_flight(scenario, a.seed, a.outdir)
     result.update({

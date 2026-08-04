@@ -1,72 +1,79 @@
-# `tests/` — acceptance tests
+# `tests/` — the off-target suite
 
-Tests that decide whether something **works**, as opposed to whether it builds. These are
-the gates CI runs; everything human-facing lives in [`../docker/demo/`](../docker/demo/).
-
-| Test | Asserts | Needs a simulator? |
-|---|---|---|
-| `test_frames.py` (in `ros2_ws/src/control/test/`) | the single ENU↔NED conversion — sign, axis swap, yaw wrap | no |
-| `test_gate_checks.py` | the flight gate's verdict logic, and scenario-name validation | no |
-| `test_make_variant.py` | the seeded world/model overlay, and that the runner's knobs reach it | no |
-| `lane-a-smoke.sh` | the Lane A container reproduces the native `P0-07` result | **yes** |
-
-**25 of these run off-target**, in ~0.03 s, with no ROS, no containers and no simulator —
-which is what lets GitHub Actions run them on every push:
+Tests that decide whether something **works**, as opposed to whether it builds — and that
+need **no simulator, no ROS, no containers and no GPU**. That constraint is the point: the
+whole suite runs in **0.17 s** (97 tests as of the pivot to the simulator-only stack), which
+is what lets GitHub Actions run it on every push against a stack that can never be brought
+up on a hosted runner.
 
 ```bash
-python3 -m pytest tests/ -q                     # the host-side suite
-./scripts/run_local_ci.sh                       # the same checks CI runs
-./scripts/run_local_ci.sh --gate                # + the 10-seed flight gate
+python3 -m pytest tests/ -q                     # the host-side suite (pytest + pyyaml, nothing else)
+./scripts/run_local_ci.sh                       # tier 1 — the same checks CI runs, ~30 s
+./scripts/run_local_ci.sh --gate                # + the 10-seed flight gate (needs the simulator)
 ```
 
-Each off-target test exists because something silently did nothing or silently broke while
-looking healthy — a `NaN` waypoint error that passed the gate, a `<plugin>` that made
-Gazebo drop PX4's core systems while `gz sdf -k` still called the file *Valid*, an
-`enable_wind` outside the link. They are regression pins, not coverage theatre.
+> **The gate has never been timed against this stack.** The "~19 minutes for ten seeds"
+> recorded in this repo is the **retired Gazebo gate's** wall time; the current gate restarts
+> the full Unreal renderer per seed, so it starts slower, not faster. Measure it before
+> quoting it.
 
-## `lane-a-smoke.sh`
+| File | Pins | Because |
+|---|---|---|
+| `test_gate_checks.py` | the flight gate's verdict logic — PASS/FAIL/**VOID**, scenario-name validation, and the EKF-origin check that decides VOID | `check_run` shipped with a hole that let a **NaN** waypoint error count as a PASS |
+| `test_apply_spawn.py` | operator-supplied spawn parsing and its refusals (`SIM-13`) | a bad spawn puts the camera inside terrain, and every image measurement taken afterwards looks plausible and is wrong — four investigations were lost that way |
+| `test_inject_airsim.py` | the AirSim project-injection helpers, including the hand-rolled `ini_set` (`SIM-11`) | they rewrite files in the **user's own** Unreal project; the failure mode is destroying someone's settings while appearing to succeed |
+| `test_park_tour.py` | the example mission's geometry and validation (`SIM-16`) | `park_tour.py` was the most defect-dense code in its PR — four bugs, every one found by flying; three reproducible with no simulator at all |
 
-Runs **inside** the Lane A image and compares against the numbers measured natively, so a
-regression shows up as a changed number rather than a vague failure.
+**They are regression pins, not coverage theatre.** Each exists because something silently
+did nothing, or silently broke while looking healthy: a `NaN` that passed the gate, an
+arrival test that scored a fly-through, a ramp-out that converged without ever arriving.
+
+**`test_frames.py` is not here.** The single ENU↔NED conversion point is tested inside its
+package, at `ros2_ws/src/control/test/test_frames.py`, because it imports `control.frames`:
 
 ```bash
-docker run --rm --shm-size=2g -e DURATION=300 -e OUTDIR=/out \
-  -v "$PWD/out:/out" \
-  -v "$PWD/tests/lane-a-smoke.sh:/smoke.sh:ro" \
-  drone-sim/lane-a:v1.16.0 bash /smoke.sh
+colcon test --packages-select control --python-testing pytest
+colcon test-result --verbose
 ```
 
-**Assertions** (exits non-zero on any miss):
+> **`--python-testing pytest` is required, not optional.** Without it colcon falls back to
+> `python3 -m unittest`, which cannot collect pytest-style test *functions* and reports
+> **"NO TESTS RAN"** while exiting non-zero — zero coverage that looks like a broken build
+> rather than a missing flag.
 
-| Check | Bar | Native reference |
-|---|---|---|
-| `/fmu/out/*` topics | ≥ 24 | 24 |
-| Sensor TIMEOUTs | 0 | 0 |
-| `ERROR [...]` lines | 0 | 0 |
-| Data actually moving | timestamps differ across a 20 s gap | yes |
-| Real-time factor | **aggregate** ≥ 0.95 | 1.0000 native · 0.9967 host podman |
+## Tier 1 — what CI runs on every push
 
-**Three details that are load-bearing — do not "simplify" them:**
+`.github/workflows/checks.yml`, ~24 s: this suite, shell and Python parse checks,
+`scripts/check_image_refs.py`, `check_repos_manifest.py`, `check_worklog_renders.py`,
+`check_attribution.sh`, `check_versions_conflicts.py`. `main` requires it.
 
-1. **`--shm-size=2g` is required.** Docker defaults `/dev/shm` to 64 MB and Fast-DDS uses
-   shared memory as its default transport.
-2. **PX4 launches under `screen` with `stty min 1 time 0`.** Without it PX4's `pxh` shell
-   busy-spins its prompt — ~1.45 M writes/s, 4.1 GB per 300 s run, one core consumed, and it
-   fills the filesystem mid-run.
-3. **The TIMEOUT grep must stay tolerant** (`fail(ed)?: *TIMEOUT`). PX4 prints
-   `fail:  TIMEOUT!` with a *double* space and `failed:` for the magnetometer; a naive
-   pattern matches neither and silently reports zero while TIMEOUTs are occurring.
+**`check_image_refs.py` replaced a `docker compose config` step.** That step caught a real
+class of defect — a reference to an image that does not exist — for the compose stack that
+has since been retired. The class did not go away with the file, so the check was rewritten
+against the authority that survived: every `drone-sim/...` reference must name an image
+declared under `images:` in `versions.lock`. Nothing else in tier 1 can see a renamed tag,
+because tier 1 never builds or runs a container.
 
-**Assert on aggregate RTF, never the instantaneous field.** Gazebo's `real_time_factor`
-swings 0.14–1.01 while the true ratio sits at 0.977; a healthy native run contains a lone
-0.503 sample out of 2,931. The script derives the aggregate from `sim_time`/`real_time`,
-both of which are in the same message.
+## Tier 2 — the flight gate, run by hand
 
-Background: [`../docs/docker/todo.md`](../docs/docker/todo.md) and
-[`../docs/worklog/2026-07-29-d01-container-parity.md`](../docs/worklog/2026-07-29-d01-container-parity.md).
+`scripts/run_gate.py` needs the simulator: a 57 GB Unreal image, a GPU, and an 11 GB PX4
+image. No hosted runner can bring that up, and a self-hosted runner on a **public** repo
+would let any fork's pull request execute code on the workstation. So the gate is deferred
+**by decision**, and `./scripts/run_local_ci.sh --gate` on the workstation is the accepted
+substitute — one command, with a summary that can be pasted into a PR.
+
+## What used to be here
+
+A container smoke test lived here, asserting that the Gazebo image reproduced the numbers
+measured natively — 24 `/fmu/out/*` topics, zero sensor TIMEOUTs, aggregate RTF ≥ 0.95. It
+retired with that stack. Its successor is not a single script: the equivalent assurance comes from
+`sim_up.sh` verifying the EKF origin before declaring a stack usable, and from the gate
+scoring runs it could not trust as **VOID** rather than FAIL. The RTF assertion has no
+successor at all and should not be reinvented — lockstep is dead code in Cosys-AirSim, so
+there is no deterministic real-time factor to assert against.
 
 ## Not here yet
 
-Phase 1 adds the seeded scenario regression (SR over N runs, MCAP artifacts) and host-side
-unit tests for message contracts, metric computation and the `ttl` watchdog — those run
-off-target where they are fast and deterministic.
+Host-side unit tests for metric computation once evaluation moves in-graph, and anything
+covering the ROS 2 message contracts (`drone_interfaces`) — those need a ROS environment,
+which is exactly what this directory is defined by not having.

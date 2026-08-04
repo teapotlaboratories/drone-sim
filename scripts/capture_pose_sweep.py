@@ -44,7 +44,7 @@ def main():
     ap.add_argument("--tag", default="sweep")
     args = ap.parse_args()
 
-    outdir = REPO / "out/lane-c/capture-exp"
+    outdir = REPO / "out/capture-exp"
     outdir.mkdir(parents=True, exist_ok=True)
 
     overrides = {"LumenGIEnable": True, "LumenReflectionEnable": True} if args.lumen else {}

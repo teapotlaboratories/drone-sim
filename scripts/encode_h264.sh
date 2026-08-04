@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Re-encode a render to phone-playable H.264.                                     (C-16)
+# Re-encode a render to phone-playable H.264.                                     (SIM-16)
 #
 # WHY THIS EXISTS. cv2.VideoWriter with the "mp4v" fourcc writes MPEG-4 Part 2, which desktop
 # players tolerate and most phones do NOT -- the file opens and shows a blank frame. Three
@@ -15,7 +15,7 @@
 set -euo pipefail
 IN="${1:?usage: encode_h264.sh <in.mp4> <out.mp4> [max_width] [fps]}"
 OUT="${2:?}"; MAXW="${3:-1920}"; FPS="${4:-30}"
-IMG=drone-sim/lane-a-video:v1.16.0
+IMG=drone-sim/video:v1.16.0
 ind="$(cd "$(dirname "$IN")" && pwd)"; outd="$(cd "$(dirname "$OUT")" && pwd)"
 docker run --rm -v "$ind:/i" -v "$outd:/o" --entrypoint ffmpeg "$IMG" \
   -hide_banner -loglevel error -y -i "/i/$(basename "$IN")" \

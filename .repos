@@ -8,13 +8,14 @@
 # carries the reasoning; this file is the mechanism. When a `sha: TODO-verify` in
 # versions.lock is resolved, pin the SHA here too — a tag can move, a SHA cannot.
 #
-# Phase-gated on purpose: only the Phase 0 (Lane A) set is active. The Lane B and Lane C
-# trees are left commented out so `vcs import` does not pull tens of GB of Isaac/UE5
-# dependencies before those lanes are actually being built. Uncomment per phase.
+# Everything the running stack needs is ACTIVE. The commented-out blocks are components
+# this project does not build: the Isaac Sim path (retired) and planner work not yet
+# started. They stay here rather than in a deleted file so that reopening one is an
+# uncomment, not an archaeology exercise.
 
 repositories:
 
-  # --- Phase 0 / Lane A: PX4 v1.16.x + uXRCE-DDS + ROS 2 Jazzy -----------------
+  # --- The autopilot half: PX4 v1.16.x + uXRCE-DDS + ROS 2 Jazzy ---------------
   PX4-Autopilot-v1.16:
     type: git
     url: https://github.com/PX4/PX4-Autopilot.git
@@ -39,7 +40,7 @@ repositories:
     # MUST stay branch-matched to PX4-Autopilot-v1.16. A mismatch is silent.
     # CORRECTED 2026-08-01: this was pinned to the live `release/1.16` BRANCH while
     # versions.lock carried the resolved SHA and marked the entry LOCKED on a smoke test at
-    # that commit. docker/lane-a.Dockerfile checks out the SHA, so the two reconstruction
+    # that commit. docker/px4.Dockerfile checks out the SHA, so the two reconstruction
     # mechanisms this repo ships resolved to different trees. Caught by the merge-gate
     # review, along with the fact that the first version of check_repos_manifest.py was
     # written to ACCEPT a branch where a SHA existed.
@@ -52,8 +53,10 @@ repositories:
     # which branch-matches px4_msgs but NOT px4_ros_com. versions.lock resolved that
     # asymmetry — upstream does publish release/1.16 and both are branch-matched here.
 
-  # --- Phase 3 / Lane B: Isaac Sim 5.1 + Pegasus + PX4 v1.14.3 -----------------
-  # Blocked pending the Isaac-vs-driver-610.43.03 verification (versions.lock).
+  # --- RETIRED: Isaac Sim 5.1 + Pegasus + a SECOND PX4 v1.14.3 -----------------
+  # Isaac Sim 5.1 SIGSEGVs on this host's driver 610.43.03 (validated 580.65.06). Kept
+  # commented rather than deleted: a host rebase to R580 reopens it unchanged, and the
+  # v1.14.3 pin belongs to Pegasus. See versions.lock `retired:`.
   #
   # PX4-Autopilot-v1.14.3:
   #   type: git
@@ -71,19 +74,18 @@ repositories:
   #   url: https://github.com/isaac-sim/IsaacSim-ros_workspaces.git
   #   version: TODO-verify   # build jazzy_ws against Python 3.11
 
-  # --- Phase 2 / planning + perception ----------------------------------------
+  # --- Not yet started: planning + perception ---------------------------------
   #
   # ego-planner-swarm:
   #   type: git
   #   url: https://github.com/ZJU-FAST-Lab/ego-planner-swarm.git
   #   version: TODO-verify   # ROS 2 branch, drone_id=0; port ships a code-map doc
 
-  # --- Phase 2+ / Lane C: UE5.8 + Cosys-AirSim — THE PRIMARY STACK ------------
-  # ACTIVATED 2026-07-31. Lane C is no longer a Phase 4 concern: it is the primary
-  # simulator from Phase 2 on. ~1.3 GB checked out — large, but not the tens of GB the
-  # header warns about (that is the UE5 engine IMAGE, 24 GB, which is Docker's problem
-  # and not vcstool's). Engine version is 5.8, not 5.5: UE5.5 and ROS 2 Jazzy cannot be
-  # had from one upstream tag. See versions.lock lane_c.cosys_airsim.
+  # --- The rendering half: UE5.8 + Cosys-AirSim -------------------------------
+  # ~1.3 GB checked out — large, but not the tens of GB that the engine IMAGE costs
+  # (24 GB compressed, which is Docker's problem and not vcstool's). Engine version is
+  # 5.8, not 5.5: UE5.5 and ROS 2 Jazzy cannot be had from one upstream tag.
+  # See versions.lock renderer.cosys_airsim.
 
   Cosys-AirSim:
     type: git

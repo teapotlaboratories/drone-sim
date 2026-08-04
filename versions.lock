@@ -9,7 +9,7 @@
 #
 # status vocabulary
 #   observed     — measured on this machine on the date given; trustworthy
-#   pinned       — version fixed by the design docs in docs/reference/; not yet installed
+#   pinned       — version fixed by the design docs in docs/history/reference/; not yet installed
 #   TODO-verify  — unknown or unconfirmed; MUST be resolved before Phase 0 exit
 #   CONFLICT     — a known contradiction between two pins; needs a decision, not a guess
 #
@@ -19,7 +19,7 @@
 meta:
   drafted: 2026-07-28
   phase: 0
-  drafted_by_running: docs/phase-0/todo.md
+  drafted_by_running: docs/history/phase-0/todo.md
   note: >-
     Every sha/tag below marked TODO-verify must be filled from an actual checkout, not
     from documentation. Pin the SHA that was built and smoke-tested, not the branch tip.
@@ -46,7 +46,7 @@ platform:
     status: observed
     note: >-
       PX4 SITL lockstep is single-thread-latency-sensitive; CPU starvation produces the
-      documented Accel/Mag TIMEOUT failures. 24 cores is ample headroom for Lane A.
+      documented Accel/Mag TIMEOUT failures. 24 cores is ample headroom for PX4 SITL.
   ram_gb: 62
   storage:
     internal_avail_gb: 312          # observed 2026-07-28; docs/bench.md says ~279 (drifted)
@@ -58,7 +58,7 @@ platform:
       640x480@30Hz is ~tens of GB/hour; budget 50-100 GB per benchmark sweep.
 
 # ---------------------------------------------------------------------------
-# GPUs — the work split is a hard rule (docs/reference/03_hardware_assessment.md:80)
+# GPUs — the work split is a hard rule (docs/history/reference/03_hardware_assessment.md:80)
 # ---------------------------------------------------------------------------
 gpu:
   driver:
@@ -69,7 +69,7 @@ gpu:
   isaac_validated_driver:
     version: "580.65.06"
     status: pinned
-    source: docs/reference/03_hardware_assessment.md:12
+    source: docs/history/reference/03_hardware_assessment.md:12
   driver_conflict:
     status: CONFLICT
     summary: >-
@@ -85,7 +85,7 @@ gpu:
       changed with apt inside the container. Downgrading means rebuilding/rebasing the
       host image, which needs host sudo (password not available to the agent).
     blast_radius: >-
-      Lane B (Isaac Sim + Pegasus) and Phase 3 only. Lane A (PX4 + Gazebo, Phase 0-2) and
+      Isaac Sim + Pegasus only. PX4 SITL and
       the vLLM server do NOT depend on this and are unblocked.
     resolution: CONFIRMED BROKEN — Isaac Sim 5.1 does NOT run on driver 610.43.03
     tested: 2026-07-28 (P0-09)
@@ -112,7 +112,7 @@ gpu:
       (b) Test Isaac Sim 6.0.0 (nvcr.io/nvidia/isaac-sim:6.0.0, public) on 610.43.03. If
       6.0 runs, the trade becomes: 6.0 needs Python 3.12 (rewrites the P0-10 ROS 2
       integration path) and BREAKS Pegasus v5.1.0, which pins to Isaac 5.1.0 exactly — so
-      Lane B would need a Pegasus alternative or a Pegasus version that targets 6.0.
+      A return to Isaac would need a Pegasus alternative or a Pegasus version targeting 6.0.
       (c) Otherwise: host image rebase to an R580 driver. OWNER-ONLY — the driver comes
       from the ostree-immutable host, and the same host also serves ~1.1 TB of Steam
       libraries that may want a 610-era driver.
@@ -145,27 +145,27 @@ gpu:
     - Never run UE5 shader compilation concurrently with a heavy Isaac Sim scene.
 
 # ---------------------------------------------------------------------------
-# Lane A — PX4 v1.16.x + Gazebo Harmonic + ROS 2 Jazzy
-#          (Phase 0-1 · then ALWAYS-ON REGRESSION BASELINE · and REAL HARDWARE)
+# AUTOPILOT — PX4 v1.16.0 + ROS 2 Jazzy + uXRCE-DDS + QGroundControl
 #
-# *** DEMOTED 2026-07-31 *** — demoted, NOT retired. Lane C (UE5.5 + Cosys-AirSim) is now
-# the primary stack and Phase 2 is built there, per docs/reference/04_ue5_stack_architecture.md.
-# That report's own Fallback #2 keeps Gazebo as "the always-on PX4 sim-to-real ground-truth
-# baseline", which is exactly this lane's new role.
+# The half of the simulator that is NOT the renderer, and the half that is identical on
+# real hardware: the Pixhawk 6C runs this exact PX4 tree. That is what makes the sim-to-real
+# boundary a transport swap rather than a port.
 #
-# WHAT STAYS HERE, PERMANENTLY:
-#   - tier-1 CI (.github/workflows/checks.yml) and the P1-06 flight gate (SR 10/10)
-#   - the controls / sim-to-real ground truth every Lane C result is compared against
-#   - REAL HARDWARE: the Pixhawk 6C runs this exact PX4 tree (v1.16.0). Unchanged.
-# WHAT DOES NOT:
-#   - new capability work. Phase 2 perception + obstacle avoidance moved to Lane C.
+# Everything here is consumed by the running stack:
+#   px4                    PX4 SITL, and the real firmware tree
+#   ros2                   ROS 2 Jazzy — one distro across the whole project
+#   micro_xrce_dds_agent   the PX4 <-> ROS 2 bridge, run in the sim-xrce container
+#   px4_msgs / px4_ros_com branch-matched to the firmware; a mismatch silently empties topics
+#   qgroundcontrol         the GCS datalink PX4 requires before it will arm
+#   nuttx_toolchain        not needed for SITL; required to flash real Pixhawk 6C firmware
 #
-# WHY KEEP IT AT ALL: it is the only thing in this project that currently FLIES, and Lane C
-# is rated High-likelihood for build fragility. A Lane C regression is measured against a
-# Lane A run, not against a previous Lane C run.
+# GAZEBO IS GONE FROM THIS SECTION. It was installed here when the project ran a parallel
+# Gazebo stack; that stack is retired and docker/px4.Dockerfile now builds with
+# `Tools/setup/ubuntu.sh --no-sim-tools`. The pin is kept under `retired:` with the
+# measurement, not deleted.
 # ---------------------------------------------------------------------------
-lane_a:
-  lane_status: REGRESSION BASELINE   # demoted 2026-07-31; always-on, frozen in scope
+autopilot:
+  role: the autopilot half of the simulator -- and the tree the real Pixhawk 6C runs
   px4:
     repo: https://github.com/PX4/PX4-Autopilot.git
     tag: v1.16.0
@@ -323,18 +323,23 @@ lane_a:
     note: chmod +x; add user to dialout; remove modemmanager (both only matter for real serial hardware).
 
 # ---------------------------------------------------------------------------
-# Lane B — Isaac Sim 5.1 + Pegasus + a SEPARATE PX4 v1.14.3  (Phase 3)
+# RETIRED — components this project no longer builds, with the reason it stopped.
 #
-# *** DEFERRED 2026-07-29 *** Isaac Sim 5.1 SIGSEGVs on this host's driver 610.43.03
-# (validated: 580.65.06), reproduced on the AMPERE card with Blackwell excluded — so it
-# is the driver, not the GPU. Isaac 6.0 avoids the crash but NO Pegasus release exists for
-# it, which would mean writing the PX4<->Isaac bridge ourselves. Lane C (UE5.5 +
-# Cosys-AirSim) is promoted in its place. Pins below are RETAINED, not deleted: a host
-# rebase to an R580 driver reopens this lane unchanged.
-# Full reasoning: docs/lane-b/isaac-driver-decision.md
+# Pins are RETAINED, not deleted. A pin without its reasoning is a number nobody dares
+# change; a deleted pin is a decision nobody can re-examine. Everything here is reversible.
+#
+# ISAAC SIM 5.1 + PEGASUS + a SEPARATE PX4 v1.14.3 — deferred 2026-07-29.
+# Isaac Sim 5.1 SIGSEGVs on this host's driver 610.43.03 (validated: 580.65.06), reproduced
+# on the AMPERE card with Blackwell excluded — so it is the driver, not the GPU. Isaac 6.0
+# avoids the crash but NO Pegasus release exists for it, which would mean writing the
+# PX4<->Isaac bridge ourselves. A host rebase to an R580 driver reopens it unchanged.
+# Full reasoning: docs/history/isaac/driver-decision.md
+#
+# GAZEBO HARMONIC — retired 2026-08-04 with the parallel Gazebo stack.
 # ---------------------------------------------------------------------------
-lane_b:
-  lane_status: DEFERRED   # see header above; not abandoned, fully reversible
+retired:
+  role: components this project retired. Kept because each is reversible, and because
+        deleting a pin deletes the reason it was chosen.
   px4:
     repo: https://github.com/PX4/PX4-Autopilot.git
     tag: v1.14.3
@@ -349,7 +354,7 @@ lane_b:
     version: 5.1.0
     python: "3.11"
     ngc_container_tag: nvcr.io/nvidia/isaac-sim:5.1.0   # RESOLVED: public, no NGC login needed
-    local_image: DELETED 2026-07-30 to reclaim ~36 GB (Lane B deferred); re-pull is one command
+    local_image: DELETED 2026-07-30 to reclaim ~36 GB (Isaac deferred); re-pull is one command
     status: pinned
     blocked_by: gpu.driver_conflict
     note: >-
@@ -377,49 +382,50 @@ lane_b:
       on Ubuntu 22.04 + driver 550.163.01 + PX4 v1.14.3; we are on 24.04 + 610.43.03.
 
 # ---------------------------------------------------------------------------
-# Lane C — UE5.5 + Cosys-AirSim   *** THE PRIMARY STACK ***
+# RENDERER — Unreal Engine 5.8 + Cosys-AirSim
 #
-# *** PROMOTED 2026-07-29 *** to photoreal-perception lane, replacing deferred Lane B.
-# *** PRIMARY 2026-07-31 ***   the project's main simulator. PHASE 2 (perception +
-# obstacle avoidance) IS BUILT HERE, NOT IN GAZEBO. Decision doc:
-# docs/reference/04_ue5_stack_architecture.md. Backlog: docs/lane-c/todo.md
+# The rendering half of the simulator: the world, the sensors, and the physics handshake
+# with PX4 over the Simulator MAVLink API. Design doc:
+# docs/history/reference/04_ue5_stack_architecture.md. Backlog: docs/todo.md
 #
-# Rationale, unchanged and now acted on: none of the three target papers (SPF, Fly0, OnFly)
-# uses Isaac — all evaluate on Unreal/AirSim-family simulators — and this lane is
-# driver-agnostic, so the Isaac blocker does not apply here.
+# It is driver-agnostic, which is why it works on this host at all — the driver that
+# deferred Isaac Sim does not affect it. What it IS gated on is credentials: the engine
+# base image is Epic's, and anonymous pulls are HTTP 403.
 #
-# WHAT IS AND IS NOT BUILT HERE (corrected 2026-08-01 — this header previously said
-# "NOTHING IN THIS SECTION IS BUILT YET", which the same branch then contradicted):
-#   BUILT   cosys_airsim_ros2_wrapper — colcon build on Jazzy, exit 0, artifacts asserted
-#           (C-06). This is the ROS 2 bridge ONLY.
-#   NOT     everything else. No engine image pulled, no UE build, no simulator run, no
-#           flight. The wrapper has never talked to a real Cosys-AirSim server.
-# This lane is rated HIGH LIKELIHOOD / MED IMPACT for BUILD FRAGILITY, and being declared
-# primary does not change that — it raises the cost of it. Pin a SHA, never a branch.
+# STATUS: built and flying. The engine image was built, the plugin compiled against it, the
+# ROS 2 wrapper builds on Jazzy, and the unmodified offboard controller reaches 4/4
+# waypoints through it. Pin a SHA, never a branch — this section has already been saved by
+# that rule twice.
 # ---------------------------------------------------------------------------
-lane_c:
-  lane_status: PRIMARY   # promoted 2026-07-29; made primary 2026-07-31
-  first_build_not_yet_attempted: true   # flip this when C-02 produces an engine image
+renderer:
+  role: the rendering half of the simulator -- Unreal Engine and Cosys-AirSim
+  first_build_not_yet_attempted: false  # SIM-02 built the engine image 2026-08-01; it flies
 
   decisions_2026_07_31:
     ros2_distro: >-
       JAZZY — a DELIBERATE DEVIATION from 04_ue5_stack_architecture.md, which recommends
       Humble. That recommendation is inherited from upstream AirSim/CARLA-Air example docs,
       not measured against Cosys-AirSim. Every pin this project has actually built and
-      smoke-tested is Jazzy: Ubuntu 24.04 / Python 3.12.3, ros-jazzy-desktop, all four
-      container images, px4_msgs release/1.16 branch-matched to PX4 v1.16.0, the
-      ros-jazzy-ros-gz-bridge /clock bridge, and the Isaac ROS perception packages
-      (cuVSLAM, nvblox) which are Jazzy-only. Moving to Humble means Ubuntu 22.04 and
+      smoke-tested is Jazzy: Ubuntu 24.04 / Python 3.12.3, ros-jazzy-desktop, every
+      container image, px4_msgs release/1.16 branch-matched to PX4 v1.16.0, and the Isaac
+      ROS perception packages (cuVSLAM, nvblox) which are Jazzy-only.
+      DATED RECORD, still true — but two of its supporting details have moved since, and
+      are corrected here rather than left to read as current state: the image count was
+      four and is now six, and the ros-jazzy-ros-gz-bridge /clock bridge it cited was
+      REMOVED on 2026-08-04 with the Gazebo baseline. /clock now comes from the simulator,
+      remapped in perception.launch.py. Neither change touches the decision.
+      Moving to Humble means Ubuntu 22.04 and
       rewriting all of it to match a documentation preference. THE RISK IS REAL AND OWNED:
       if the Cosys-AirSim ROS 2 wrapper will not build on Jazzy/24.04, that is discovered
-      in C-06 BEFORE any UE5 work is committed to. See ros2_distro_fallback below.
+      in SIM-06 BEFORE any UE5 work is committed to. See ros2_distro_fallback below.
       STRENGTHENED THE SAME DAY BY RESEARCH: upstream's current docs name Jazzy and Ubuntu
       24.04 as the tested environment, and Humble can no longer compile the wrapper at all.
       The decision was taken on the reasoning that 04's Humble was inherited rather than
       measured; the evidence then showed 04's recommendation is simply out of date.
-    lane_a_role: >-
-      DEMOTED TO REGRESSION BASELINE, not retired — matching 04's own Fallback #2. Lane A
-      keeps tier-1 CI, the P1-06 flight gate, and the ground truth Lane C is compared
+    gazebo_baseline_role: >-
+      RETIRED 2026-08-04. It had been demoted to a regression baseline — matching 04's own
+      Fallback #2 — keeping tier-1 CI, its flight gate, and the ground truth the simulator
+      was compared
       against. No new capability work lands there.
     phase_numbering: >-
       MAPPED, NOT RENUMBERED. 04's Phase 0-3 are calendar weeks; this project's Phase 0-4
@@ -428,9 +434,9 @@ lane_c:
       04_ue5_stack_architecture.md, "Decisions taken on this document".
 
   ros2:
-    distro: jazzy          # SAME as lane_a — one distro across the whole project
+    distro: jazzy          # one distro across the whole project
     rationale: see decisions_2026_07_31.ros2_distro
-    status: pinned         # pinned for Lane C; already `observed` in lane_a
+    status: observed       # built and running
   ros2_distro_fallback: >-
     CORRECTED 2026-07-31, same day it was written. The original fallback recorded here —
     "run the wrapper alone in a Humble/22.04 sidecar and bridge its topics" — is WRONG and
@@ -450,7 +456,7 @@ lane_c:
     engine_released: 2026-06-17    # forums.unrealengine.com/t/unreal-engine-5-8-released/2729274
     docker_base: "ghcr.io/epicgames/unreal-engine:dev-slim-5.8.0"
     docker_base_digest: "sha256:daac02628ea880513e18ccd1364b1cac949d40609b24c040d73872d8214a0c46"
-    status: LOCKED                 # pulled, probed AND built against 2026-08-01 (C-02)
+    status: LOCKED                 # pulled, probed AND built against 2026-08-01 (SIM-02)
     smoke_result: >-
       Cosys-AirSim's AirLib/rpclib/MavLinkCom built against this engine's bundled toolchain
       via `./build.sh --ue-root /home/ue4/UnrealEngine`, exit 0. Proven by the ARTIFACT, not
@@ -460,7 +466,7 @@ lane_c:
       evidence --ue-root took effect.
     pulled: >-
       2026-08-01, 9m05s. Digest as pulled is BYTE-IDENTICAL to the one recorded from the
-      registry query in C-01: sha256:daac0262...4a0c46. The pin reproduces.
+      registry query in SIM-01: sha256:daac0262...4a0c46. The pin reproduces.
       Extracted size 57.4 GB against 24.0 GB compressed (2.4x), of which the engine itself
       is 54 GB at /home/ue4/UnrealEngine. Internal NVMe went 270 GB -> 215 GB free, which
       is BEFORE any build output, plugin or packaged project — see docker/todo.md D-04's
@@ -509,7 +515,7 @@ lane_c:
           "https://ghcr.io/token?scope=repository:epicgames/unreal-engine:pull&service=ghcr.io"
         # then GET /v2/epicgames/unreal-engine/manifests/dev-slim-5.8.0 with that bearer
       Status STAYS TODO-verify regardless: the tag existing is not the image working.
-      Only C-02 — pulled, built against, run — moves it to `pinned`.
+      Only SIM-02 — pulled, built against, run — moves it to `pinned`.
     download_size: >-
       24.0 GB compressed across 30 layers (measured from the manifest, 2026-07-31).
       On-disk after extraction is meaningfully larger, and that is BEFORE the UE source
@@ -528,7 +534,7 @@ lane_c:
       dev-slim-5.8 resolves to the same digest today, but it is a MOVING ALIAS: the registry
       shows dev-slim-5.5 and dev-slim-5.5.4 sharing one digest and one package version, i.e.
       the two-component form tracked four patch releases. Pin the three-component tag and
-      prefer the digest — this is coupling lane-c-sha-not-branch applied to an image.
+      prefer the digest — this is coupling sha-not-branch applied to an image.
     no_5_8_1_image: >-
       Hotfix 5.8.1 shipped 2026-07-28 but dev-slim-5.8.1 returns HTTP 404, and Epic does not
       image every hotfix — there is no dev-5.7.1 tag at all. Do NOT write a 5.8.1 tag on the
@@ -548,11 +554,11 @@ lane_c:
       ROS 2 JAZZY HAS NO JAMMY PACKAGES, so nothing Jazzy can be installed inside the
       engine image. Consequence: the `sim` and `ros2` containers in 04's topology are
       MANDATORY, not stylistic. The AirSim<->ROS 2 boundary must stay the RPC / MAVLink
-      socket, and the C-06 wrapper build happens in the existing 24.04/Jazzy container —
-      which is how C-06 was already written, so the plan holds.
+      socket, and the SIM-06 wrapper build happens in the existing 24.04/Jazzy container —
+      which is how SIM-06 was already written, so the plan holds.
     useful_env_already_set: >-
       The image ships NVIDIA_DRIVER_CAPABILITIES=graphics,compat32,utility,compute,display,
-      video and NVIDIA_VISIBLE_DEVICES=all. So C-02's "set NVIDIA_DRIVER_CAPABILITIES to
+      video and NVIDIA_VISIBLE_DEVICES=all. So SIM-02's "set NVIDIA_DRIVER_CAPABILITIES to
       include graphics" is already satisfied by the base — do not override it with a
       narrower list. The GPU PIN still has to be done at the container boundary
       (--device nvidia.com/gpu=0), because VISIBLE_DEVICES=all does the opposite.
@@ -570,10 +576,10 @@ lane_c:
     tag: 5.8-v3.4.1
     sha: a552dd6cd517b8d5d26629ad88004356c3007326
     target_engine: UE5.8
-    status: LOCKED             # plugin COMPILES AND LINKS against UE5.8 (C-02). Never RUN.
+    status: LOCKED             # plugin COMPILES AND LINKS against UE5.8 (SIM-02). Never RUN.
     decided: 2026-07-31
     build_result: >-
-      BUILDS against UE5.8. `./build.sh --ue-root` in drone-sim/lane-c:ue5.8, exit 0,
+      BUILDS against UE5.8. `./build.sh --ue-root` in drone-sim/unreal:ue5.8, exit 0,
       warnings only. Artifacts asserted rather than trusted: libAirLib.a 4.8 MB,
       libMavLinkCom.a 1.9 MB, librpc.a 1.2 MB, and Unreal/Plugins/AirSim/Source/AirLib
       populated with 1,226 files (deps 1,042) with src/ correctly stripped as build.sh
@@ -596,18 +602,18 @@ lane_c:
       prompt, unlike the 5.5 tag which declared 5.4 and is a documented failure point.
     what_LOCKED_meant_when_set: >-
       LOCKED here means THE PIN IS PROVEN BUILDABLE, which is what a version pin must show.
-      It does not by itself mean the lane works: compiling is not running. When this entry
-      was locked (C-02) the simulator had never run at all.
+      It does not by itself mean the stack works: compiling is not running. When this entry
+      was locked (SIM-02) the simulator had never run at all.
     since_then: >-
-      C-03, C-09, C-10 and C-04 have run it. Superseded on 2026-08-01/02: the simulator
-      renders, PX4 links over the MAVLink SITL API, /fmu/* parity against Lane A is proved
-      by diff (51 topics, 24 /fmu/out, identical), the unmodified Lane A controller flies
+      SIM-03, SIM-09, SIM-10 and SIM-04 have run it. Superseded on 2026-08-01/02: the simulator
+      renders, PX4 links over the MAVLink SITL API, /fmu/* parity is proved
+      by diff (51 topics, 24 /fmu/out, identical), the unmodified controller flies
       4/4 waypoints, and the perception graph publishes 19 topics at 31 Hz RGB/depth,
       17 Hz GPU-LiDAR and 311 Hz distinct IMU. The CARLA instance that held 0.0.0.0:41451
-      is also gone - the port is free and C-03 used it.
+      is also gone - the port is free and SIM-03 used it.
     STILL_unproven: >-
-      Lockstep is CONFIRMED DEAD CODE, so no Lane C timing number is deterministic - never
-      quote a Lane C RTF or latency as such. Frames are NWU, not ENU, and nothing converts
+      Lockstep is CONFIRMED DEAD CODE, so no timing number here is deterministic - never
+      quote an RTF or latency as such. Frames are NWU, not ENU, and nothing converts
       them yet. The IMU is a polled snapshot with ~15% duplicate timestamps even at a
       correct poll rate. And the simulator SEGFAULTS after ~57 minutes of continuous running
       ("Array index out of bounds: 18823 into an array of size 0"), which is uncharacterised
@@ -639,7 +645,7 @@ lane_c:
       environment this project already runs — "The current recommended and tested
       environment is Ubuntu 24.04 LTS" (install_linux.md) and "The following was tested
       with ROS2 Jazzy" (docs/ros2.md, changed 2026-07-10 in commit d1ceeae1) — and it
-      additionally carries two fixes C-04 would otherwise have hit: "Fixed incorrect
+      additionally carries two fixes SIM-04 would otherwise have hit: "Fixed incorrect
       TF-coordinate system for cameras for ROS2 node" and "Fixed incorrect TF hierarchy
       order to world->odom->vehicle->sensors". Staying on 5.5 meant owning a backport
       forever on a branch upstream had already abandoned, plus the open segmentation
@@ -675,8 +681,8 @@ lane_c:
           the VLM work — treat as a candidate blocker, verify early.
         - >-
           Cosys-Lab/Cosys-AirSim#129 (2026-03-10): PX4 SITL lockstep desync against
-          5.5-v3.3 with PX4 v1.16.0 — the exact PX4 line Lane A pins — with ~1.2 s stale
-          timestamp symptoms. Directly relevant to C-03.
+          5.5-v3.3 with PX4 v1.16.0 — the exact PX4 line pinned here — with ~1.2 s stale
+          timestamp symptoms. Directly relevant to SIM-03.
         - >-
           Blocks.uproject at this tag still declares EngineAssociation 5.4, so opening it
           with UE5.5 triggers a convert-in-place prompt. A headless/scripted setup must
@@ -695,7 +701,7 @@ lane_c:
       carries: >-
         the Jazzy header fix (83d1b81c), plus "Fixed incorrect TF-coordinate system for
         cameras for ROS2 node" and "Fixed incorrect TF hierarchy order to
-        world->odom->vehicle->sensors" — both of which C-04 would otherwise hit.
+        world->odom->vehicle->sensors" — both of which SIM-04 would otherwise hit.
         Also adds --ue-root / UE_ROOT support to build.sh, which the 5.5 line lacks
         entirely and which is the documented way to avoid an AirLib/UE toolchain ABI
         mismatch at link time.
@@ -709,7 +715,7 @@ lane_c:
       DECIDED 2026-07-31 — move the pin from UE5.5 to UE5.8 and track tag 5.8-v3.4.1.
       Owner decision, taken on the research recorded above plus the measured cv_bridge
       result. STILL GATED on Cesium-for-Unreal UE5.8 support (see
-      BLOCKING_GATE_BEFORE_THIS_PIN_HARDENS). Detail: docs/lane-c/todo.md C-01.
+      BLOCKING_GATE_BEFORE_THIS_PIN_HARDENS). Detail: docs/todo.md SIM-01.
     note: >-
       PIN A SHA, NEVER A BRANCH — and here that is not a stylistic preference. There is no
       `5.5` branch in the repo at all (only a stale `5.5dev` last touched 2026-01-14), and
@@ -726,7 +732,7 @@ lane_c:
       with ROS2 Jazzy" (docs/ros2.md, changed 2026-07-10 in commit d1ceeae1 from "tested on
       Ubuntu 22.04 with ROS2 Iron"), and install_linux.md: "The current recommended and
       tested environment is Ubuntu 24.04 LTS".
-    status: LOCKED          # BUILT on Jazzy 2026-08-01 — C-06
+    status: LOCKED          # BUILT on Jazzy 2026-08-01 — SIM-06
     build_result: >-
       BUILDS. colcon build --symlink-install on ROS 2 Jazzy / Ubuntu 24.04 / g++ 13.3.0:
       exit 0 in 1 min 21 s, both packages (airsim_interfaces, airsim_ros_pkgs), 0 errors,
@@ -739,7 +745,7 @@ lane_c:
       and speaks the real AirSim RPC protocol.
       THE STAY-ON-JAZZY DECISION IS NOW EVIDENCE, NOT REASONING.
       Still unproven downstream: it has never run against an actual Cosys-AirSim server,
-      which needs C-02's engine image.
+      which needs SIM-02's engine image.
     extra_apt_deps_needed: >-
       ros-jazzy-mavros-msgs and ros-jazzy-geographic-msgs were absent and had to be
       installed; pcl-conversions, tf2-sensor-msgs, image-transport, joy, cv-bridge,
@@ -757,7 +763,7 @@ lane_c:
       MavLinkTest --help smoke check — it NEVER invokes colcon and never builds ros2/.
       "Tested with ROS2 Jazzy" is a maintainer assertion with no automated signal behind it,
       and zero issues mention Jazzy, which plausibly means very few people have exercised
-      the path. C-06 still runs first. Note also that upstream's own docker/build_ros2.sh
+      the path. SIM-06 still runs first. Note also that upstream's own docker/build_ros2.sh
       hardcodes ROS_DISTRO=humble and tools/Dockerfile-ROS2 is FROM ros:foxy-ros-base —
       both stale. Do not copy them; write our own Jazzy/24.04 image.
     frames_WARNING: >-
@@ -768,11 +774,11 @@ lane_c:
       convert_tf_msg_to_ros() instead. Anything written against REP-103 / px4_ros_com's ENU
       assumption will be YAW-ROTATED 90 DEGREES. Verify empirically against a known heading
       before trusting a single pose. This is precisely the silent-frame-error class
-      lane-a/conventions.md exists to prevent.
+      conventions.md exists to prevent.
     clock_trap: >-
       publish_clock publishes to "~/clock", which resolves to /airsim_node/clock on a node
       named airsim_node — NOT /clock — and it defaults to False in the launch file. Any
-      use_sim_time consumer will silently block forever waiting for /clock. Lane A already
+      use_sim_time consumer will silently block forever waiting for /clock. The Gazebo baseline already
       paid for this exact failure shape in P1-03a: use_sim_time with no /clock publisher
       freezes every timer and looks like a deadlocked controller. Remap it.
     imu_trap: >-
@@ -780,7 +786,7 @@ lane_c:
       over RPC once per drone_state_timer tick (default 0.01 s) and publishes only the
       latest sample; intermediate samples are dropped and spacing is set by RPC/executor
       jitter. cuVSLAM and any preintegrating VIO expect a dense evenly-spaced stream.
-      Measure the actual arrival distribution before trusting sim VIO (C-04 already
+      Measure the actual arrival distribution before trusting sim VIO (SIM-04 already
       requires this measurement — this is why).
     other_known_papercuts: >-
       camera_info header.frame_id is "<camera>_optical" while the image and static TF use
@@ -788,19 +794,19 @@ lane_c:
       cannot resolve it — trivial patch, but it bites on first integration. IMU messages
       ship with zero covariances ("// todo covariances").
   px4:
-    tree: REUSE lane_a v1.16.0 — PROVISIONAL, verify in C-03
+    tree: the autopilot section's v1.16.0 — CONFIRMED by SIM-03, one tree for the project
     transport: MAVLink Simulator API (TCP 4560), external-autopilot mode + lockstep
     status: TODO-verify
     note: >-
       If Cosys-AirSim works against v1.16.0, the project drops from TWO PX4 trees to ONE —
       collapsing the development plan's dominant architectural risk. Do not assume it:
       AirSim-lineage sims have historically broken across PX4 releases (the documented
-      1.10-vs-1.11 breakage), and Project AirSim pins v1.12.3 verbatim. Lane B's v1.14.3
-      pin is RETAINED below regardless, since it belongs to Pegasus, not to this lane.
+      1.10-vs-1.11 breakage), and Project AirSim pins v1.12.3 verbatim. The v1.14.3 pin is
+      RETAINED under `retired:` regardless, since it belongs to Pegasus.
     lockstep_settings: >-
       LockStep:true, UseTcp:true, SteppableClock, plus the PressureFactorSigma barometer
       tweak for fast GPS lock. Slow UE frames trigger PX4 SITL timeouts — this is the
-      documented fragility, and it is the same failure class Lane A's RTF floor exists to
+      documented fragility, and it is the same failure class the RTF floor exists to
       catch. Assert an aggregate real-time metric here too; do NOT assert on an
       instantaneous field (see couplings.rtf-floor for why that was already wrong once).
     wire_protocol_unchanged_v1_12_to_v1_16: >-
@@ -816,7 +822,7 @@ lane_c:
       (1) PX4Scripts/run_airsim_sitl.sh exports PX4_SIM_MODEL=iris, which PX4 has rejected
           since the v1.14 airframe rename to 10016_none_iris — rcS exits 1 with "Unknown
           model". Upstream's multi-vehicle docs also reference Tools/sitl_multiple_run.sh,
-          which 404s at v1.16.0. Lane C will need its own launch scripts, which suits the
+          which 404s at v1.16.0. This stack needs its own launch scripts, which suits the
           bringup package we already have.
       (2) LOCKSTEP IS DEAD CODE — **CONFIRMED 2026-08-01**, by source AND at runtime.
           Was filed here as "may be"; it is not a maybe. In the vendored tree at a552dd6c,
@@ -836,11 +842,11 @@ lane_c:
           genuinely never fires. Measured sim clock = 10.960 s over 11.922 s wall, RTF
           0.9193, i.e. smoothly tracking wall time rather than being driven step-by-step.
           CONSEQUENCE: `"LockStep": true` in sim/ue5/settings.json is SILENTLY INEFFECTIVE.
-          Every timing number this project takes from Lane C is a free-running number until
-          this is patched. Do not quote an RTF or a latency from Lane C as deterministic.
+          Every timing number this project takes is a free-running number until this is
+          patched. Do not quote an RTF or a latency as deterministic.
           The fix is small — stop resetState() clobbering config state, e.g. restore from
           connection_info_ rather than forcing false — but it lands in vendored C++ and so
-          needs a recorded patch plus a plugin rebuild. Tracked as C-09.
+          needs a recorded patch plus a plugin rebuild. Tracked as SIM-09.
       (3) The "disabling lockstep" docs point at boards/px4/sitl/default.cmake, which 404s
           in v1.16.0 — it is sitl.cmake now.
     known_defect_upstream: >-
@@ -853,22 +859,24 @@ lane_c:
       PX4 classifies AirSim as COMMUNITY-SUPPORTED and explicitly disclaims that it "may or
       may not work with current versions of PX4". No upstream regression test protects this
       integration; a future PX4 point release can break it silently. This is an argument
-      for pinning an exact PX4 tag — which we already do — and for keeping Lane A, which
+      for pinning an exact PX4 tag — which we already do — and it was an argument for keeping
+      the Gazebo baseline, which
       does have first-class PX4 support, as the baseline.
     PARITY_PROVED: >-
-      2026-08-01 (C-03). `ros2 topic list | grep ^/fmu/` diffs IDENTICAL between Lane A and
-      Lane C: 51 topics each, 24 /fmu/out each, byte-identical names. Evidence kept at
-      out/lane-c/fmu-topics-lane-{a,c}.txt. The MAVLink SITL link came up
+      2026-08-01 (SIM-03). `ros2 topic list | grep ^/fmu/` diffed IDENTICAL against the
+      Gazebo baseline: 51 topics each, 24 /fmu/out each, byte-identical names. Evidence kept
+      as the topic-list diff captured that day. The MAVLink link came up
       ("Simulator connected on TCP port 4560"), PX4's lockstep_scheduler initialised, and
-      uxrce_dds_client published the same topic set Lane A produces. The sim-to-real claim
-      is now demonstrated for Lane C rather than argued.
+      uxrce_dds_client published the same topic set real hardware produces. The sim-to-real
+      claim is demonstrated rather than argued.
       CAPTURED SEQUENTIALLY, of necessity — see the port collision below.
-    PORT_COLLISION_LANE_A_VS_LANE_C: >-
-      Lane A publishes 4560, 8888, 14540, 14550 and 18570 on the host; Lane C needs the same
-      ones. `Bind for 127.0.0.1:4560 failed: port is already allocated`. THE TWO LANES CANNOT
+    PORT_COLLISION_HISTORICAL: >-
+      RESOLVED BY THE PIVOT — recorded because the reasoning generalises. The Gazebo stack
+      published 4560, 8888, 14540, 14550 and 18570 on the host and the simulator needs the same
+      ones. `Bind for 127.0.0.1:4560 failed: port is already allocated`. THE TWO STACKS COULD NOT
       RUN SIMULTANEOUSLY with published host ports on this box, so the parity diff had to be
-      taken one lane at a time. This bites C-07, whose purpose is comparing a Lane C run
-      against a Lane A baseline. Fix with distinct ROS_DOMAIN_IDs plus non-overlapping
+      taken one stack at a time. Only one stack exists now, so nothing collides — but any
+      second simulator instance would. Fix with distinct ROS_DOMAIN_IDs plus non-overlapping
       published ports, or accept sequential comparison and document it.
     still_unproved_after_C03: >-
       NOTHING HAS FLOWN. No arming, no takeoff, no waypoints, no motion. /fmu/out/vehicle_status
@@ -881,8 +889,8 @@ lane_c:
       REQUIRED, and it is the entire sim-to-real claim: PX4 SITL must ALSO run
       uxrce_dds_client so the ROS 2 graph sees the SAME /fmu/out/* topics the real
       Pixhawk 6C produces. MAVLink drives the sim physics handshake; XRCE-DDS drives the
-      autonomy code. Acceptance for C-03 is identical topic names to Lane A with only the
-      transport swapped — verify by diffing `ros2 topic list` against a Lane A run.
+      autonomy code. Acceptance for SIM-03 is identical topic names to real hardware with only
+      the transport swapped — verify by diffing `ros2 topic list`, not by inspection.
     parity_scope_clarified_2026_07_31: >-
       A repo-wide grep of Cosys-AirSim finds ZERO references to uxrce / micro-XRCE /
       px4_msgs / /fmu/out — all 54 PX4 hits are MAVLink/MavLinkCom with lockstep and
@@ -891,7 +899,7 @@ lane_c:
       MAVLink. What the grep does establish is the correct DIVISION:
         - FLIGHT state / commands -> PX4 -> /fmu/out/*, /fmu/in/*  (parity expected here)
         - SENSOR imagery / LiDAR  -> Cosys-AirSim -> /airsim_node/<vehicle>/* with
-          airsim_interfaces/* custom types  (NO Lane A equivalent — this is new surface)
+          airsim_interfaces/* custom types  (no PX4 equivalent — this is new surface)
       EMPIRICALLY CONFIRMED, not just architectural: PX4's SITL rcS starts
       uxrce_dds_client UNCONDITIONALLY regardless of which simulator drives it (true in
       v1.14.3, v1.15.4 and v1.16.0 alike), and Cosys-Lab/Cosys-AirSim#129 shows a third
@@ -899,7 +907,7 @@ lane_c:
       AirSim drives PX4 v1.16.0. So the /fmu/* half of the parity claim is real. What that
       issue ALSO shows is the clock caveat recorded under known_defect_upstream.
       So "only the transport is swapped" holds for the CONTROLLER and must be proved in
-      C-03; it was never true of the perception topics, which Lane A does not have at all.
+      SIM-03; it was never true of the perception topics, which PX4 does not produce at all.
       One real sim-to-real gap to record now: AirSim's odom_local is
       kinematics_estimated — the physics engine's GROUND TRUTH, not PX4's EKF2 output.
       Tuning or training against noiseless odometry is a gap that will not surface until
@@ -918,7 +926,7 @@ lane_c:
       download returning HTTP 200. Cesium's historical lag behind an Unreal release is
       5-27 days; for 5.8 it was 14.
     THE_FALLBACK_HAS_INVERTED: >-
-      IMPORTANT — this reverses the trade recorded in docs/lane-c/todo.md when the UE5.8
+      IMPORTANT — this reverses the trade recorded in docs/todo.md when the UE5.8
       decision was taken. Cesium v2.29.0 states "Removed support for Unreal Engine 5.5.
       Unreal Engine 5.6 or later is now required", and the README already lists v2.28.0 as
       the TERMINAL release for UE5.5. So falling back to UE5.5 would now mean: an
@@ -935,8 +943,8 @@ lane_c:
       CORRECTED 2026-07-31: the FSD-vs-PhysX exclusion recorded here previously is
       OMNIVERSE-SPECIFIC (Cesium for Omniverse + Isaac's Fabric Scene Delegate) and does
       NOT automatically apply to Cesium for UNREAL, which is a different plugin. It is
-      retained under lane_b where it belongs. Whether UE5 gives georeferenced terrain WITH
-      physics is an open Lane C question — verify, do not inherit the Omniverse answer.
+      retained under `retired:` where it belongs. Whether UE5 gives georeferenced terrain WITH
+      physics is still open — verify, do not inherit the Omniverse answer.
     known_pitfalls: >-
       (1) Google Photorealistic 3D Tiles render black/unloaded at drone altitude
       (10-500 ft AGL) — documented in both the Unreal and Omniverse plugins. Fallback for
@@ -1012,7 +1020,7 @@ components:
 # ---------------------------------------------------------------------------
 hardware:
   autopilot: Holybro Pixhawk 6C
-  firmware: PX4 v1.16.0    # same tree as lane_a
+  firmware: PX4 v1.16.0    # the same tree the simulator flies
   companion: Seeed reComputer J4012 (Jetson Orin NX 16 GB)
   airframe: Holybro X500 V2 ARF
   depth_camera: RealSense D435-class
@@ -1032,35 +1040,39 @@ couplings:
     assert: px4_msgs branch == release/1.16 AND /fmu/out/* topics actually populate
     why: A mismatch does not error; it silently produces empty topics.
     severity: high
-  - id: two-px4-trees
-    assert: lane_a PX4 == v1.16.0 AND lane_b PX4 == v1.14.3, as separate checkouts
-    why: Pegasus v5.1.0 was tested against v1.14.3; Lane A and real hardware need v1.16.x.
+  - id: one-px4-tree
+    assert: exactly ONE PX4 checkout, v1.16.0, shared by the simulator and the real Pixhawk 6C
+    why: >-
+      RESOLVED, and this is the single biggest risk the project retired. The development
+      plan's dominant architectural hazard was running TWO PX4 trees — v1.16.0 for SITL and
+      real hardware, v1.14.3 because Pegasus v5.1.0 was only tested against it. SIM-03
+      showed Cosys-AirSim drives v1.16.0 over the Simulator MAVLink API, and Pegasus went
+      with Isaac Sim, so the second tree has no consumer. One tree means the code that flies
+      in simulation is compiled from the same source as the code on the aircraft. The
+      v1.14.3 pin is kept under `retired:` — it belongs to Pegasus and an Isaac path would
+      need it again.
     severity: high
-    status_2026_07_31: >-
-      IN QUESTION, and that is good news. Lane B is deferred, so its v1.14.3 tree is not
-      currently built. If C-03 shows Cosys-AirSim drives PX4 v1.16.0 over the MAVLink SITL
-      API, the project runs ONE tree and this coupling collapses to a single assertion.
-      Do NOT delete the v1.14.3 pin on that basis — it belongs to Pegasus, and Lane B
-      reopens unchanged if the host is rebased to an R580 driver.
   - id: python-split
-    assert: Isaac Sim runs Python 3.11; application ROS 2 nodes run Python 3.12; rclpy never shared
+    assert: >-
+      RETIRED with Isaac Sim. Recorded because it would bind again the moment Isaac returns:
+      Isaac runs Python 3.11, application ROS 2 nodes run 3.12, and rclpy is never shared.
     why: C-extension ABI mismatch -> ModuleNotFoundError rclpy._rclpy_pybind11.
-    severity: high
+    severity: retired
   - id: pegasus-isaac-pair
-    assert: Pegasus v5.1.0 pairs with Isaac Sim 5.1.0 exactly
+    assert: RETIRED with Isaac Sim. Pegasus v5.1.0 pairs with Isaac Sim 5.1.0 exactly.
     why: Explicitly not backward-compatible across releases.
-    severity: high
+    severity: retired
   - id: isaac-driver
     assert: the installed NVIDIA driver actually launches Isaac Sim (empirical, not version-compare)
     why: Isaac breaks on drivers both too old AND too new; 610.43.03 is unvalidated.
-    severity: blocker-for-lane-b
+    severity: blocker-for-isaac
   - id: cesium-physx-exclusive
     assert: no OMNIVERSE scene enables Cesium/FSD and PhysX simultaneously
     why: Mutually exclusive; physics is silently disabled.
     severity: medium
     scope_correction_2026_07_31: >-
       This is an ISAAC/OMNIVERSE coupling (Cesium for Omniverse + Fabric Scene Delegate).
-      It was previously written as if it also bound Lane C. Cesium for UNREAL is a
+      It was previously written as if it also bound the Unreal stack. Cesium for UNREAL is a
       different plugin and this exclusion does not automatically transfer — treat the UE5
       case as UNVERIFIED rather than as either broken or fine.
   - id: single-ros2-distro
@@ -1069,10 +1081,10 @@ couplings:
       Decided 2026-07-31 against 04_ue5_stack_architecture.md's Humble recommendation.
       A second distro is not a small addition — it forks the base image, the px4_msgs
       branch match, the perception packages and CI. The one sanctioned exception is the
-      documented lane_c.ros2_distro_fallback sidecar, and using it requires recording the
+      documented renderer.ros2_distro_fallback sidecar, and using it requires recording the
       build failure that justified it.
     severity: high
-  - id: lane-c-sha-not-branch
+  - id: sha-not-branch
     assert: cosys_airsim is pinned by SHA, never by branch or tag-following-branch
     why: >-
       This project has already been burned twice by branch pins — eProsima deleted the
@@ -1086,7 +1098,7 @@ couplings:
       whatever answers on the AirSim RPC port is actually Cosys-AirSim — check the reported
       server version, do not trust "Connected!"
     why: >-
-      Found the hard way 2026-08-01 (C-06). A CARLA UE4 instance runs on this host bound to
+      Found the hard way 2026-08-01 (SIM-06). A CARLA UE4 instance runs on this host bound to
       0.0.0.0:41451, the exact port Cosys-AirSim uses. The ROS 2 wrapper connected to it,
       negotiated a handshake, reported "API Server Ver:1 (Min Req:4)" and failed — but the
       log line before that said "Connected!", which is exactly what a working setup looks
@@ -1094,15 +1106,16 @@ couplings:
       nightmare, and it is also bound to 0.0.0.0 rather than loopback, which is the same
       exposure class D-02 fixed for the MAVLink ports.
     severity: medium
-  - id: lane-c-topic-parity
+  - id: topic-parity
     assert: >-
-      Lane C's /fmu/out/* topic names are IDENTICAL to Lane A's, produced by PX4's own
-      uxrce_dds_client — verified by diffing `ros2 topic list`, not by inspection
+      the simulator's /fmu/out/* topic names are IDENTICAL to what real hardware produces,
+      because they come from PX4's own uxrce_dds_client — verified by diffing
+      `ros2 topic list`, not by inspection
     why: >-
-      The sim-to-real claim is "only the transport is swapped". If Lane C's autonomy code
-      subscribes to /airsim/* poses instead of /fmu/out/*, the code that flies in sim is
-      not the code that flies on the Pixhawk 6C, and the divergence will not surface until
-      Phase 4. AirSim's MAVLink lockstep and PX4's XRCE-DDS client coexist by design:
+      The sim-to-real claim is "only the transport is swapped". If autonomy code subscribes
+      to /airsim/* poses instead of /fmu/out/*, the code that flies in simulation is not the
+      code that flies on the Pixhawk 6C, and the divergence would not surface until the
+      first real flight. AirSim's MAVLink link and PX4's XRCE-DDS client coexist by design:
       MAVLink drives sim physics, XRCE-DDS drives autonomy.
     severity: high
   - id: rtf-floor
@@ -1146,22 +1159,44 @@ couplings:
 # reproducible part; D-05 (CI builds the images) is what turns these into published digests.
 # ---------------------------------------------------------------------------------------
 images:
-  lane_a:
-    tag: drone-sim/lane-a:v1.16.0
-    dockerfile: docker/lane-a.Dockerfile
-    entrypoint: docker/lane-a-entrypoint.sh
+  px4:
+    tag: drone-sim/px4:v1.16.0
+    dockerfile: docker/px4.Dockerfile
+    entrypoint: docker/px4-entrypoint.sh
     base: ubuntu:24.04
     local_image_id: sha256:f2b915c68b7b8a29ef43ebc0f4349ab56c97c574c413400a2d9707aee318be19
-    size_approx: 11.6 GB
-    role: the shippable Lane A stack — PX4, Gazebo, ROS 2, XRCE agent, px4_msgs
+    size_approx: 11.0 GB   # 11.6 GB before Gazebo was stripped
+    role: >-
+      PX4 SITL, ROS 2 Jazzy, the uXRCE-DDS agent and px4_msgs. Runs the sim-px4 and sim-xrce
+      containers, and is the BASE of the qgc, ros2 and video images — retagging it is never a
+      one-file change. Gazebo was removed 2026-08-04 (--no-sim-tools): 11.6 GB -> 11.0 GB.
     asserts: every pin above is verified against its recorded SHA at build time
     status: LOCKED
+
+  unreal:
+    tag: drone-sim/unreal:ue5.8
+    dockerfile: docker/unreal.Dockerfile
+    base: ghcr.io/epicgames/unreal-engine:dev-slim-5.8.0
+    size_approx: 57.5 GB
+    role: >-
+      Unreal Engine 5.8 plus the build environment for the Cosys-AirSim plugin. Runs the
+      sim-unreal container -- the renderer, and the donor of the network and IPC namespaces
+      every other container joins.
+    credential_gate: >-
+      The base image is Epic's and anonymous pulls are HTTP 403. Building needs EpicGames
+      GitHub org membership plus a PAT with read:packages. This is the one documented
+      exception to "reproducible from the repo alone", named rather than hidden.
+    note: >-
+      ADDED TO THIS SECTION 2026-08-04. It had been built and flown for days without ever
+      being recorded here -- found by scripts/check_image_refs.py on its first run, which is
+      exactly the gap that check exists to close.
+    status: observed
 
   qgc:
     tag: drone-sim/qgc:v1.16.0
     dockerfile: docker/qgc.Dockerfile
     entrypoint: docker/qgc-entrypoint.sh
-    base: drone-sim/lane-a:v1.16.0
+    base: drone-sim/px4:v1.16.0
     local_image_id: sha256:c615b2e6159e14753d8f952519f4c241031aef7292a8992b876e1b706b3475d4
     role: >-
       QGroundControl headless on Xvfb — the ONLY component permitted to speak MAVLink over
@@ -1178,23 +1213,28 @@ images:
   ros2:
     tag: drone-sim/ros2:v1.16.0
     dockerfile: docker/ros2.Dockerfile
-    base: drone-sim/lane-a:v1.16.0
-    adds: ros-jazzy-ros-gz-bridge (the /clock bridge, P1-03a)
+    base: drone-sim/px4:v1.16.0
+    adds: ros-jazzy-geographic-msgs, ros-jazzy-mavros-msgs, python3-msgpack, patch,
+      docker/ros-profile.sh at /etc/profile.d/10-ros.sh
     role: >-
-      The ROS 2 / companion-computer image. SEPARATE FROM lane-a ON PURPOSE:
-      ros-gz-bridge pulls gz_transport_vendor, whose libgz-transport13 shadows the system
-      Harmonic library once ROS is sourced and BREAKS the gz CLI — which stopped px4-sitl
-      from launching its own simulator. Whatever runs Gazebo stays on plain lane-a.
-    do_not: add anything here that needs to launch `gz`
+      The ROS 2 / companion-computer image, and where the Cosys-AirSim wrapper is built.
+      Separate from the base by ROLE, and it is the same split the hardware has: PX4 on the
+      flight controller, the agent and every ROS 2 node on the companion computer.
+      ros-gz-bridge was REMOVED 2026-08-04 — /clock now comes from the simulator via
+      perception.launch.py, and with the bridge went gz_transport_vendor, whose
+      libgz-transport13 shadowed any system Gazebo the moment ROS was sourced.
     status: LOCKED
 
-  lane_a_video:
-    tag: drone-sim/lane-a-video:v1.16.0
-    dockerfile: docker/demo/lane-a-video.Dockerfile
-    base: drone-sim/lane-a:v1.16.0
+  video:
+    tag: drone-sim/video:v1.16.0
+    dockerfile: docker/video.Dockerfile
+    base: drone-sim/px4:v1.16.0
     local_image_id: sha256:ca4f4aa5198ebdfc8c17537240af0a262526531399ca09408e2cd6a9983029f2
-    role: recording only — the `recording` service (D-02c). Not needed by CI or by flight.
-    adds: ffmpeg, xterm, xdotool, openbox, imagemagick, mesa-utils
+    role: >-
+      Re-encoding renders to phone-playable H.264 (scripts/encode_h264.sh). Not needed by CI
+      or by flight. It no longer carries Xvfb/xterm/xdotool/openbox — those served the
+      retired Gazebo demo's GUI panes.
+    adds: ffmpeg (asserted to carry libx264)
     status: observed
 
   airsim_client:
@@ -1205,8 +1245,8 @@ images:
     size_approx: 0.6 GB
     role: >-
       AirSim RPC client for measurement — talks to a running simulator and pulls images.
-      Used by the C-11/C-12 capture harness (scripts/capture_*.py, noise_experiment.py,
-      measure_lane_c_rates.sh). Not needed by CI or by flight.
+      Used by the SIM-11/SIM-12 capture harness (scripts/capture_*.py, noise_experiment.py,
+      measure_sensor_rates.sh). Not needed by CI or by flight.
     note: >-
       The Cosys-AirSim Python client is deliberately NOT baked in; it is mounted from
       vendor/Cosys-AirSim/PythonClient at run time so the client always matches the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Combine the chase and onboard cameras into one video, with telemetry.          (C-16)
+"""Combine the chase and onboard cameras into one video, with telemetry.          (SIM-16)
 
 Runs inside drone-sim/ros2 with the run directory mounted.
 
@@ -131,7 +131,7 @@ def main():
             cv2.putText(canvas, s, (24, h + 34 + k * 30), cv2.FONT_HERSHEY_SIMPLEX,
                         0.68 if k == 0 else 0.58,
                         (215, 240, 215) if k == 0 else (140, 220, 255), 1, cv2.LINE_AA)
-        cv2.putText(canvas, "Lane C - SITL - commanded over ROS 2", (w - 470, h + BAND - 16),
+        cv2.putText(canvas, "SITL - commanded over ROS 2", (w - 470, h + BAND - 16),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1, cv2.LINE_AA)
 
         if writer is None:

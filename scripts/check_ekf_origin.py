@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Assert PX4's EKF local origin agrees with its own GPS before a run counts.
 
-WHY THIS EXISTS (C-10, from C-09):
+WHY THIS EXISTS (SIM-10, from SIM-09):
 
 PX4 sets its EKF local origin ONCE. If it initialises before the simulated vehicle has
 settled at its final altitude, `ref_alt` is frozen at the wrong height and every altitude
 PX4 reports is offset by the difference -- for the whole session, with no warning.
 
-That is not hypothetical. It cost a full debugging session in C-09:
+That is not hypothetical. It cost a full debugging session in SIM-09:
 
     ref_alt          88.113 m     <- origin, set too early
     altitude_msl_m  123.280 m     <- GPS, correct all along
@@ -16,12 +16,12 @@ That is not hypothetical. It cost a full debugging session in C-09:
 The controller targets an ABSOLUTE altitude, so a vehicle that reports +35 m while grounded
 gets commanded to descend into the ground. It never moves, PX4 auto-disarms via
 COM_DISARM_PRFLT, and the controller times out. Every symptom points at the controller, and
-the controller is fine -- it scores 10/10 in Lane A unchanged.
+the controller is fine -- the identical node scored 10/10 on the retired Gazebo baseline.
 
 THE POINT: this failure is silent, order-dependent, and mimics a control bug. A run against a
 mis-initialised origin must be VOID -- not scored as a failure -- because scoring it would
 blame the flight code for a bring-up defect and would poison a success-rate gate. Same
-distinction P1-08 draws for Lane A: a void run is not a failed run.
+distinction the retired Gazebo gate drew: a void run is not a failed run.
 
 Exit codes:
     0  origin sane        -> the run may proceed and count
@@ -97,7 +97,7 @@ def _echo_field(topic: str, field: str, timeout_s: int) -> float | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Assert PX4's EKF origin agrees with GPS (C-10). "
+        description="Assert PX4's EKF origin agrees with GPS (SIM-10). "
                     "A mis-initialised origin makes a run VOID, not failed.")
     ap.add_argument("--tolerance", type=float, default=DEFAULT_TOLERANCE_M,
                     help="metres of allowed disagreement (default: %(default)s)")

@@ -14,7 +14,7 @@ setup(
     zip_safe=True,
     maintainer="Aldwin Hermanudin",
     maintainer_email="aldwinakbar@gmail.com",
-    description="PX4 offboard setpoint node for Lane A.",
+    description="PX4 offboard setpoint node.",
     license="Apache-2.0",
     entry_points={
         "console_scripts": [

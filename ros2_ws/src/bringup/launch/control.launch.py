@@ -1,10 +1,10 @@
 """The offboard controller — the part that is IDENTICAL in sim and on the aircraft.
 
-This is the shared include. `sim.launch.py` adds the simulator-only pieces around it
+This is the shared include. `perception.launch.py` brings up the simulator-side pieces beside it
 (currently the `/clock` bridge); a future `real.launch.py` will add the hardware transport
 around the same node with nothing else changed.
 
-That split is the point. `docs/lane-a/conventions.md` freezes the graph so the same nodes
+That split is the point. `docs/conventions.md` freezes the graph so the same nodes
 and topics reach the Pixhawk unchanged — if simulator-only machinery leaked in here, the
 "only the transport is swapped" claim would quietly stop being true.
 """

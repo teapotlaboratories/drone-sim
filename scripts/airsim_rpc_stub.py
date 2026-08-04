@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """A minimal msgpack-RPC stub that impersonates a Cosys-AirSim server.
 
-WHY THIS EXISTS. Lane C's ROS 2 wrapper builds (`C-06`) but cannot be exercised without a
+WHY THIS EXISTS. The Cosys-AirSim ROS 2 wrapper builds (`SIM-06`) but cannot be exercised without a
 running Cosys-AirSim server, which needs a 24 GB engine image and a multi-hour UE build
-(`C-02`). Three questions do not actually need the engine, because they are answered
+(`SIM-02`). Three questions do not actually need the engine, because they are answered
 entirely on the WRAPPER side:
 
-  1. What topics does the wrapper really publish?  (`C-04` plans against this)
+  1. What topics does the wrapper really publish?  (`SIM-04` plans against this)
   2. Does `/clock` land on `/airsim_node/clock` instead of `/clock`?
   3. Are poses NWU or ENU? Upstream's docs claim "the ROS standard" while the code negates
      only y and z. Feeding a KNOWN pose in and reading the output settles it.
@@ -14,7 +14,7 @@ entirely on the WRAPPER side:
 WHAT THIS IS NOT. It is a test fixture, not a simulator. Every number it returns is
 fabricated by this file. It proves how the wrapper TRANSFORMS input, never how AirSim
 behaves. Do not cite it as evidence about the simulator, and do not let it stand in for
-`C-02`.
+`SIM-02`.
 
 The AirSim client speaks standard msgpack-RPC over TCP (rpclib):
     request  [0, msgid, method, params]

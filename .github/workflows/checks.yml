@@ -1,18 +1,17 @@
-# Fast checks that run on a GitHub-hosted runner (P1-07, tier 1).
+# Fast checks that run on a GitHub-hosted runner (tier 1).
 #
-# WHAT THIS DELIBERATELY DOES NOT DO: run the SITL flight gate.
+# WHAT THIS DELIBERATELY DOES NOT DO: run the flight gate.
 #
 # That is not an oversight, it is arithmetic. A hosted runner gives 2 vCPU, 7 GB RAM and
-# about 14 GB of free disk. The Lane A image is 11.6 GB and takes 20-40 minutes to build,
-# so it neither fits comfortably nor builds inside the 10-minute budget the plan sets. And
-# the gate asserts an aggregate real-time factor of 0.95 or better — on 2 vCPU, PX4 and
-# Gazebo would miss that on the hardware, not on the code, turning a physics gate into a
-# runner-capacity gate.
+# about 14 GB of free disk. The PX4 image alone is 11 GB and takes 20-40 minutes to build,
+# and the simulator needs an Unreal Engine image of 57 GB plus a GPU. There is no hosted
+# runner on which this stack can be brought up at all.
 #
 # So this job protects everything that can be checked WITHOUT a simulator, in about a
-# minute, on every push. The flight gate needs a self-hosted runner and is tier 2 —
-# see P1-07 in docs/lane-a/todo.md. Until that exists, `scripts/run_gate.py` is run by
-# hand and CI does not pretend otherwise.
+# minute, on every push. The flight gate needs a self-hosted runner and is tier 2 — and a
+# self-hosted runner on a PUBLIC repo would let any fork's pull request execute code on
+# the workstation. Until that is resolved, `scripts/run_gate.py` is run by hand and CI
+# does not pretend otherwise.
 name: checks
 
 on:
@@ -75,14 +74,13 @@ jobs:
           done < <(git ls-files -z '*.py')
           exit $fail
 
-      - name: Compose file is valid
-        # `compose config` resolves interpolation, which is how the inert FOLLOW_* knobs
-        # were caught before they shipped.
-        # COMPOSE_PROFILES is load-bearing: `config` only resolves cross-references for
-        # services in ACTIVE profiles, so without it the `verify` (test) and `recording`
-        # (record) services - including the acceptance gate - are never validated. A
-        # depends_on pointing at a nonexistent service passed this step until 2026-08-01.
-        run: COMPOSE_PROFILES=test,record docker compose -f docker/compose.yaml config --quiet
+      - name: Dockerfiles reference images this repo actually builds
+        # Replaces the old `docker compose config` step, which went with compose.yaml when
+        # the Gazebo stack was retired. The failure it now guards is the same shape: an
+        # image tag renamed in one file and not another. That is silent — the build or the
+        # bring-up simply cannot find the image — and it is exactly what the rename to
+        # drone-sim/px4 and drone-sim/unreal could have introduced.
+        run: python3 scripts/check_image_refs.py
 
       - name: .repos agrees with versions.lock
         # .repos says it itself: versions.lock is the authority, .repos is the mechanism.
@@ -120,7 +118,7 @@ jobs:
 
       - name: Every versions.lock CONFLICT is documented
         # NOT "there are no conflicts". There is a real, accepted one — the NVIDIA driver
-        # against Isaac Sim's validated version, which is why Lane B is deferred. Failing
+        # against Isaac Sim's validated version, which is why Isaac Sim is retired. Failing
         # on a known, deliberate state would make this job noise, and a CI job people learn
         # to ignore is worse than none.
         #

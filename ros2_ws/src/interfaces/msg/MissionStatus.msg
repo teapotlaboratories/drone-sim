@@ -5,7 +5,7 @@
 # bag with only PX4 topics can show the vehicle in the wrong place without showing which
 # waypoint the controller believed it was flying to, or why it gave up.
 #
-# Frames are ENU throughout, per docs/lane-a/conventions.md §3. PX4's NED never appears
+# Frames are ENU throughout, per docs/conventions.md §3. PX4's NED never appears
 # outside the control node's adapter.
 
 std_msgs/Header header

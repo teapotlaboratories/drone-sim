@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Write an operator-supplied spawn position into a run-time copy of settings.json.   (C-13)
+"""Write an operator-supplied spawn position into a run-time copy of settings.json.   (SIM-13)
 
 WHY THIS EXISTS
 ---------------
 AirSim places the vehicle at a level's `PlayerStart`, and falls back to world origin when there
 isn't one. An arbitrary user world has no obligation to put usable ground at the origin — City
 Park's terrain sits above it — so the drone spawns INSIDE the terrain. That single defect
-confounded four separate investigations in this lane: three because the camera was buried in
+confounded four separate investigations here: three because the camera was buried in
 geometry, and a fourth because of the workaround adopted to stop the vehicle falling
 (`simPause`, which freezes the renderer and makes `simGetImages` return stale frames).
 
@@ -15,7 +15,7 @@ AirSim reads the spawn from vehicle-level keys — `AirSimSettings.hpp:1061-1062
     vehicle_setting->position = createVectorSetting(settings_json, ...)   // "X" "Y" "Z"
     vehicle_setting->rotation = createRotationSetting(settings_json, ...) // "Yaw" "Pitch" "Roll"
 
-Deriving a good spawn automatically is `C-14`; this is the operator saying where it is.
+Deriving a good spawn automatically is `SIM-14`; this is the operator saying where it is.
 
 TWO FOOTGUNS, HANDLED LOUDLY
 ----------------------------

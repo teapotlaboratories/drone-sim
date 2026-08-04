@@ -1,69 +1,105 @@
-# `docker/` — per-service Dockerfiles + compose
+# `docker/` — the six images the simulator runs on
 
-**Layout — core vs test vs demo:**
-
-| Path | Contents | Used by |
-|---|---|---|
-| `docker/compose.yaml` | the Lane A stack — PX4+Gazebo, XRCE agent, ROS 2, and the gate under `--profile test` | CI, everyone |
-| `docker/lane-a.Dockerfile` | the shippable Lane A image, all pins SHA-verified at build | CI, everyone |
-| `docker/lane-a-entrypoint.sh` | the only `COPY`'d script — sources ROS 2 + workspace | the image |
-| `docker/ros-env.sh` | mounted to `/etc/profile.d/` so `compose exec` shells get a ROS env | `compose exec` |
-| `docker/qgc.Dockerfile` + `qgc-entrypoint.sh` | QGroundControl headless — the datalink PX4 requires before it will arm | `qgc` |
-| [`../tests/`](../tests/) | `lane-a-smoke.sh` — the acceptance gate | CI |
-| [`demo/`](demo/) | video/flight demos + the Xvfb-enabled derived image | humans |
-
-**Two files reproduce the whole Lane A stack**: the Dockerfile and the entrypoint. Test and
-demo scripts are **bind-mounted at run time**, not baked in, so editing one does not trigger
-an 11.6 GB rebuild.
-
-## Bring-up
+**There is no compose file, and never was one for this stack.** Bring-up is
+[`../scripts/sim_up.sh`](../scripts/sim_up.sh) driving raw `docker run`. That is deliberate:
+every service shares the renderer's network and IPC namespaces — which compose could
+express — but the bring-up also has to *sequence* a settle-then-verify step around PX4's EKF
+origin, and a second, half-correct path is worse than none.
 
 ```bash
-docker compose -f docker/compose.yaml up -d                          # the stack
-docker compose -f docker/compose.yaml --profile test run --rm verify # the gate
-docker compose -f docker/compose.yaml down -v
+./scripts/sim_up.sh                                  # the whole stack, ~80 s
+./scripts/sim_up.sh --world /path/to/Your.uproject   # your own Unreal world
 ```
 
-### Services today (`D-02`)
+## The images
 
-| Service | Purpose |
-|---|---|
-| `px4-sitl` | PX4 v1.16.0 + Gazebo Harmonic. **Owns the network and IPC namespaces** the rest join |
-| `xrce-agent` | Micro XRCE-DDS Agent on UDP 8888 — the PX4↔ROS 2 bridge |
-| `recording` | records the running stack flying, under `--profile record` (`D-02c`) |
-| `qgc` | QGroundControl, headless on Xvfb — the **only** component that speaks MAVLink over IP, and the datalink PX4 requires before it will arm. Owns the shared display the `recording` service draws on |
-| `ros2` | idles; `exec` into it, and where Phase 1 nodes will run |
-| `verify` | the acceptance gate, `--profile test`; **attaches** to the running stack |
+| Image | Dockerfile | Base | Role |
+|---|---|---|---|
+| `drone-sim/px4:v1.16.0` | `px4.Dockerfile` | `ubuntu:24.04` | PX4 v1.16.0 SITL + ROS 2 Jazzy + the uXRCE-DDS agent + branch-matched `px4_msgs`. **11.0 GB.** Base of the next three |
+| `drone-sim/ros2:v1.16.0` | `ros2.Dockerfile` | `drone-sim/px4` | the companion-computer image — where every ROS 2 node and the Cosys-AirSim wrapper run |
+| `drone-sim/qgc:v1.16.0` | `qgc.Dockerfile` (+ `qgc-entrypoint.sh`) | `drone-sim/px4` | QGroundControl headless — the **only** component that speaks MAVLink over IP |
+| `drone-sim/video:v1.16.0` | `video.Dockerfile` | `drone-sim/px4` | a thin ffmpeg layer, used only to re-encode renders |
+| `drone-sim/unreal:ue5.8` | `unreal.Dockerfile` | `ghcr.io/epicgames/unreal-engine` (by **digest**) | the renderer — Epic's UE5.8 image plus the three tools Cosys-AirSim's `build.sh` needs and `dev-slim` lacks (`cmake`, `rsync`, `wget`). The Cosys-AirSim tree itself is **mounted from `vendor/` at run time**, not baked in |
+| `drone-sim/airsim-client:1` | `airsim-client.Dockerfile` | `python:3.11-slim` | 0.6 GB AirSim RPC client for measurement — capture harness, not flight |
 
-**Three constraints the compose file exists to encode** — each cost a debugging session:
+`versions.lock` is the authority on that list: `scripts/check_image_refs.py` fails tier-1 CI
+if any `drone-sim/...` reference in the repo names an image not declared there.
 
-- **`shm_size: 2gb` on `px4-sitl`.** Docker defaults `/dev/shm` to 64 MB; Fast-DDS delivers
-  over shared memory and starves there. The joining services inherit it via the IPC namespace,
-  so declaring it on them is inert.
-- **`ipc: "service:px4-sitl"` on every joiner.** Sharing the *network* namespace alone gets
-  you topics in `ros2 topic list` and **nothing** from `ros2 topic echo`.
-- **`bash -lc` for `exec`.** `compose exec` bypasses the ENTRYPOINT, so a plain
-  `exec ros2 ros2 topic list` reports 0 topics on a perfectly healthy stack.
+The only `COPY`'d scripts are `px4-entrypoint.sh` (sources ROS 2 + the workspace),
+`qgc-entrypoint.sh`, and `ros-profile.sh` (baked to `/etc/profile.d/10-ros.sh`). Everything
+else is bind-mounted at run time, so editing a script does not trigger an 11 GB rebuild.
 
-**Ports are bound to `127.0.0.1`** — 18570 (**PX4's real GCS port**, `px4-rc.mavlink:11`),
-14550 (the port a GCS conventionally listens on), 14540 (offboard), 8888 (uXRCE-DDS),
-4560 (Gazebo↔PX4). MAVLink is unauthenticated; publishing 14540 on the LAN lets anyone
-routable arm the vehicle. Opt in with `BIND_ADDR=0.0.0.0` if you really want that.
+## What each image no longer carries, and why that is load-bearing
 
-Volumes: `../out` → `/out` (run artifacts, at the repo root), `/scenarios` read-only,
-`/rosbags` as a named volume.
+- **`px4.Dockerfile` no longer installs Gazebo.** `Tools/setup/ubuntu.sh --no-sim-tools`,
+  plus an explicit reinstall of the build deps that flag drops which are *not* Gazebo (`bc`,
+  `libeigen3-dev`, `protobuf-compiler`, `pkg-config`, `libxml2-utils`). **MEASURED: 11.6 GB
+  with Gazebo, 11.0 GB without**, and the build then asserts `gz-harmonic` is absent rather
+  than trusting the flag. **NuttX is still installed on purpose** — real Pixhawk 6C firmware
+  is flashed from that same tree, so `--no-nuttx` would slim the image while silently
+  removing a capability.
+- **`ros2.Dockerfile` no longer installs `ros-gz-bridge`.** It has no consumer: `/clock`
+  comes from the simulator itself, remapped in
+  `ros2_ws/src/bringup/launch/perception.launch.py` (`/airsim_node/clock` → `/clock`). The
+  removal is worth more than the disk it frees — `ros-gz-bridge` pulls `gz_transport_vendor`,
+  whose `libgz-transport13` lands on `LD_LIBRARY_PATH` for every process that sources ROS and
+  silently breaks the `gz` CLI. In its place the image bakes in what the AirSim wrapper needs
+  (`geographic_msgs`, `mavros_msgs`, `python3-msgpack`, `patch`), because those used to be
+  apt-installed **inside a running container** on every bring-up: the dependency lived in a
+  writable layer, vanished on teardown, and a network outage between two runs turned a
+  working stack into a build failure.
+- **`video.Dockerfile` no longer carries Xvfb, xterm, xdotool or openbox.** Those served the
+  retired Gazebo demo, which rendered four GUI panes onto a virtual display and screen-recorded
+  them. Frames now come from the simulator's own capture and from recorded MCAP bags, so the
+  render path is offline and needs an encoder, not a window manager. It asserts `libx264` is
+  present, not merely that `ffmpeg` installed.
 
-### Services still planned (`docs/reference/02_development_plan.md:134`)
+## The containers `sim_up.sh` starts
 
-| Service | Purpose | Backlog |
+| Container | Image | Role |
 |---|---|---|
-| `qgc` | QGroundControl — needs a reachable display first | `D-02b` |
-| `vlm-server` | vLLM/SGLang, GPU 1 | `D-03` |
-| `isaac-sim` | GPU, Python 3.11 ROS workspace (Lane B, deferred) | — |
-| `px4-sitl-mavlink` | PX4 v1.14.3 for Pegasus, Lane B | — |
-| `foxglove`/`rviz` | tooling | `D-02b` |
+| `sim-unreal` | `drone-sim/unreal:ue5.8` | the renderer, on **GPU 0**. Donates its network namespace, IPC namespace and `/dev/shm` to the rest |
+| `sim-xrce` | `drone-sim/px4:v1.16.0` | `MicroXRCEAgent udp4 -p 8888` — the PX4↔ROS 2 bridge |
+| `sim-px4` | `drone-sim/px4:v1.16.0` | PX4 SITL, airframe 10016, talking the Simulator MAVLink API to the renderer |
+| `sim-qgc` | `drone-sim/qgc:v1.16.0` | the GCS datalink. **Load-bearing, not a viewer** |
+| `sim-ros2` | `drone-sim/ros2:v1.16.0` | builds and runs `interfaces`, `control`, `bringup`; hosts the AirSim wrapper |
 
-**This box runs Docker nested inside a rootless-podman distrobox.** The
-`fuse-overlayfs` storage driver and the `/etc/cdi-local` CDI spec are load-bearing
-workarounds — do not change them unless GPU-in-Docker is already broken
-(`docs/bench.md:123`).
+Volume `sim-ddc` holds Unreal's derived-data cache (`/home/ue4/.config/Epic`), so a second
+run does not recompile shaders.
+
+**Four constraints encoded in that script — each cost a debugging session:**
+
+- **`--ipc shareable` on `sim-unreal`, `--ipc container:sim-unreal` on every joiner.**
+  Fast-DDS discovers over UDP but **delivers over shared memory**. Sharing the *network*
+  namespace alone gets you topics in `ros2 topic list` and **nothing** from `ros2 topic echo`.
+- **`--shm-size=2g` goes with it.** Docker defaults `/dev/shm` to 64 MB, and because that
+  container donates its namespace, 64 MB would be the whole stack's shared-memory budget.
+  The failure mode is silent starvation under load, not a clean error.
+- **`bash -lc` for `docker exec`.** Without a login shell nothing sources ROS, and
+  `docker exec sim-ros2 ros2 topic list` reports 0 topics on a perfectly healthy stack.
+  `ros-profile.sh` exists so callers do not each repeat the source lines.
+- **QGC is a functional dependency of flight.** PX4 refuses to arm without a GCS datalink
+  (`NAV_DLL_ACT=2`, set by the airframe), and that check is left **enforced** because a real
+  Pixhawk enforces it. Stop `sim-qgc` and arming is denied — verified in both directions.
+
+**No ports are published.** Every service joins the renderer's network namespace, so there
+is nothing bound on the host to reach; use `docker exec`. MAVLink is unauthenticated, and
+publishing 14540 on a LAN would let anyone routable arm the vehicle.
+
+## The one credential step
+
+`drone-sim/unreal:ue5.8` builds `FROM ghcr.io/epicgames/unreal-engine@sha256:…`, which is
+**credential-gated**: it needs EpicGames GitHub org membership plus a PAT with
+`read:packages`. This is a real, documented gap against "a fresh machine reaches a working
+stack from this repo alone", and it is stated rather than hidden. Log in first:
+
+```bash
+gh auth token | docker login ghcr.io -u <user> --password-stdin
+```
+
+The image is pinned **by digest, not by tag** — `dev-slim-5.8` is a moving alias, exactly as
+a git branch is not a pin. Background: [`../docs/docker/todo.md`](../docs/docker/todo.md).
+
+**This box runs Docker nested inside a rootless-podman distrobox.** The `fuse-overlayfs`
+storage driver and the `/etc/cdi-local` CDI spec are load-bearing workarounds — do not
+change them unless GPU-in-Docker is already broken (`docs/bench.md`).

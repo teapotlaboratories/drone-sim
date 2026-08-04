@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Fly a recorded circuit of a world over ROS 2, and keep the evidence.            (C-16)
+# Fly a recorded circuit of a world over ROS 2, and keep the evidence.            (SIM-16)
 #
 # SITL ONLY. Nothing real is armed or flown. Renders on GPU 0; GPU 1 is left alone.
 #
 #   ./scripts/run_park_tour.sh                                   # Blocks — the known-good control
 #   ./scripts/run_park_tour.sh --world /path/CityPark.uproject --spawn 50,-30,-10
 #
-# ARTIFACT LAYOUT — deliberately the same shape Lane A's gate writes (run_gate.py), so the two
-# lanes stay comparable rather than each inventing their own:
+# ARTIFACT LAYOUT — deliberately the same shape the flight gate writes (run_gate.py), so a demo
+# run and a gate run stay comparable rather than each inventing their own:
 #
-#   out/lane-c/park-tour-<UTC>/
+#   out/park-tour-<UTC>/
 #     park-tour_0.mcap   every /fmu/*, /airsim_node/*, /tf and /clock for the whole run
 #     metadata.yaml      ros2 bag's own
 #     summary.json       waypoints, per-leg error, verdict
@@ -58,7 +58,7 @@ MAX_ACCEL=$(asfloat "$MAX_ACCEL"); RAMP_S=$(asfloat "$RAMP_S")
 LEGS=$(python3 -c "print(int(float('$LEGS')))")
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-RUN="$REPO/out/lane-c/park-tour-$STAMP"
+RUN="$REPO/out/park-tour-$STAMP"
 mkdir -p "$RUN"
 log(){ printf '\033[36m[park-tour]\033[0m %s\n' "$*"; }
 die(){ printf '\033[31m[park-tour] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -70,38 +70,38 @@ up_args=()
 [ -n "$WORLD" ] && up_args+=(--world "$WORLD")
 [ -n "$SPAWN" ] && up_args+=(--spawn "$SPAWN")
 [ -n "$SETTINGS" ] && up_args+=(--settings "$SETTINGS")
-log "bringing up Lane C ${up_args[*]:-(Blocks, default spawn)}"
-bash "$REPO/scripts/lane_c_up.sh" "${up_args[@]}" > "$RUN/stack.log" 2>&1 \
+log "bringing up the simulator ${up_args[*]:-(Blocks, default spawn)}"
+bash "$REPO/scripts/sim_up.sh" "${up_args[@]}" > "$RUN/stack.log" 2>&1 \
   || { tail -5 "$RUN/stack.log"; die "bring-up failed — see $RUN/stack.log"; }
 
-# The wrapper lives in the ROS 2 container, which lane_c_up.sh deletes on every run.
+# The wrapper lives in the ROS 2 container, which sim_up.sh deletes on every run.
 log "building the AirSim wrapper (~2 min)"
 bash "$REPO/scripts/build_airsim_wrapper.sh" >> "$RUN/stack.log" 2>&1 \
   || die "wrapper build failed — see $RUN/stack.log"
 
 log "building the control package (park_tour)"
-docker exec lane-c-ros2 bash -lc '
+docker exec sim-ros2 bash -lc '
   source /opt/ros/jazzy/setup.bash
   cd /ros2_ws && colcon build --packages-select control --symlink-install' \
   >> "$RUN/stack.log" 2>&1 || die "colcon build of control failed — see $RUN/stack.log"
 
 log "starting the perception graph"
-docker exec -d lane-c-ros2 bash -lc '
+docker exec -d sim-ros2 bash -lc '
   source /opt/ros/jazzy/setup.bash
   source /airsim_root/ros2/install/setup.bash
   source /ros2_ws/install/setup.bash
-  ros2 launch bringup lane_c_perception.launch.py > /tmp/perception.log 2>&1'
+  ros2 launch bringup perception.launch.py > /tmp/perception.log 2>&1'
 sleep 25
 
 # --- record, fly, stop ------------------------------------------------------------------
 # Recorded by regex rather than -a: -a also picks up rosout and parameter-event chatter, which
 # on a 17 Hz imagery stream buries the flight in noise and inflates the bag for no benefit.
 log "starting the bag"
-docker exec -d lane-c-ros2 bash -lc "
+docker exec -d sim-ros2 bash -lc "
   source /opt/ros/jazzy/setup.bash
   source /airsim_root/ros2/install/setup.bash
   source /ros2_ws/install/setup.bash
-  cd /out/lane-c/park-tour-$STAMP && \
+  cd /out/park-tour-$STAMP && \
   ros2 bag record --storage mcap -o park-tour \
     --regex '$RECORD_REGEX' > /tmp/bag.log 2>&1"
 sleep 6
@@ -111,7 +111,7 @@ if [ "$MODE" = "circle" ]; then
 else
   log "flying: $LEGS legs, radius ${RADIUS} m, altitude ${ALTITUDE} m"
 fi
-docker exec lane-c-ros2 bash -lc "
+docker exec sim-ros2 bash -lc "
   source /opt/ros/jazzy/setup.bash
   source /airsim_root/ros2/install/setup.bash
   source /ros2_ws/install/setup.bash
@@ -119,21 +119,21 @@ docker exec lane-c-ros2 bash -lc "
     -p legs:=$LEGS -p radius:=$RADIUS -p altitude:=$ALTITUDE -p tolerance:=$TOLERANCE \
     -p arrive_speed:=$ARRIVE_SPEED -p mode:=$MODE -p speed:=$SPEED \
     -p laps:=$LAPS -p yaw_mode:=$YAW_MODE -p max_accel:=$MAX_ACCEL -p ramp_s:=$RAMP_S \
-    -p summary:=/out/lane-c/park-tour-$STAMP/summary.json" 2>&1 | tee "$RUN/mission.log"
+    -p summary:=/out/park-tour-$STAMP/summary.json" 2>&1 | tee "$RUN/mission.log"
 MISSION_RC=${PIPESTATUS[0]}
 
 log "stopping the bag"
-docker exec lane-c-ros2 bash -lc 'pkill -INT -f "ros2 bag record" || true'
+docker exec sim-ros2 bash -lc 'pkill -INT -f "ros2 bag record" || true'
 sleep 5
 
 # ros2 bag writes into a subdirectory OWNED BY ROOT (the container writes as root), so flattening
 # from the host fails with EACCES on the directory -- silently, which once produced a false
 # "no .mcap was written" against a 1.8 GB bag that existed. Do it inside the container, then hand
 # ownership back so the artifacts are readable and removable by the operator.
-docker exec lane-c-ros2 bash -lc "
-  cd /out/lane-c/park-tour-$STAMP 2>/dev/null || exit 0
+docker exec sim-ros2 bash -lc "
+  cd /out/park-tour-$STAMP 2>/dev/null || exit 0
   [ -d park-tour ] && { mv park-tour/* . 2>/dev/null; rmdir park-tour 2>/dev/null; }
-  chown -R $(id -u):$(id -g) /out/lane-c/park-tour-$STAMP" 2>/dev/null || true
+  chown -R $(id -u):$(id -g) /out/park-tour-$STAMP" 2>/dev/null || true
 
 # --- report -----------------------------------------------------------------------------
 BAG=$(ls -S "$RUN"/*.mcap 2>/dev/null | head -1)
@@ -168,6 +168,6 @@ else
   log "WARNING: no summary.json — the mission node did not complete"
 fi
 
-[ -n "$KEEP_UP" ] || docker rm -f lane-c-ros2 lane-c-qgc lane-c-px4 lane-c-xrce lane-c-sim >/dev/null 2>&1
+[ -n "$KEEP_UP" ] || docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce sim-unreal >/dev/null 2>&1
 log "artifacts in $RUN"
 exit "$MISSION_RC"

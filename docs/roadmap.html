@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>drone-sim — Phases &amp; Timeline — 2026-08-03</title>
+<title>drone-sim — Simulator Roadmap — 2026-08-04</title>
 <style>
 /* ==========================================================================
    CANONICAL WORKLOG DESIGN SOURCE.
    Copy this <style> block verbatim into every later worklog render so the set
    does not drift. To change the design, edit it here first, then re-embed.
 
-   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   Matches docs/history/reference/*.html, with one deliberate divergence: NO external
    font <link>. Worklog renders must be strictly self-contained (no external
    css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
    IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
@@ -162,85 +162,133 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 </head>
 <body>
 <div class="topbar">
-  <span class="brand">Roadmap · snapshot 2026-08-03</span>
-  <nav><a href="#now">Now</a><a href="#timeline">Timeline</a><a href="#lanes">Lanes</a><a href="#phases">Phases</a><a href="#next">Next</a><a href="quickstart.html">Quickstart</a></nav>
+  <span class="brand">Roadmap · snapshot 2026-08-04</span>
+  <nav><a href="#today">Today</a><a href="#map">Map</a><a href="#next">Next</a><a href="#deferred">Deferred</a><a href="#capabilities">Capabilities</a><a href="#history">How we got here</a><a href="quickstart.html">Quickstart</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
 <header class="mast">
-  <span class="eyebrow">Roadmap · snapshot 2026-08-03</span>
-  <h1>Phases &amp; Timeline</h1>
-  <p class="sub">Phase 1 is closed with its exit criterion met. Phase 0 stands at 4 of 5, with Isaac deferred for a driver conflict. <strong>Lane C flies and now looks right</strong> &mdash; the unmodified Lane A controller reaches 4/4 waypoints in Unreal, and its imagery matches Unreal&rsquo;s own render to 1.15 of 255. What the world still lacks is <strong>people and traffic</strong>.</p>
-  <div class="mastmeta"><span>Elapsed <b>7 days</b></span><span>Off-target tests <b>99</b></span><span>Lane C flight <b>4/4</b></span><span>Capture vs Unreal <b>1.15/255</b></span><span>Primary lane <b>C</b></span><span>Next <b>C-11 actors</b></span></div>
+  <span class="eyebrow">Roadmap · snapshot 2026-08-04 · SITL only</span>
+  <h1>What It Does,<br>And What Comes Next</h1>
+  <p class="sub">The deliverable is <strong>the simulator</strong> &mdash; Unreal Engine 5.8 + Cosys-AirSim + PX4 SITL + ROS 2 Jazzy. Bring your own Unreal world, place the vehicle, choose your sensors, and fly it over the same ROS 2 graph you would fly on real hardware. <strong>It flies, and it now looks right</strong> &mdash; an unmodified controller reaches 4/4 waypoints, and the imagery matches Unreal&rsquo;s own render to 1.15 of 255. What the world still lacks is <strong>people and traffic</strong>.</p>
+  <div class="mastmeta"><span>Waypoints <b>4/4</b></span><span>Capture vs Unreal <b>1.15/255</b></span><span>Cold start <b>83 s</b></span><span>Control interface <b>ROS 2 only</b></span><span>Next <b>SIM-11 actors</b></span></div>
 </header>
 
 <div class="callout"><span class="lbl">How to read this</span>
-<p><strong>Elapsed days are measured; remaining estimates are the plan's, not mine.</strong>
-Phases 0 and 1 took four calendar days against a planned 18–27 engineer-days — that ratio
-says more about a plan written for a team than about velocity, and it should not be
-extrapolated onto Phase 2, which is dominated by porting EGO-Planner.</p></div>
+<p><strong>Every number here was measured on a running stack; none is an estimate.</strong>
+Where a figure has been retired it is named and explained rather than deleted, because a
+withdrawn measurement is itself evidence about how the thing behaves. Statuses track
+<code>docs/todo.md</code> &mdash; if the two ever disagree, trust the backlog and fix this page.
+<strong>Everything below is SITL.</strong> Nothing real has been armed or flown, and nothing will
+be without explicit operator approval for that specific run.</p></div>
 
-<h2 id="now"><span class="secnum">01</span> Where the project is</h2>
+<h2 id="today"><span class="secnum">01</span> What works today</h2>
 <div class="grid g3">
-<div class="stat ok"><div class="k">Phase 1</div><div class="v">CLOSED</div><div class="n">every task done, exit criterion met</div></div>
-<div class="stat warn"><div class="k">Phase 0</div><div class="v">4 / 5</div><div class="n">Isaac deferred — driver conflict</div></div>
-<div class="stat ok"><div class="k">Next</div><div class="v">C-11 ACTORS</div><div class="n">people &amp; traffic over the RPC surface</div></div>
+<div class="stat ok"><div class="k">Flight</div><div class="v">4 / 4</div><div class="n">unmodified controller, max error 0.79 m</div></div>
+<div class="stat ok"><div class="k">Imagery vs Unreal</div><div class="v">1.15 / 255</div><div class="n">same camera actor, same transform, six scenes</div></div>
+<div class="stat"><div class="k">Next</div><div class="v">SIM-11 ACTORS</div><div class="n">people &amp; traffic over the RPC surface</div></div>
 </div>
 
-<div class="callout stop"><span class="lbl">Decision — 2026-07-31</span>
-<p><strong>All-in on Lane C.</strong> Cosys-AirSim on UE5.5 is the primary simulator, and
-<strong>Phase 2 — perception and obstacle avoidance — moves off Gazebo</strong>. The reasoning is in
-<code>docs/reference/04_ue5_stack_architecture.md</code>: all three target papers evaluate on
-Unreal/AirSim-family simulators, Microsoft AirSim was archived 2023-12-15 and Colosseum
-2026-07-11, so Cosys-AirSim is the only live option meeting every hard requirement. Building
-Phase 2 in Gazebo would mean building it twice.</p>
-<p>Three questions that report left open were settled at the same time:</p>
-<ul class="tight">
-<li><strong>Lane A is demoted, not retired</strong> — always-on regression baseline. It keeps tier-1 CI, the flight gate, and the real-hardware PX4 tree.</li>
-<li><strong>ROS 2 stays Jazzy</strong>, against the report's Humble recommendation — that recommendation is inherited from upstream example docs, while every pin here is Jazzy and measured.</li>
-<li><strong>Phases are mapped, not renumbered</strong> — the report's phases are calendar weeks; ours are capabilities with measured exit criteria.</li>
-<li><strong>The engine pin moved UE5.5 &rarr; UE5.8</strong> (tag <code>5.8-v3.4.1</code>), surfaced by research hours after the decision: UE5.5 and Jazzy cannot be had from one upstream tag, and the UE5.5 branch is end-of-life. Measured here — <code>ros-jazzy-cv-bridge 4.1.0</code> ships no <code>cv_bridge.h</code>, so that tag is <em>unbuildable on this machine</em>. <strong>Cesium gate cleared the same day:</strong> Cesium v2.28.0 supports UE5.8, and v2.29.0 <em>drops</em> UE5.5 — so the fallback inverted and UE5.8 is the only forward-supported path.</li>
-</ul>
-<p><strong>Two findings from clearing that gate change work beyond the pin.</strong> The Epic engine image is <strong>Ubuntu 22.04</strong>, and ROS 2 Jazzy has no jammy packages — so the separate <code>sim</code> and <code>ros2</code> containers become mandatory rather than stylistic, and building the wrapper in the existing 24.04 container (which is what <code>C-06</code> already does) is now the only option. And building this lane needs an <strong>EpicGames org credential</strong>, which is a real gap against &ldquo;a fresh machine reaches a working stack from the repo alone&rdquo;.</p>
-<p><strong>That was written when Lane C had never been built.</strong> It has now been built and
-flown &mdash; see the update below. Lane A still stays alive as the regression baseline, and that
-decision looks better rather than worse: four of the five failures hit while bringing Lane C up
-were already written down in Lane A's notes.</p>
+<div class="panel">
+<h4>The goals, in order</h4>
+<ol class="tight">
+<li><strong>A photoreal simulator that flies, on <em>your</em> world</strong> &mdash; not on a scene we picked for you.</li>
+<li><strong>Reproducible as Docker from this repo alone</strong> &mdash; plus exactly one documented credential step, named in §04.</li>
+<li><strong>Reuse upstream, don&rsquo;t reinvent</strong> &mdash; PX4, Cosys-AirSim, ROS 2 and the Isaac ROS packages are pinned and wrapped; the glue is the original work.</li>
+<li><strong>Sim-to-real parity</strong> &mdash; one ROS 2 graph, and only the transport is swapped.</li>
+</ol>
+<p style="margin:14px 0 0">What people build <em>on</em> it &mdash; vision-based navigation, VLM agents,
+planners, perception, benchmark reproduction &mdash; are applications, not the deliverable. The
+simulator has to be good on its own terms first.</p>
 </div>
 
-<div class="callout ok"><span class="lbl">Update — 2026-08-01 / 08-02</span>
-<p><strong>Lane C flies.</strong> The <em>unmodified</em> Lane A <code>offboard_control</code> node
-reaches <strong>4/4 waypoints</strong> in Cosys-AirSim on UE5.8 &mdash; max error 0.79 m, reproduced
-three times including from a cold start. The controller was never patched; only the transport was
-swapped. <strong>That is the sim-to-real parity claim demonstrated end to end rather than argued.</strong></p>
-<p><code>C-03</code> proved it first as a diff: <strong>51 <code>/fmu/</code> topics, 24
-<code>/fmu/out</code>, byte-identical between Gazebo and Unreal</strong>. The perception graph is now
-up alongside it &mdash; <strong>19 <code>/airsim_node/</code> topics</strong> carrying 640&times;480 RGB,
-depth, <code>camera_info</code> and an 8192-point GPU-LiDAR cloud.</p>
-<p><strong>Three things cost real time and are worth carrying forward:</strong></p>
-<ul class="tight">
-<li><strong>A stale PX4 EKF origin</strong> made the vehicle report 35 m of altitude while parked on
-the ground, which presents <em>exactly</em> as a control bug. <code>scripts/lane_c_up.sh</code> now
-verifies and repairs the origin on every bring-up (4 for 4), and the gate <strong>VOIDs</strong> such
-runs rather than scoring them as failures.</li>
-<li><strong>Lockstep is confirmed dead code</strong> in Cosys-AirSim &mdash; the flag is set once and
-cleared twice, and the activation message never fires. <code>"LockStep": true</code> is silently
-ineffective, so <strong>every Lane C timing number is free-running</strong> and none may be quoted as
-deterministic.</li>
-<li><strong>The AirSim ROS 2 wrapper aborted on first publish</strong> from an upstream data race
-(<code>Reentrant</code> callback group on a <code>MultiThreadedExecutor</code>). Fixed as a recorded
-patch; <code>vendor/</code> stays pristine.</li>
-</ul>
-</div>
+<div class="callout ok"><span class="lbl">It flies, and the parity claim is demonstrated rather than argued</span>
+<p>The <em>unmodified</em> <code>offboard_control</code> node &mdash; the one written against the
+retired Gazebo baseline &mdash; reaches <strong>4/4 waypoints</strong> in Cosys-AirSim on UE5.8, with
+errors 0.78 / 0.79 / 0.78 / 0.78 m, reproduced three times including from a cold start. Peak
+&minus;10.233 m NED against a 10 m target. <strong>The controller was never patched; only the
+transport was swapped.</strong></p>
+<p>It was proved first as a diff: <strong>51 <code>/fmu/</code> topics, 24 <code>/fmu/out</code>,
+byte-identical</strong> between the Gazebo stack and Unreal. The perception graph runs alongside it
+&mdash; <strong>19 <code>/airsim_node/</code> topics</strong> carrying 640&times;480 RGB, depth,
+<code>camera_info</code> that resolves in TF, and an 8192-point GPU-LiDAR cloud, all checked by
+<em>value</em> rather than by topic presence.</p></div>
 
-<div class="callout ok"><span class="lbl">Update — 2026-08-03 · the imagery is photorealistic</span>
-<p><code>simGetImages</code> now matches Unreal&rsquo;s own render of the <strong>same camera actor at
-the same transform</strong> to <strong>1.15 of 255</strong>, across six scenes from close-up to 70 m.
-The long-running &ldquo;the AirSim capture looks washed out&rdquo; turned out to be
-<strong>three unrelated faults wearing one costume</strong>:</p>
+<figure>
+<svg viewBox="0 0 1120 300" width="100%" role="img" aria-label="Diagram: the simulator half of the stack is swapped for real hardware, while the ROS 2 graph on the right is unchanged.">
+  <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink2)"/></marker>
+  <marker id="arrb" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="var(--stop)"/></marker></defs>
+
+  <rect x="10" y="44" width="800" height="100" rx="3" fill="none" stroke="var(--stop)" stroke-width="1.4" stroke-dasharray="6 4"/>
+  <text class="axl" x="16" y="36" style="fill:var(--stop)">SWAP ONLY THIS HALF &mdash; everything to the right is the code that flies on the aircraft</text>
+
+  <rect class="n-box" x="20" y="70" width="180" height="56" rx="3"/>
+  <text class="nid" x="34" y="94">YOUR .UPROJECT</text>
+  <text class="nlb" x="34" y="112">any Unreal world, no compile</text>
+
+  <line class="e" x1="204" y1="98" x2="286" y2="98" marker-end="url(#arr)"/>
+  <text class="axl" x="245" y="88" text-anchor="middle">inject</text>
+
+  <rect class="n-done" x="290" y="70" width="220" height="56" rx="3"/>
+  <text class="nid" x="304" y="94">UE 5.8 + COSYS-AIRSIM</text>
+  <text class="nlb" x="304" y="112">render &middot; physics &middot; sensors</text>
+
+  <line class="e" x1="514" y1="98" x2="596" y2="98" marker-end="url(#arr)"/>
+  <text class="axl" x="555" y="88" text-anchor="middle">MAVLink 4560</text>
+
+  <rect class="n-done" x="600" y="70" width="170" height="56" rx="3"/>
+  <text class="nid" x="614" y="94">PX4 v1.16 SITL</text>
+  <text class="nlb" x="614" y="112">same firmware as the 6C</text>
+
+  <line class="e" x1="774" y1="98" x2="856" y2="98" marker-end="url(#arr)"/>
+  <text class="axl" x="815" y="88" text-anchor="middle">uXRCE-DDS</text>
+
+  <rect class="n-v" x="860" y="70" width="240" height="56" rx="3"/>
+  <text class="nid" x="874" y="94">YOUR ROS 2 GRAPH</text>
+  <text class="nlb" x="874" y="112">px4_msgs &middot; 24 /fmu/out topics back</text>
+
+  <path class="e" d="M340 126 L200 186" marker-end="url(#arr)"/>
+  <rect class="n-box" x="20" y="190" width="250" height="46" rx="3"/>
+  <text class="nid" x="34" y="212">AIRSIM RPC</text>
+  <text class="nlb" x="34" y="228">simulator concerns only &mdash; spawn, capture, actors</text>
+
+  <rect class="n-b" x="330" y="190" width="440" height="46" rx="3"/>
+  <text class="nid" x="344" y="212">REAL: PIXHAWK 6C + X500 &mdash; NEXT</text>
+  <text class="nlb" x="344" y="228">HITL then real flight; every armed run needs approval, every time</text>
+  <path class="e-b" d="M774 205 L858 118" marker-end="url(#arrb)"/>
+
+  <text class="axl" x="20" y="272">SOLID = SHIPPED AND MEASURED &middot; RED DASHED = NEXT &middot; THE RPC BOX IS NEVER THE CONTROL INTERFACE</text>
+</svg>
+<figcaption>One graph, two transports. The autonomy code cannot tell the difference &mdash; which is the entire point of building it this way.</figcaption>
+</figure>
+
+<div class="callout ok"><span class="lbl">Your own world loads, and the vehicle can be placed in it</span>
+<p><code>scripts/inject_airsim.py</code> takes a user&rsquo;s <code>.uproject</code> and injects
+AirSim with <strong>no compile, no editor, no GUI and no display</strong> &mdash; four text edits and
+a folder copy. Proved against a project that was never ours: <strong>City Park declares
+<code>EngineAssociation: "4.24"</code></strong>, a UE4 project from 2019, and it loaded headless in
+UE5.8 with no conversion dialog and no loader errors &mdash; <strong>856 scene objects</strong>, real
+trees, foliage and a stone stairway in the frames.</p>
+<p><code>./scripts/sim_up.sh --spawn X,Y,Z[,YAW]</code> then puts the vehicle where the operator
+wants it, and <strong>the pose holds without re-assertion &mdash; 0.000 m drift over 6 s
+unheld</strong>, which retired a workaround that had confounded four separate investigations.</p>
+<p><strong>One honest qualification.</strong> A UE4-era project <em>loads</em> correctly; it does not
+necessarily <em>render</em> correctly &mdash; City Park carries the deprecated <code>AtmosphericFog</code>
+actor with no <code>SkyAtmosphere</code>, and UE4-era post-process volumes. That is what an editor
+conversion pass fixes, and it can be done <strong>entirely on Linux, headless</strong>:
+<code>UnrealEditor-Cmd -run=ResavePackages -IGNORECHANGELIST</code> upgraded all 11 packages from
+UE version 518 to 1018 in ~2 minutes. No Windows machine is required for any of it.</p></div>
+
+<div class="callout ok"><span class="lbl">The imagery is photorealistic, and that is a measurement</span>
+<p><code>simGetImages</code> matches Unreal&rsquo;s own render of the <strong>same camera actor at the
+same transform</strong> to <strong>1.15 of 255</strong>, across six scenes from close-up to 70 m. The
+long-running &ldquo;the capture looks washed out&rdquo; turned out to be <strong>three unrelated
+faults wearing one costume</strong>:</p>
 <ul class="tight">
 <li>the measurement client read the buffer as <strong>BGR</strong> when Cosys-AirSim returns
-<strong>RGB</strong> &mdash; which does not look like a bug, it looks like a plausible cyan colour cast;</li>
+<strong>RGB</strong> &mdash; which does not look like a bug, it looks like a plausible cyan cast;</li>
 <li>the camera was <strong>inside world geometry</strong>, and a near surface blurred by
 depth-of-field is itself a film over everything behind it;</li>
 <li><code>PIPCamera.cpp:701-715</code> does not merely skip Lumen when the default is false &mdash; it
@@ -248,229 +296,393 @@ depth-of-field is itself a film over everything behind it;</li>
 </ul>
 <p>The fix is <strong>three <code>settings.json</code> keys on a stock plugin binary</strong> &mdash;
 <code>LumenGIEnable</code>, <code>LumenReflectionEnable</code>, <code>ForceUpdate</code> &mdash; costing
-~8.6% RGB and ~10% LiDAR on the real graph. <code>C-13</code> landed the same day: the operator can
-now pass <code>--spawn X,Y,Z[,YAW]</code> when starting the simulator, and the vehicle holds position
-with <strong>0.000 m drift over 6 s unheld</strong>, retiring a pose-holding workaround.</p>
-</div>
+~8.6% RGB and ~10% LiDAR throughput on the real graph. An acceptable trade, and the frame rate is
+capped by the launch file anyway.</p></div>
 
-<div class="callout stop"><span class="lbl">Two corrections worth more than the fix</span>
-<p><strong>The previous day&rsquo;s negative result was VOID.</strong> Unreal de-duplicates plugins by
-name+version and had silently loaded a <em>stale backup</em> left inside <code>Plugins/</code>; the
-patched binary was never loaded. The md5 check that &ldquo;verified&rdquo; it inspected the file on
+<div class="callout ok"><span class="lbl">Commanding it is confirmed, not assumed</span>
+<p>Three command kinds, each proven by <strong>the vehicle moving</strong> rather than by a publisher
+existing: local waypoint <strong>0.98 m</strong> against a 1.0 m tolerance, velocity
+<strong>2.00 m/s</strong> against 2.0 commanded, and a GPS waypoint that travelled <strong>27.0 m of
+30 m commanded</strong> with 2.99 m remaining. The failure mode this guards against is not a crash
+&mdash; it is a planner emitting setpoints PX4 quietly ignores while the flight looks fine.</p>
+<p><strong>The finding that shapes any planner built on top: there is no global setpoint
+message.</strong> <code>GotoSetpoint</code> is local NED and <code>VehicleGlobalPosition</code> is an
+estimate <em>output</em>, so a GPS waypoint cannot be streamed the way a local one is &mdash; it is a
+one-shot <code>VehicleCommand</code> that PX4 flies in its own navigation mode. Two control paths,
+different failsafes, not to be mixed casually.</p>
+<p>A runnable example ships with it: <code>SIM-16</code> flies a closed circuit of a world using only
+ROS 2, in waypoint or smooth-orbit mode, and records the run to MCAP with a ground-track plot and a
+node/topic graph &mdash; the same artifact layout the Gazebo gate wrote.</p></div>
+
+<div class="callout stop"><span class="lbl">Three things that cost real time, and are worth carrying forward</span>
+<ul class="tight">
+<li><strong>A stale PX4 EKF origin</strong> made the vehicle report 35.167 m of altitude while parked
+on the ground, which presents <em>exactly</em> as a control bug and cost a day.
+<code>scripts/sim_up.sh</code> now verifies and repairs the origin on every bring-up &mdash; on its
+first honest cold start it caught a fresh one at <strong>9.069 m</strong>, restarted PX4, re-verified
+at 0.000 m apart, and the stack then flew 4/4. The gate <strong>VOIDs</strong> such runs rather than
+scoring them as failures.</li>
+<li><strong>Lockstep is confirmed dead code</strong> in Cosys-AirSim &mdash; the flag is set once and
+cleared twice, and the activation message never fires. <code>"LockStep": true</code> is silently
+ineffective, so <strong>every timing number here is free-running</strong> and none may be quoted as
+deterministic.</li>
+<li><strong>The AirSim ROS 2 wrapper aborted on first publish</strong> from an upstream data race
+&mdash; a <code>Reentrant</code> callback group on a <code>MultiThreadedExecutor</code>, which made
+clean strings serialise as if they contained NULs. <strong>One-word fix</strong>, carried as a
+recorded patch; <code>vendor/</code> stays byte-identical to upstream.</li>
+</ul></div>
+
+<div class="callout stop"><span class="lbl">Two corrections worth more than the fixes they came from</span>
+<p><strong>A negative result was VOID because the artifact under test was never loaded.</strong>
+Unreal de-duplicates plugins by name+version and had silently preferred a <em>stale backup</em> left
+inside <code>Plugins/</code>. The md5 check that &ldquo;verified&rdquo; the build inspected the file on
 disk, not the one the engine resolved. <strong>Verifying that an artifact exists is not verifying it
 was used.</strong></p>
-<p><strong>The &ldquo;31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR&rdquo; figure is retired.</strong> It does
-not reproduce &mdash; stock settings now measure <strong>18.7 / 18.1 / 10.0 Hz</strong> on the same
-grey-box world. It predates <code>lane_c_perception.launch.py</code>, which pins the poll periods at
+<p><strong>The &ldquo;31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR&rdquo; figure is retired.</strong> It
+does not reproduce &mdash; stock settings now measure <strong>18.7 / 18.1 / 10.0 Hz</strong> on the
+same grey-box world. It predates <code>perception.launch.py</code>, which pins the poll periods at
 <strong>20 Hz</strong> imagery and <strong>10 Hz</strong> LiDAR, so today&rsquo;s numbers sit at 94% and
 100% of their ceilings. The clearest tell: 17.4 Hz from a sensor configured
 <code>RotationsPerSecond: 10</code> was reporting <em>poll</em> rate, not data rate.
-<strong>Nothing regressed; the old number measured the wrong thing.</strong></p>
-</div>
+<strong>Nothing regressed; the old number measured the wrong thing.</strong></p></div>
 
-<h2 id="timeline"><span class="secnum">02</span> Timeline</h2>
+<h2 id="map"><span class="secnum">02</span> The capability map</h2>
 <div class="panel">
-<svg viewBox="0 0 1120 470" width="100%" role="img" aria-label="Phase timeline, measured and estimated">
-  <defs><marker id="tarr" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
-    <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink2)"/></marker></defs>
+<svg viewBox="0 0 1120 430" width="100%" role="img" aria-label="Capability map: what has shipped and been measured, what is next in build order, and what is deferred or blocked.">
+  <text class="axl" x="20" y="24" style="fill:var(--chrome-ink)">SHIPPED — every claim measured on a running stack</text>
+  <line class="e" x1="20" y1="34" x2="1100" y2="34"/>
 
-  <text class="axl" x="20" y="24" style="fill:var(--chrome-ink)">MEASURED — actual calendar days</text>
-  <line class="e" x1="20" y1="36" x2="1100" y2="36"/>
+  <rect class="n-done" x="20" y="46" width="200" height="52" rx="3"/>
+  <text class="nid" x="34" y="68">YOUR OWN WORLD</text>
+  <text class="nlb" x="34" y="85">SIM-11 · UE4.24 assets load in 5.8</text>
 
-  <rect class="n-done" x="20" y="50" width="150" height="54" rx="3"/>
-  <text class="nid" x="34" y="72">PHASE 0</text>
-  <text class="nlb" x="34" y="90">28–29 Jul · 4/5 criteria</text>
+  <rect class="n-done" x="232" y="46" width="200" height="52" rx="3"/>
+  <text class="nid" x="246" y="68">IT FLIES</text>
+  <text class="nlb" x="246" y="85">SIM-09 · 4/4 waypoints, 0.79 m</text>
 
-  <rect class="n-done" x="180" y="50" width="230" height="54" rx="3"/>
-  <text class="nid" x="194" y="72">PHASE 1 — CLOSED</text>
-  <text class="nlb" x="194" y="90">29–31 Jul · SR 10/10</text>
+  <rect class="n-done" x="444" y="46" width="200" height="52" rx="3"/>
+  <text class="nid" x="458" y="68">SENSORS IN ROS 2</text>
+  <text class="nlb" x="458" y="85">SIM-04 · 19 topics, checked by value</text>
 
-  <rect class="n-v" x="420" y="50" width="180" height="54" rx="3"/>
-  <text class="nid" x="434" y="72">Docker · cross-cutting</text>
-  <text class="nlb" x="434" y="90">D-01 · D-02 · D-02c</text>
+  <rect class="n-done" x="656" y="46" width="200" height="52" rx="3"/>
+  <text class="nid" x="670" y="68">PHOTOREAL CAPTURE</text>
+  <text class="nlb" x="670" y="85">SIM-11 · 1.15 of 255 vs Unreal</text>
 
-  <text class="nlb" x="620" y="82" style="fill:var(--ok)">4 calendar days, 17 commits, 26 tests, 2 phases</text>
+  <rect class="n-done" x="868" y="46" width="212" height="52" rx="3"/>
+  <text class="nid" x="882" y="68">COMMAND + RECORD</text>
+  <text class="nlb" x="882" y="85">SIM-15 · SIM-16 · MCAP per run</text>
 
-  <text class="axl" x="20" y="140" style="fill:var(--ground)">ESTIMATED — engineer-days, from the plan (02_development_plan.md)</text>
-  <line class="e" x1="20" y1="152" x2="1100" y2="152"/>
+  <rect class="n-done" x="20" y="108" width="200" height="52" rx="3"/>
+  <text class="nid" x="34" y="130">BRING-UP IN ONE STEP</text>
+  <text class="nlb" x="34" y="147">SIM-10 · 83 s, origin verified</text>
 
-  <rect class="n-a" x="20" y="168" width="300" height="66" rx="3"/>
-  <text class="nid" x="36" y="192">PHASE 2 · 15–20 days</text>
-  <text class="nlb" x="36" y="210">depth/LiDAR mapping + EGO-Planner</text>
-  <text class="nlb" x="36" y="226" style="fill:var(--stop)">0 collisions / 20 runs · reach ≥ 80%</text>
+  <rect class="n-done" x="232" y="108" width="200" height="52" rx="3"/>
+  <text class="nid" x="246" y="130">OPERATOR SPAWN</text>
+  <text class="nlb" x="246" y="147">SIM-13 · 0.000 m drift over 6 s</text>
 
-  <rect class="n-a" x="335" y="168" width="330" height="66" rx="3"/>
-  <text class="nid" x="351" y="192">PHASE 3 · 20–28 days</text>
-  <text class="nlb" x="351" y="210">VLM target-gen + cuVSLAM VIO, GPS-denied</text>
-  <text class="nlb" x="351" y="226" style="fill:var(--stop)">SR ≥ 50% · VIO drift &lt; 1 m / 60 s</text>
+  <rect class="n-done" x="444" y="108" width="412" height="52" rx="3"/>
+  <text class="nid" x="458" y="130">ENGINE IMAGE + PLUGIN BUILD</text>
+  <text class="nlb" x="458" y="147">SIM-01 · SIM-02 · dev-slim-5.8.0, source-built plugin — proven by use</text>
 
-  <rect class="n-a" x="680" y="168" width="420" height="66" rx="3"/>
-  <text class="nid" x="696" y="192">PHASE 4 · 25–35 days</text>
-  <text class="nlb" x="696" y="210">AerialVLN reproduction · Jetson · HITL · REAL FLIGHT</text>
-  <text class="nlb" x="696" y="226" style="fill:var(--stop)">within ~10 pts of Fly0's 70.43% · latency ≤ 1 s</text>
+  <text class="axl" x="20" y="196" style="fill:var(--chrome)">NEXT — in build order</text>
+  <line class="e" x1="20" y1="206" x2="1100" y2="206"/>
 
-  <line class="e" x1="320" y1="201" x2="330" y2="201" marker-end="url(#tarr)"/>
-  <line class="e" x1="665" y1="201" x2="675" y2="201" marker-end="url(#tarr)"/>
+  <rect class="n-v" x="20" y="220" width="255" height="62" rx="3"/>
+  <text class="nid" x="34" y="242">SIM-11 · DYNAMIC ACTORS</text>
+  <text class="nlb" x="34" y="259">people, vehicles, moving obstacles</text>
+  <text class="nlb" x="34" y="273">RPC only — no plugin change, no project C++</text>
 
-  <text class="axl" x="20" y="288" style="fill:var(--space)">DEFERRED — by decision, with the reason recorded</text>
-  <line class="e" x1="20" y1="300" x2="1100" y2="300"/>
+  <rect class="n-v" x="287" y="220" width="255" height="62" rx="3"/>
+  <text class="nid" x="301" y="242">GROUND-TRUTH LABELS</text>
+  <text class="nlb" x="301" y="259">segmentation + object poses already publish</text>
+  <text class="nlb" x="301" y="273">must be shown to track spawned actors</text>
 
-  <rect class="n-b" x="20" y="316" width="340" height="62" rx="3"/>
-  <text class="nid" x="36" y="338">LANE B — Isaac Sim + Pegasus</text>
-  <text class="nlb" x="36" y="356">driver 610.43.03 vs Isaac's validated 580.65.06;</text>
-  <text class="nlb" x="36" y="372">no Pegasus release for Isaac 6.0</text>
+  <rect class="n-v" x="554" y="220" width="255" height="62" rx="3"/>
+  <text class="nid" x="568" y="242">SIM-07 · FLIGHT GATE</text>
+  <text class="nlb" x="568" y="259">seeded harness + wind/weather over RPC</text>
+  <text class="nlb" x="568" y="273">VOID ≠ FAIL, and voids still block</text>
 
-  <rect class="n-b" x="375" y="316" width="340" height="62" rx="3"/>
-  <text class="nid" x="391" y="338">D-07 — automated flight gate</text>
-  <text class="nlb" x="391" y="356">2 vCPU cannot hold RTF ≥ 0.95; a self-hosted</text>
-  <text class="nlb" x="391" y="372">runner on a public repo runs fork code here</text>
+  <rect class="n-v" x="821" y="220" width="259" height="62" rx="3"/>
+  <text class="nid" x="835" y="242">HITL TRANSPORT</text>
+  <text class="nlb" x="835" y="259">same graph, real Pixhawk 6C</text>
+  <text class="nlb" x="835" y="273">approval per run, every time</text>
 
-  <rect class="n-b" x="730" y="316" width="370" height="62" rx="3"/>
-  <text class="nid" x="746" y="338">D-06 — container boundaries</text>
-  <text class="nlb" x="746" y="356">mirror the Phase 4 machines; first step already</text>
-  <text class="nlb" x="746" y="372">taken (ros2 image split from lane-a)</text>
+  <text class="axl" x="20" y="318" style="fill:var(--ground)">DEFERRED AND BLOCKED — with the reason recorded</text>
+  <line class="e" x1="20" y1="328" x2="1100" y2="328"/>
 
-  <rect x="20" y="398" width="1080" height="54" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
-  <text class="nid" x="36" y="420">THE HONEST CAVEAT</text>
-  <text class="nlb" x="36" y="440">Phase 4 is the first time anything reaches real hardware. Every flight so far is SITL, and arming a real X500 needs explicit per-run approval — every time.</text>
+  <rect class="n-b" x="20" y="342" width="340" height="62" rx="3"/>
+  <text class="nid" x="34" y="364">SIM-17 · 1080p60 VIDEO</text>
+  <text class="nlb" x="34" y="381">NVENC refuses on driver 610.43.03</text>
+  <text class="nlb" x="34" y="395">owner decision; nothing that FLIES is affected</text>
+
+  <rect class="n-a" x="374" y="342" width="340" height="62" rx="3"/>
+  <text class="nid" x="388" y="364">SIM-05 · cuVSLAM / nvblox</text>
+  <text class="nlb" x="388" y="381">deprioritised by choice, not blocked</text>
+  <text class="nlb" x="388" y="395">the imagery is ready whenever it resumes</text>
+
+  <rect class="n-a" x="728" y="342" width="352" height="62" rx="3"/>
+  <text class="nid" x="742" y="364">SIM-12 NOISE · SIM-08 CESIUM</text>
+  <text class="nlb" x="742" y="381">a better metric first; georeferencing later</text>
+  <text class="nlb" x="742" y="395">neither blocks anything else</text>
+
+  <text class="axl" x="20" y="424">GREEN = MEASURED · TEAL = NEXT · AMBER = DEFERRED BY CHOICE · RED DASHED = BLOCKED BY SOMETHING OUTSIDE THIS REPO</text>
 </svg>
 </div>
 
-<h2 id="lanes"><span class="secnum">03</span> Phases are not lanes</h2>
-<p><strong>Everything shipped so far is Lane A — and everything from here is Lane C.</strong>
-The phase axis above hides a second one, and the two are easy to conflate: a phase is a
-capability, a lane is a simulator. On 2026-07-31 the lane axis changed underneath the phase
-axis, without moving a single phase boundary.</p>
+<h2 id="next"><span class="secnum">03</span> What is next</h2>
 
-<div class="panel">
-<svg viewBox="0 0 1120 330" width="100%" role="img" aria-label="Which lane each phase is built in, after the 2026-07-31 switch">
-  <text class="axl" x="150" y="26">PHASE 0</text><text class="axl" x="272" y="26">PHASE 1</text>
-  <text class="axl" x="400" y="26">PHASE 2</text><text class="axl" x="640" y="26">PHASE 3</text>
-  <text class="axl" x="860" y="26">PHASE 4</text>
-  <line class="e" x1="140" y1="36" x2="1100" y2="36"/>
-  <line class="e" x1="380" y1="30" x2="380" y2="300" style="stroke-dasharray:2 5"/>
-  <text class="axl" x="386" y="318" style="fill:var(--stop)">&#8592; the lane switch happens here, not at a phase boundary</text>
-
-  <text class="nid" x="20" y="72">LANE A</text>
-  <text class="nlb" x="20" y="88">PX4 · Gazebo · ROS 2</text>
-  <text class="nlb" x="20" y="102" style="fill:var(--ok)">regression baseline</text>
-  <rect class="n-done" x="140" y="52" width="230" height="58" rx="3"/>
-  <text class="nlb" x="156" y="76" style="fill:#3F7A34">DONE — 0 and 1 complete</text>
-  <text class="nlb" x="156" y="94">controller · gate · SR 10/10</text>
-  <rect x="380" y="52" width="720" height="58" rx="3" fill="var(--panel2)" stroke="var(--ok)" stroke-width="2" stroke-dasharray="6 4"/>
-  <text class="nlb" x="396" y="76" style="fill:var(--ok)">ALWAYS-ON REGRESSION BASELINE — tier-1 CI · the P1-06 flight gate · controls ground truth</text>
-  <text class="nlb" x="396" y="94">No new capability work. Still runs the real Pixhawk 6C's PX4 tree (v1.16.0) — Phase 4 flies this firmware.</text>
-
-  <text class="nid" x="20" y="162">LANE C</text>
-  <text class="nlb" x="20" y="178">UE5.8 · Cosys-AirSim</text>
-  <text class="nlb" x="20" y="192" style="fill:var(--ok)">PRIMARY — flies 4/4</text>
-  <rect x="140" y="142" width="230" height="58" rx="3" fill="none" stroke="var(--rule)" stroke-dasharray="3 4"/>
-  <text class="nlb" x="205" y="176" style="fill:var(--ink2)">not needed</text>
-  <rect class="n-v" x="380" y="142" width="240" height="58" rx="3"/>
-  <text class="nlb" x="396" y="164" style="fill:var(--chrome)">BRING-UP + PHASE 2</text>
-  <text class="nlb" x="396" y="180">C-06·01·02·03·09·10 done · C-04</text>
-  <text class="nlb" x="396" y="194">then depth · EGO-Planner</text>
-  <rect class="n-v" x="630" y="142" width="210" height="58" rx="3"/>
-  <text class="nlb" x="646" y="166" style="fill:var(--chrome)">PHASE 3</text>
-  <text class="nlb" x="646" y="184">VLM client · cuVSLAM VIO</text>
-  <rect class="n-v" x="850" y="142" width="250" height="58" rx="3"/>
-  <text class="nlb" x="866" y="166" style="fill:var(--chrome)">PHASE 4</text>
-  <text class="nlb" x="866" y="184">AerialVLN / OpenFly · Cesium</text>
-
-  <text class="nid" x="20" y="248">LANE B</text>
-  <text class="nlb" x="20" y="264">Isaac Sim · Pegasus</text>
-  <rect class="n-b" x="140" y="228" width="960" height="46" rx="3"/>
-  <text class="nlb" x="156" y="248" style="fill:var(--stop)">DEFERRED — driver 610.43.03 vs Isaac's validated 580.65.06, and no Pegasus release for Isaac 6.0.</text>
-  <text class="nlb" x="156" y="264">Its photoreal role passed to Lane C. Reopens if the host is rebased to an R580 driver.</text>
-</svg>
-</div>
-
-<div class="callout stop">
-<span class="lbl">The long pole — now someone is holding it</span>
-<p>This page previously said Lane C was <em>"the long pole nobody is holding"</em>: five tasks, all
-<code>todo</code>, with nothing forcing a start until Phase 3 needed it. <strong>That is
-resolved — by making it the critical path rather than by de-risking it.</strong></p>
-<p>The risk itself is unchanged and should not be read as smaller: the plan rates Lane C
-<strong>High likelihood / Med impact</strong> for build fragility, the precompiled Cosys-AirSim
-Linux plugin targets <strong>UE5.2.1</strong>, and the UE5.5 branch was a <strong>March-2025
-pre-release</strong>. <code>C-01</code> is still literally "find a commit that builds". What
-changed is that this is now discovered <em>first</em>, at Phase 2, instead of as a surprise
-during Phase 3 — and that Lane A is kept alive underneath it rather than retired.</p>
-<p><strong>The order was chosen to fail cheap.</strong> <code>C-06</code> — compile the
-Cosys-AirSim ROS 2 wrapper against Jazzy — runs before the multi-hour UE5 engine build, because
-it is an ordinary colcon package that needs no engine, no GPU and no simulator, and it is the
-one test that can invalidate the ROS 2 distro decision.</p>
-</div>
-
-<h2 id="phases"><span class="secnum">04</span> The phases, and what each unlocks</h2>
-<div class="tw"><table>
-<thead><tr><th>Phase</th><th>Lane</th><th>Goal</th><th>Exit criterion</th><th>Unlocks</th><th>State</th></tr></thead>
-<tbody>
-<tr><td><strong>0</strong></td><td><span class="pill p-ok">A</span></td><td>Pinned, reproducible toolchain</td><td>headless SITL, no sensor TIMEOUTs; <code>/fmu/out/*</code>; QGC connects; Isaac + <em>hello VLM</em></td><td>—</td><td><span class="pill p-warn">4 / 5</span> Isaac deferred</td></tr>
-<tr><td><strong>1</strong></td><td><span class="pill p-ok">A</span></td><td>ROS 2 offboard controller flying GPS waypoints, recorded to MCAP</td><td><strong>SR = 100% over 10 seeded runs</strong> + artifact</td><td>GPS navigation</td><td><span class="pill p-ok">CLOSED</span></td></tr>
-<tr><td><strong>2</strong></td><td><span class="pill p-chrome">C</span></td><td><strong>Lane C bring-up first</strong>, then depth/LiDAR mapping + EGO-Planner through clutter</td><td>Lane C passes its own gate (<code>C-07</code>), then <strong>0 collisions / 20 runs</strong>; reach ≥ 80%</td><td>obstacle avoidance</td><td><span class="pill p-stop">next</span></td></tr>
-<tr><td><strong>3</strong></td><td><span class="pill p-chrome">C</span></td><td>Slow VLM target-generator + fast tracker; GPS-denied on VIO</td><td>SR ≥ 50% (SR@5m); VIO drift &lt; 1 m / 60 s</td><td>vision-based navigation</td><td>—</td></tr>
-<tr><td><strong>4</strong></td><td><span class="pill p-chrome">C</span> + real</td><td>Benchmark reproduction, onboard Jetson, HITL, real flight</td><td>within ~10 pts of Fly0's 70.43%; latency ≤ 1 s; <strong>one real flight</strong></td><td>sim-to-real</td><td>—</td></tr>
-</tbody></table></div>
-<p><strong>The exit criteria did not change when the lane did.</strong> Phase 2 gains one
-prerequisite the table above now shows explicitly: Lane C must pass its own flight gate before
-its collision numbers mean anything, because Lane A's SR 10/10 is evidence about Gazebo and does
-not transfer.</p>
-
-<h2 id="next"><span class="secnum">05</span> What is actually next</h2>
-
-<div class="grid g2">
-<div class="callout ok"><span class="lbl">Done since this page was last written</span><p><code>C-06</code> wrapper on Jazzy, <code>C-01</code> pin, <code>C-02</code> UE5.8 image, <code>C-03</code> <code>/fmu/*</code> parity, <code>C-09</code> make it fly, <code>C-10</code> deterministic bring-up, <code>C-04</code> sensors into the graph. <strong>2026-08-03:</strong> <code>C-11</code>&rsquo;s photorealism half and <code>C-13</code> operator spawn. <code>C-12</code> (capture aliasing) deferred deliberately; <code>C-14</code> (automatic spawn) filed and already unblocked.</p></div>
-
-<div class="callout"><span class="lbl">Next: C-11 — actors in the user&rsquo;s world</span>
-<p>The world is photorealistic and the drone can be placed in it deliberately. What it has no
-<strong>people, vehicles or moving obstacles</strong> &mdash; the other half of &ldquo;a photorealistic
-simulator with actors&rdquo;.</p>
+<div class="callout"><span class="lbl">Next: SIM-11 &mdash; actors in the user&rsquo;s world</span>
+<p>The world is photorealistic and the drone can be placed in it deliberately. What it has none of is
+<strong>people, vehicles or moving obstacles</strong> &mdash; nothing to navigate <em>around</em>, which
+is the other half of &ldquo;a photorealistic simulator with actors&rdquo;.</p>
 <p><strong>The path needs no project C++ and no plugin change.</strong> The RPC surface
 (<code>simListAssets</code>, <code>simSpawnObject</code>, <code>simSetObjectPose</code>,
 <code>simSetObjectScale</code>, <code>simDestroyObject</code>, plus
 <code>simAddDetectionFilterMeshName</code> for ground-truth labels) works in any project, preserving
-the A1 drop-in property. <code>simGetObjectPose</code> was exercised against City Park on 2026-08-03,
-so that surface is known live in this build rather than assumed.</p>
+the no-compile drop-in property that makes bring-your-own-world work at all.
+<code>simGetObjectPose</code> was exercised against City Park on 2026-08-03, so that surface is known
+live in this build rather than assumed.</p>
 <p><strong>One decision to make deliberately:</strong> the vendored <code>-startSeed</code>/<code>-spawnAI</code>
-determinism lives on the <strong>C++ side</strong> &mdash; adding a <code>Source/</code> module turns A1
-into A2, breaking bring-your-own-world for exactly the feature the eval gate needs.
-<strong>Seed it in our own scenario harness instead</strong> (seeded RNG &rarr; spawn poses &rarr; record
-the seed): reproducible in <em>any</em> world, no vendor change, and squarely the &ldquo;glue is the
-original work&rdquo; split this project is built on. Reimplementing a vendor feature normally deserves
-suspicion; here the vendor&rsquo;s version is unusable without abandoning A1.</p>
+determinism lives on the <strong>C++ side</strong> &mdash; adding a <code>Source/</code> module to a
+user&rsquo;s project turns the no-compile case into the compile case, breaking bring-your-own-world for
+exactly the feature the gate needs. <strong>Seed it in our own scenario harness instead</strong>
+(seeded RNG &rarr; spawn poses &rarr; record the seed): reproducible in <em>any</em> world, no vendor
+change, and squarely the &ldquo;glue is the original work&rdquo; split this project is built on.
+Reimplementing a vendor feature normally deserves suspicion; here the vendor&rsquo;s version is
+unusable without giving up the drop-in property.</p>
 <p><strong>First step, deliberately small:</strong> spawn a few actors into City Park over RPC, confirm
 they appear in <strong>both</strong> RGB and GPU-LiDAR, and re-measure rates with actors present &mdash;
 RGB already sits at <strong>17.1 Hz against a 20 Hz cap</strong>. (The old &ldquo;the segfault gets
-likelier with more actors&rdquo; caveat is <strong>withdrawn</strong> &mdash; it never had a
-measurement behind it, and a 90-minute full-stack soak on 2026-08-03 did not reproduce the crash at
-all.)</p></div>
+likelier with more actors&rdquo; caveat is <strong>withdrawn</strong> &mdash; it never had a measurement
+behind it, and a 90-minute full-stack soak did not reproduce the crash at all.)</p></div>
 
-<div class="callout warn"><span class="lbl">Deferred on purpose, with the reason recorded</span>
-<p><code>C-12</code> &mdash; the capture carries more high-frequency speckle than Unreal&rsquo;s render.
-<code>ForceUpdate</code> removed the Lumen-attributable part (&minus;13.9%, free), and a Lumen-off
-control proved that is exactly what it denoises. <strong>The residual number is not trustworthy:</strong>
-it survives 2&times; supersampling, which real edge aliasing would not &mdash; so much of the &ldquo;2.5&times;
-noisier&rdquo; is likely <em>native&rsquo;s TSR softening the reference</em>. The first task there is a
-better metric, not a better fix.</p>
-<p><code>C-14</code> &mdash; automatic spawn siting, <strong>unblocked for free</strong> by <code>C-13</code>:
-spawn-and-settle <em>is</em> a ground probe. Release high, read <code>simGetObjectPose</code>, and the
-resting Z is the terrain surface. Settings plus RPC only; no plugin change, which was the open
-question it was blocked on.</p></div>
+<div class="grid g2">
+<div class="callout"><span class="lbl">Ground-truth labels</span>
+<p>Half of this is already in the graph: <code>instance_segmentation_labels</code> and
+<code>object_transforms</code> publish today, and a settings-level detection filter is available over
+RPC. <strong>What is unproven is that the labels track <em>spawned</em> actors</strong> and survive a
+user world. The surface itself is live &mdash; a scene enumerated 255 instance-segmentation names,
+none malformed &mdash; but nothing has yet been trained or evaluated against them.</p>
+<p>Worth stating because it decides what the labels are good for: <code>odom_local</code> is
+<em>sim ground truth</em> from the physics engine, not an estimate. On the real Pixhawk 6C the
+equivalent is a noisy EKF output. <strong>Tuning against noiseless odometry is a sim-to-real gap that
+will not surface until the real flight.</strong></p></div>
 
-<div class="callout warn"><span class="lbl">The constraint C-05 inherits, measured</span><p><strong>The IMU is 78% duplicates.</strong> <code>airsim_node</code> publishes at 1501 Hz but only <strong>6630 of 30022 messages carry a distinct timestamp</strong> &mdash; the real sensor runs at ~333 Hz, with gaps up to 3&times; the base interval. The 1501 Hz is the RPC poll rate, not a sensor rate.</p>
-<p>This is <strong>measured, not fixed</strong>, and it is a live design input: cuVSLAM and any preintegrating VIO want a dense, evenly-spaced stream, and this is the bad case on both axes &mdash; repeated timestamps <em>and</em> non-uniform spacing. <code>ros2 topic hz</code> reports a healthy-looking 1501 Hz at 0.17 ms jitter and tells you none of it.</p></div>
-
-<div class="callout stop"><span class="lbl">Owed before more work stacks up</span><p><strong><code>/review</code> has not run on either open PR</strong>, and that is the project's own merge gate. The branch is <strong>14 commits</strong> deep behind it and still growing; the longer it runs, the more expensive the findings are to act on.</p>
-<p>Also carried: the AirSim wrapper fixes exist as recorded patches but <code>docs/vendor/cosys-airsim.md</code> is still unwritten, and <code>vendor/Cosys-AirSim/ros2/</code> holds <strong>163 MB of build artifacts</strong> from an in-tree build &mdash; gitignored, so invisible in a diff, but it broke a build once.</p></div>
-
-<div class="callout"><span class="lbl">Substrate — decided 2026-08-01</span><p><strong>The target is Docker on a native machine.</strong> The distrobox on this box is scaffolding, not the architecture. That shrinks the reproducibility task rather than growing it: nothing needs to capture <code>distrobox create</code>, but three host-specific workarounds need auditing before they are mistaken for general fixes &mdash; chiefly the <strong>Vulkan ICD symlink</strong>, which exists only because a Fedora-family host injects <code>/usr/lib64</code> paths into an Ubuntu container.</p></div>
-
-<div class="callout warn"><span class="lbl">Correction to an earlier version of this page</span><p>This page previously stated that a personal access token pasted into a session had not been rotated. <strong>That claim was investigated and did not hold</strong> &mdash; no bearer value appeared in any transcript, the credential files were <code>0600</code>, and the credential in use was an existing <code>gh</code> login. It is corrected here rather than quietly deleted, because a false security claim left standing is its own kind of harm.</p>
-<p>Still genuinely open from that list: the PX4 <code>VMIN</code> defect remains unreported upstream, and <code>D-06</code> (container boundaries) stays deferred.</p></div>
+<div class="callout"><span class="lbl">The seeded scenario harness &mdash; and what a seed does not do yet</span>
+<p><code>scripts/run_scenario.py</code> now drives <code>scripts/sim_up.sh</code> directly. <strong>A
+seed currently controls the SPAWN POSE and nothing else.</strong> The retired Gazebo harness seeded
+wind and vehicle mass through a generated world overlay, and <strong>there is no equivalent
+here yet</strong> &mdash; it needs Cosys-AirSim&rsquo;s wind API, which is part of
+<code>SIM-07</code>.</p>
+<p><strong>So gate runs must not be described as covering varied conditions.</strong> They cover
+varied <em>placement</em>. Saying otherwise would inflate exactly the number the gate exists to keep
+honest.</p></div>
 </div>
 
-<div class="panel"><p style="margin:0"><strong>Source of truth:</strong> <code>docs/drone-sim-todo.md</code> and the per-area backlogs. This page is a snapshot on <strong>2026-08-03</strong>; if it disagrees with those, trust them and update this.</p></div>
+<div class="callout"><span class="lbl">SIM-07 &mdash; the flight gate, and wind/environment control</span>
+<p><code>scripts/run_gate.py</code> is now <strong>the simulator&rsquo;s</strong> gate, keeping the
+scoring semantics it was given: a <strong>VOID</strong> run is excluded from the success rate
+(it never measured the flight code) and <em>separately</em> blocks the criterion &mdash; excluding
+without blocking would let a gate where 9 of 10 runs were void report 100%. Scoring lives in a pure
+<code>score()</code> so the semantics are unit-tested: all-void is not a pass, an empty run list is
+not a pass, and a real failure is still a failure.</p>
+<p><strong>What it still needs:</strong> genuinely varied conditions, which is where wind, time of day
+and weather come in (<code>simSetWind</code>, <code>simSetTimeOfDay</code>, <code>simEnableWeather</code>
+&mdash; all RPC, all available in any world). Then a success rate over seeded runs, with the per-seed
+table and an MCAP per run.</p>
+<p><strong>Two traps carried forward.</strong> The Gazebo gate took ~19 min for ten seeds and already
+missed a 10-minute CI budget; a UE5 stack starts slower, not faster &mdash; decide the seed count with
+evidence and <strong>do not fit a budget by quietly weakening the gate</strong>. And the gate needs a
+barrier before its origin check: a version without one passed 10/10 <em>by timing coincidence, not by
+construction</em>.</p></div>
+
+<div class="grid g2">
+<div class="callout"><span class="lbl">SIM-14 &mdash; automatic spawn siting</span>
+<p><strong>Unblocked for free</strong> by the operator spawn: spawn-and-settle <em>is</em> a ground
+probe. Release the vehicle high at some <code>(X, Y)</code>, read <code>simGetObjectPose("PX4")</code>,
+and the resting Z is the terrain surface &mdash; it returned <code>Z &asymp; +15.9</code> first time at
+City Park. Settings plus RPC only; no plugin change, which was the open question it was blocked on.</p>
+<p>Ground height alone is not enough, and that is measured too: the surveyed coordinate landed exactly
+where commanded and was still useless, because it was scrub on a slope. A depth frame scores openness
+directly &mdash; <code>frac(depth &lt; 0.5 m)</code> read <strong>0.32</strong> in undergrowth and
+<strong>1.00</strong> fully embedded, against near zero for a clear view.</p></div>
+
+<div class="callout"><span class="lbl">HITL, and the boundary that matters</span>
+<p>The last transport swap is the real one: PX4 on the Pixhawk 6C, the same <code>px4_msgs</code> over
+uXRCE-DDS, the same graph. Everything on this page is SITL, and it stays that way until an operator
+approves a specific run &mdash; <strong>approval never carries over</strong>, not to a retry, not to the
+next scenario.</p>
+<p>One thing to settle before then, still open: the bring-up has been verified once, not
+<em>N times in a row</em>. The 5-reads-at-0.05 m settle heuristic was chosen, not derived.</p></div>
+</div>
+
+<h2 id="deferred"><span class="secnum">04</span> Deferred, and the two real blockers</h2>
+
+<div class="callout stop"><span class="lbl">Blocker 1 &mdash; NVENC is unavailable on driver 610.43.03</span>
+<p>Video capture out of the simulator is capped at <strong>~13&ndash;14 Hz at any resolution</strong>.
+Every route AirSim offers funnels through <code>RenderRequest::getScreenshot</code>, which waits for
+the next rendered frame and then does a <strong>blocking GPU&rarr;CPU readback</strong>:</p>
+<div class="tw"><table>
+<thead><tr><th>capture</th><th>data</th><th>time per frame</th><th>rate</th></tr></thead>
+<tbody>
+<tr><td class="mono">960&times;540</td><td class="mono">1.56 MB</td><td class="mono">71.1 ms</td><td class="mono">14.1 Hz</td></tr>
+<tr><td class="mono">1920&times;1080</td><td class="mono">6.22 MB</td><td class="mono">96.9 ms</td><td class="mono">10.3 Hz</td></tr>
+</tbody></table></div>
+<p>Those two points separate the costs: <strong>~71 ms fixed, ~5 ms/MB</strong>. Four times the data
+costs only 26 ms more, so it is <strong>latency-bound, not bandwidth-bound</strong>. Through the ROS 2
+wrapper and a rosbag it falls to <strong>4.69 Hz</strong>. Real-time factor stayed 1.0 throughout, so
+the engine is not the limit &mdash; the round trip is.</p>
+<p>The fix is Pixel Streaming with GPU-side encode, and <strong>NVENC cannot open an encode session on
+this host</strong>: <code>OpenEncodeSessionEx failed: unsupported device</code>. Libraries mounted,
+device nodes present, <code>nvidia-smi</code> healthy, CUDA initialises &mdash; the encoder alone
+refuses. UE 5.8&rsquo;s only NVIDIA encoder backend is NVENC, so the fallback is <em>software</em> VP8,
+which is CPU-bound <strong>and</strong> needs frames in system memory, reintroducing the readback the
+whole task exists to remove. Evidence and ruled-out causes:
+<a href="nvenc-driver-blocker.md"><code>docs/nvenc-driver-blocker.md</code></a>.</p>
+<p><strong>What this does and does not cost.</strong> It blocks presentation-quality 1080p60 video.
+<strong>Nothing that flies is affected</strong> &mdash; perception keeps 640&times;480 in ROS 2 at its
+capped rate, in the bag, undisturbed. Interim: 960&times;540 at ~14 Hz, ~3&times; smoother than
+1080p&rsquo;s 4.69 Hz. Resolving it is an <strong>owner decision</strong> (a host driver rebase), and the
+same change is what Isaac Sim would need &mdash; <strong>two capabilities lost to one driver</strong>.</p></div>
+
+<div class="callout warn"><span class="lbl">Blocker 2 &mdash; the Unreal base image is credential-gated</span>
+<p><code>ghcr.io/epicgames/unreal-engine</code> denies anonymous reads (HTTP 403,
+<code>DENIED: invalid token</code>). Pulling <code>dev-slim-5.8.0</code> needs <strong>EpicGames GitHub
+org membership plus a PAT with <code>read:packages</code></strong> &mdash; and it is
+<strong>24.0 GB compressed across 30 layers</strong>, on an <strong>Ubuntu 22.04</strong> base, which is
+why the renderer and the ROS 2 side are separate containers rather than stylistically separate: ROS 2
+Jazzy has no jammy packages, so nothing Jazzy can be installed inside the engine image.</p>
+<p><strong>This is upstream licensing, not a gap to close, so the goal is restated rather than quietly
+failed:</strong> a fresh machine reaches a working stack <em>from the repo alone plus one documented
+credential step</em> &mdash; documented, scripted where possible, and named in the README rather than
+discovered. Anything less and the honest description of this project would be &ldquo;reproducible except
+for the simulator&rdquo;. Inspecting the pin is cheap, at least: the <code>gh</code> CLI token exchanges
+for a read-only registry bearer, so the tag can be confirmed for ~17 KB without touching the 24 GB.</p>
+<p><strong>Pin the three-component tag, never <code>dev-slim-5.8</code>.</strong> Both resolve to the same
+digest today, but the two-component form is a moving alias &mdash; the registry shows
+<code>dev-slim-5.5</code> and <code>dev-slim-5.5.4</code> sharing one digest, i.e. <code>-5.5</code>
+tracked four patch releases.</p></div>
+
+<div class="callout warn"><span class="lbl">Deferred on purpose, with the reason recorded</span>
+<p><code>SIM-12</code> &mdash; the capture carries more high-frequency speckle than Unreal&rsquo;s render.
+<code>ForceUpdate</code> removed the Lumen-attributable part (&minus;13.9%, free), and a Lumen-off
+control proved that is exactly what it denoises. <strong>The residual number is not trustworthy:</strong>
+~17.6 against native ~7.0, and it survives 2&times; supersampling (&minus;3.5% for 2.3&times; the frame-rate
+cost), which real edge aliasing would not &mdash; so much of the gap is likely <em>native&rsquo;s TSR
+softening the reference</em>. The first task there is a better metric, not a better fix, and it may well
+close as won&rsquo;t-fix if feature trackers turn out to be indifferent to it.</p>
+<p><code>SIM-05</code> &mdash; cuVSLAM and nvblox, <strong>deprioritised by the owner, not blocked</strong>.
+Worth stating plainly because the names collide: <strong>Isaac ROS is not Isaac Sim.</strong> These are
+ROS 2 Jazzy packages that consume image and depth topics from <em>any</em> source, so retiring the Isaac
+Sim renderer cost the project nothing here. What this will inherit: the IMU is a <em>polled snapshot</em>
+rather than a stream, which is the bad case for a preintegrating VIO, and frames arrive
+<strong>NWU, not ENU</strong>, with a tested conversion in <code>control/frames.py</code> that nothing
+calls yet.</p>
+<p><code>SIM-08</code> &mdash; Cesium georeferenced terrain and OSM, deliberately later: georeferencing is
+benchmark reproduction, not photorealism. Cesium v2.28.0 supports UE5.8 and v2.29.0 <em>drops</em> UE5.5,
+which is part of why the engine pin is where it is.</p></div>
+
+<div class="callout warn"><span class="lbl">Known limits, stated rather than buried</span>
+<ul class="tight">
+<li><strong>Lockstep is dead code</strong> &mdash; never quote a real-time factor from this simulator as
+deterministic.</li>
+<li><strong>Frame rate is capped by the launch file, not the hardware</strong> &mdash; 20 Hz imagery,
+10 Hz LiDAR, measured throughput at 94% and 100% of those ceilings.</li>
+<li><strong>The IMU rate is a poll rate.</strong> ~333 Hz is a ceiling and a fraction of messages carry
+duplicate timestamps; <code>ros2 topic hz</code> reports a healthy-looking number and tells you none of
+it. (The once-quoted 77.9% duplicate rate came from five uninitialised timer periods in the wrapper, and
+was fixed in the launch file &mdash; the polled design remains.)</li>
+<li><strong>An unexplained 7.342&deg; yaw residual</strong> in the frame conversion, measured and open.</li>
+<li><strong>One simulator segfault at n = 1</strong>, after ~57 minutes. A deliberate 90-minute soak of
+the full stack with a concurrent RPC load ran <strong>74,253 captures with zero anomalies</strong> and
+refuted both hypotheses &mdash; upstream&rsquo;s &ldquo;every 2000 or so calls&rdquo; (wrong by &gt;30&times;)
+and the ~57-minute interval. <strong>Not reproduced is not fixed.</strong></li>
+</ul></div>
+
+<div class="callout"><span class="lbl">Correction to an earlier version of this page</span>
+<p>This page previously stated that a personal access token pasted into a session had not been rotated.
+<strong>That claim was investigated and did not hold</strong> &mdash; no bearer value appeared in any
+transcript, the credential files were <code>0600</code>, and the credential in use was an existing
+<code>gh</code> login. It is corrected here rather than quietly deleted, because a false security claim
+left standing is its own kind of harm.</p>
+<p>Also corrected: the merge gate <em>has</em> now run on the open work, and its findings landed with the
+rest of PR 33; the vendoring notes exist at <code>docs/vendor/cosys-airsim.md</code>; and the in-tree
+build artifacts are out of <code>vendor/</code>. Still genuinely open from that list: the PX4
+<code>VMIN</code> defect remains unreported upstream, and the upstream wrapper race is worth reporting to
+Cosys-Lab.</p></div>
+
+<h2 id="capabilities"><span class="secnum">05</span> Every capability, and where it stands</h2>
+<div class="tw"><table>
+<thead><tr><th>Capability</th><th>ID</th><th>What it gives you</th><th>Evidence</th><th>State</th></tr></thead>
+<tbody>
+<tr><th>Bring your own Unreal world</th><td class="mono">SIM-11</td><td>any <code>.uproject</code> loads &mdash; no compile, no editor, no GUI</td><td>City Park, <code>EngineAssociation 4.24</code>, 856 objects, headless</td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Engine image + plugin build</th><td class="mono">SIM-01 · SIM-02</td><td>the stack everything else runs on</td><td>pulled digest byte-identical to the registry query; plugin built with the engine&rsquo;s own clang 20.1.8 &mdash; <code>LOCKED</code> in <code>versions.lock</code></td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Flight over ROS 2</th><td class="mono">SIM-03 · SIM-09</td><td>an unmodified controller flies; 51 <code>/fmu/</code> topics identical</td><td>4/4 waypoints, max 0.79 m, reproduced 3&times;</td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Deterministic bring-up</th><td class="mono">SIM-10</td><td>one command; the EKF origin verified before anything flies</td><td>83 s cold start; caught a real 9.069 m stale origin</td><td><span class="pill p-ok">done</span> &mdash; N-in-a-row outstanding</td></tr>
+<tr><th>Sensors in the graph</th><td class="mono">SIM-04</td><td>RGB, depth, GPU-LiDAR, IMU, GPS, magnetometer, odometry, <code>/clock</code></td><td><code>verify_sensors.py</code> asserts values, not topic presence</td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Photoreal imagery</th><td class="mono">SIM-11</td><td>capture that matches what Unreal renders</td><td>1.15 of 255 across six scenes, stock plugin binary</td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Deliberate vehicle placement</th><td class="mono">SIM-13</td><td><code>--spawn X,Y,Z[,YAW]</code>, NED, malformed input refused</td><td>0.000 m drift over 6 s unheld; 25 off-target tests</td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Command interface</th><td class="mono">SIM-15</td><td>waypoint, velocity, GPS waypoint &mdash; over ROS 2 only</td><td>0.98 m · 2.00 m/s · 27.0 m of 30 m, each by movement</td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Example mission</th><td class="mono">SIM-16</td><td>a readable reference flight, recorded like a real run</td><td>closed circuit, MCAP + ground-track and node-graph plots</td><td><span class="pill p-ok">done</span></td></tr>
+<tr><th>Dynamic actors</th><td class="mono">SIM-11</td><td>people, vehicles and moving obstacles to navigate around</td><td>RPC surface exercised live; seeding decided</td><td><span class="pill p-chrome">next</span></td></tr>
+<tr><th>Ground-truth labels</th><td class="mono">SIM-11</td><td>per-object segmentation and poses for perception work</td><td>topics publish; tracking of spawned actors unproven</td><td><span class="pill p-chrome">next</span></td></tr>
+<tr><th>Flight gate + seeded conditions</th><td class="mono">SIM-07</td><td>an acceptance criterion the simulator earns itself</td><td>scoring semantics ported and unit-tested; wind API not wired</td><td><span class="pill p-chrome">next</span></td></tr>
+<tr><th>Automatic spawn siting</th><td class="mono">SIM-14</td><td>point at an unfamiliar world, supply no coordinates</td><td>probe method proven by hand; not built</td><td><span class="pill p-chrome">next</span></td></tr>
+<tr><th>HITL transport</th><td class="mono">&mdash;</td><td>the same graph against the real Pixhawk 6C</td><td>nothing real has been armed; approval is per run</td><td><span class="pill p-chrome">next</span></td></tr>
+<tr><th>GPU perception</th><td class="mono">SIM-05</td><td>cuVSLAM odometry and an nvblox costmap from this imagery</td><td>imagery ready; IMU and NWU caveats recorded</td><td><span class="pill p-warn">deferred</span></td></tr>
+<tr><th>Georeferenced terrain</th><td class="mono">SIM-08</td><td>Cesium / OSM real-world maps</td><td>Cesium v2.28.0 supports UE5.8</td><td><span class="pill p-warn">deferred</span></td></tr>
+<tr><th>Capture-noise parity</th><td class="mono">SIM-12</td><td>speckle matched to Unreal&rsquo;s own render</td><td>residual measured but the metric is not trustworthy</td><td><span class="pill p-warn">deferred</span></td></tr>
+<tr><th>Presentation video 1080p60</th><td class="mono">SIM-17</td><td>smooth chase-view video off the perception path</td><td>NVENC refuses on driver 610.43.03</td><td><span class="pill p-stop">blocked</span></td></tr>
+</tbody></table></div>
+
+<h2 id="history"><span class="secnum">06</span> How we got here</h2>
+<p><strong>This repo used to carry three simulators; it now carries one.</strong> The retired backlogs
+and design docs live under <code>docs/history/</code>, and the dated record of how the work actually
+happened &mdash; including its original wording, deliberately left alone &mdash; is
+<code>docs/worklog/</code>. The short version, without re-telling it:</p>
+<ul>
+<li><strong><a href="history/gazebo/todo.md">The Gazebo baseline</a></strong> (PX4 v1.16 + Gazebo
+Harmonic + ROS 2 Jazzy) is where the
+offboard controller, the frame conventions, the MCAP artifact layout, the gate&rsquo;s scoring semantics
+and the off-target test suite were built. <strong>The simulator inherited all of it unchanged</strong> &mdash;
+the controller that flies in Unreal is byte-identical to the one that scored 10/10 there. That success
+rate is evidence about Gazebo and <em>does not transfer</em>, which is exactly why <code>SIM-07</code>
+exists. Keeping it alive during bring-up paid for itself: <strong>four of the five failures hit while
+standing the Unreal stack up were already written down in its notes.</strong></li>
+<li><strong><a href="history/isaac/driver-decision.md">Isaac Sim + Pegasus</a> never worked on this
+bench.</strong> Isaac Sim 5.1 SIGSEGVs on driver
+610.43.03 against its validated 580.65.06 &mdash; reproduced on the Ampere card with the Blackwell one
+excluded, so it is the driver and not the GPU &mdash; and no Pegasus release exists for Isaac 6.0, which
+would have meant writing the PX4 bridge ourselves. Its photoreal role is now the simulator&rsquo;s own.
+A host rebase to an R580 driver would reopen it, and would also unblock NVENC.</li>
+<li><strong>The frame conventions survived the move intact.</strong>
+<a href="conventions.md"><code>docs/conventions.md</code></a> was promoted out of the retired backlog
+because it is still an active spec: ENU/FLU outside, NED inside, converted in exactly one tested place.
+The simulator does not get to invent a second convention &mdash; it just has to <em>reach</em> the first
+one from NWU.</li>
+</ul>
+
+<h3>What the pivot changed in the tree</h3>
+<div class="tw"><table>
+<thead><tr><th>Change</th><th>Measured effect</th></tr></thead>
+<tbody>
+<tr><th><code>docker/px4.Dockerfile</code> no longer installs Gazebo</th><td><code>Tools/setup/ubuntu.sh --no-sim-tools</code> plus an explicit reinstall of the non-Gazebo build deps (<code>bc</code>, <code>libeigen3-dev</code>, <code>protobuf-compiler</code>, <code>pkg-config</code>, <code>libxml2-utils</code>). <strong>11.6 GB &rarr; 11.0 GB</strong>, and the build asserts Gazebo is absent. <strong>NuttX stays on purpose</strong> &mdash; real Pixhawk 6C firmware is flashed from that tree.</td></tr>
+<tr><th><code>docker/ros2.Dockerfile</code> drops <code>ros-gz-bridge</code></th><td>It had no consumer left: <code>/clock</code> now comes from the simulator, remapped in <code>perception.launch.py</code>. The image instead bakes in the wrapper&rsquo;s dependencies and <code>docker/ros-profile.sh</code>.</td></tr>
+<tr><th><code>docker/video.Dockerfile</code> replaces the old demo image</th><td>A thin ffmpeg layer on the PX4 base. No Xvfb, xterm, xdotool or openbox &mdash; those served GUI panes that no longer exist.</td></tr>
+<tr><th>Compose is gone</th><td>The simulator has never used it; <code>scripts/sim_up.sh</code> brings the stack up with raw <code>docker run</code>. The deleted <code>docker compose config</code> CI step is replaced by <code>scripts/check_image_refs.py</code>, which asserts every <code>drone-sim/&hellip;</code> reference names an image declared in <code>versions.lock</code>.</td></tr>
+<tr><th><code>scripts/run_scenario.py</code> drives <code>sim_up.sh</code></th><td>A seed controls the <strong>spawn pose only</strong> &mdash; see §03. The wind-and-mass overlay the Gazebo harness used has no equivalent here yet.</td></tr>
+</tbody></table></div>
+
+<div class="panel"><p style="margin:0"><strong>Source of truth:</strong>
+<a href="todo.md"><code>docs/todo.md</code></a> is the backlog and
+<a href="quickstart.md"><code>docs/quickstart.md</code></a> is how you run the thing. This page is a
+snapshot on <strong>2026-08-04</strong>; if it disagrees with those, trust them and update this.</p></div>
+
+<footer>
+  <span>drone-sim · roadmap</span>
+  <span>SITL only · control via ROS 2</span>
+  <span><a href="quickstart.html">Quickstart &rarr;</a></span>
+</footer>
 
 </div>
 <script>
@@ -480,7 +692,7 @@ question it was blocked on.</p></div>
       names={light:'Light',dark:'Dark',eink:'E-ink'};
   function set(t){root.setAttribute('data-theme',t);
     var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
-    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
   set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
   btn.addEventListener('click',function(){
     set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});

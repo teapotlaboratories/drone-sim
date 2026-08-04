@@ -12,7 +12,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         # Launch files must be INSTALLED, not merely present in the source tree —
-        # `ros2 launch bringup sim.launch.py` resolves through the install space.
+        # `ros2 launch bringup perception.launch.py` resolves through the install space.
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
     ],
@@ -20,7 +20,7 @@ setup(
     zip_safe=True,
     maintainer="Aldwin Hermanudin",
     maintainer_email="aldwinakbar@gmail.com",
-    description="Launch composition for Lane A.",
+    description="Launch composition for the simulator graph.",
     license="Apache-2.0",
     entry_points={"console_scripts": []},
 )

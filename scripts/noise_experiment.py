@@ -20,7 +20,7 @@ Three interventions follow from that, none needing a plugin patch:
 
 Each variant is scored the same way as the original finding -- high-frequency energy against
 Unreal's own render of the identical view -- and each reports achievable simGetImages rate,
-because a fix that halves the frame rate is not obviously a fix: Lane C already claims 31 Hz.
+because a fix that halves the frame rate is not obviously a fix: the graph already claims 31 Hz.
 
 Console cvars change the WHOLE renderer, so the native reference is re-captured per variant
 rather than reused across them.
@@ -77,7 +77,7 @@ def main():
 
     results = []
     for vname, (extra, console, scale, down) in variants.items():
-        outdir = REPO / "out/lane-c/noise-exp" / (vname + ("_nolumen" if args.no_lumen else ""))
+        outdir = REPO / "out/noise-exp" / (vname + ("_nolumen" if args.no_lumen else ""))
         outdir.mkdir(parents=True, exist_ok=True)
         cap.log(f"--- variant {vname}: settings={extra or 'none'} console={console or 'none'} "
                 f"capture={scale}x downsample={down}x")
@@ -125,7 +125,7 @@ def main():
             cap.teardown()
             shutil.rmtree(tmp, ignore_errors=True)
 
-    out = REPO / "out/lane-c/noise-exp/results.json"
+    out = REPO / "out/noise-exp/results.json"
     out.write_text(json.dumps(results, indent=2))
     cap.log(f"wrote {out}")
     return 0

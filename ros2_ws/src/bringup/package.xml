@@ -3,12 +3,11 @@
 <package format="3">
   <name>bringup</name>
   <version>0.1.0</version>
-  <description>Launch composition for Lane A: sim bring-up and the shared control graph.</description>
+  <description>Launch composition: the perception graph and the shared control graph.</description>
   <maintainer email="aldwinakbar@gmail.com">Aldwin Hermanudin</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>control</exec_depend>
-  <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 

@@ -1,4 +1,4 @@
-"""Tests for the single frame-conversion point (ENU<->NED, and NWU<->ENU for Lane C).
+"""Tests for the single frame-conversion point (ENU<->NED, and NWU<->ENU for the simulator).
 
 These run off-target: no simulator, no DDS, no PX4. A frame bug found here costs seconds;
 found in flight it costs a 300 s SITL run and looks like a controller problem.
@@ -73,7 +73,7 @@ def test_pi_and_minus_pi_are_the_same_heading():
 
 
 # ---------------------------------------------------------------------------------------
-# NWU <-> ENU (C-04). Cosys-AirSim publishes NWU while its docs claim ROS-standard ENU.
+# NWU <-> ENU (SIM-04). Cosys-AirSim publishes NWU while its docs claim ROS-standard ENU.
 
 
 def test_north_is_the_case_that_exposes_the_90_degree_error():

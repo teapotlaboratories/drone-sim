@@ -100,13 +100,12 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <div class="wrap">
 
 <header class="mast">
-  <span class="eyebrow">Running record · Triple-lane drone simulation framework</span>
+  <span class="eyebrow">Running record · drone-sim</span>
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>16</b></span>
-    <span>Newest <b>2026-08-03</b></span>
-    <span>Phase <b>0&ndash;4</b></span>
+    <span>Entries <b>17</b></span>
+    <span>Newest <b>2026-08-04</b></span>
   </div>
 </header>
 
@@ -115,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-04-one-simulator.html">
+    <span class="k">2026-08-04 · SIM-18 · newest</span>
+    <h3>Three Stacks Become One</h3>
+    <p>The repo carried three parallel simulator stacks and now carries one. The cleanup was the easy half; the useful half is what the move exposed. Renaming the derived-data-cache volume produced the <em>first genuinely cold start this stack has ever had</em> — and it failed: the renderer needed <strong>199 s</strong> to compile shaders against a <strong>120 s</strong> wait budget, so the bring-up declared a healthy stack dead 80 s before it came up. That is precisely the fresh-machine case the reproducibility goal exists for. Separately, the check written to replace <code>docker compose config</code> failed on its first run and was right: the <strong>57.5 GB Unreal image had been built and flown for three days with no entry in <code>versions.lock</code></strong>. Gazebo out of the PX4 image is <strong>11.6 → 11.0 GB</strong> — a smaller win than the argument implied, recorded as such.</p>
+    <div class="tags">
+      <span class="pill p-stop">199 s vs 120 s budget</span>
+      <span class="pill p-stop">57 GB image unrecorded</span>
+      <span class="pill p-ok">5/5 legs, landed</span>
+      <span class="pill p-chrome">174 → 163 files</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-03-c11-washout-root-cause.html">
-    <span class="k">2026-08-03 · C-11 · newest</span>
+    <span class="k">2026-08-03 · C-11</span>
     <h3>Three Bugs Wearing One Costume</h3>
     <p>A day of "the AirSim capture looks washed out" had produced seven failed fixes and one confident negative result — all chasing a defect that did not exist. Measured against Unreal's own render of the <em>same camera actor at the same transform</em>, the two agree to <strong>1.15 of 255</strong>: <code>simGetImages</code> does not render worse. The symptom was <strong>three unrelated faults</strong> — RGB read as BGR in my own measuring client, a camera buried in world geometry, and <code>PIPCamera.cpp:701-715</code> <em>forcing</em> Lumen GI and reflections to <code>None</code>. The previous day's negative result was <strong>void</strong>: Unreal had silently loaded a stale backup plugin from inside <code>Plugins/</code> and ignored the patched one. Contrast <strong>144 → 198</strong> for ~8.6% of the RGB rate, on a stock plugin binary.</p>
     <div class="tags">
@@ -300,7 +311,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <li><strong>Rendered.</strong> Every Markdown worklog has a companion page here, hand-authored and self-contained, with at least one diagram built only from the log's real content.</li>
 </ul>
 
-<p>Markdown sources live in <code>docs/worklog/</code>; these renders live in <code>docs/worklog/html/</code>. The backlog they feed is <code>docs/drone-sim-todo.md</code>.</p>
+<p>Markdown sources live in <code>docs/worklog/</code>; these renders live in <code>docs/worklog/html/</code>. The backlog they feed is <code>docs/todo.md</code>.</p>
 </section>
 
 <footer>

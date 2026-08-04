@@ -1,10 +1,10 @@
 """PX4 offboard control node — arm, take off, fly waypoints, land.
 
-The first flying code in the project, and the thing Phase 0's `docker/demo/lane-a-fly.py`
+The first flying code in the project, and the thing Phase 0's throwaway MAVLink script
 gets replaced by: that was MAVLink, written to produce a video. This is **uXRCE-DDS**,
 which is what runs onboard.
 
-Conventions are frozen in `docs/lane-a/conventions.md` and this node is the reference
+Conventions are frozen in `docs/conventions.md` and this node is the reference
 implementation of them: `px4_ns` parameter rather than hard-coded topics, ENU in / NED out
 via `frames.py` alone, BEST_EFFORT subscriptions, and setpoints streaming before the mode
 switch.
