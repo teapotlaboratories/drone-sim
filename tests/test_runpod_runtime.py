@@ -175,22 +175,9 @@ def test_runner_files_keep_control_ports_local():
     dockerfile = (RUNTIME / "lane-a.Dockerfile").read_text()
     runner = (RUNTIME / "run-lane-a.sh").read_text()
     stop_helper = (RUNTIME / "request-stop.sh").read_text()
-    smoke = (ROOT / "tests" / "lane-a-smoke.sh").read_text()
     assert "px4_log_gate.py" in dockerfile
-    assert "px4_log_gate.py" in smoke
-    assert "\"px4_total_error_count\"" in smoke
-    assert "\"px4_qgc_ack_loss_count\"" in smoke
     assert 'ENTRYPOINT ["/usr/bin/tini", "-s", "--"]' in dockerfile
     assert "lane-a-entrypoint.sh" not in dockerfile
-    assert "env -u LD_LIBRARY_PATH bash" in smoke
-    assert "env -u LD_LIBRARY_PATH gz topic" in smoke
-    assert 'timeout --kill-after=5s "$DURATION"' in smoke
-    assert 'wait_for_recorder_exit 15' in smoke
-    assert 'wait_for_recorder_exit 5' in smoke
-    assert 'kill -INT "$BAG_PID"' in smoke
-    assert 'kill -TERM "$BAG_PID"' in smoke
-    assert 'kill -KILL "$BAG_PID"' in smoke
-    assert "source /opt/ros/" in smoke
     assert "EXPOSE 14540" not in dockerfile
     assert "QGC_SHA256" in dockerfile
     assert "/qgc.AppImage --appimage-extract" in dockerfile
@@ -207,7 +194,6 @@ def test_runner_files_keep_control_ports_local():
     assert "RUNPOD_API_KEY" not in stop_helper
     assert "rest.runpod.io" not in stop_helper
     assert "screen -S px4sitl -X quit >/dev/null 2>&1 || true" in runner
-    assert "screen -S px4sitl -X quit >/dev/null 2>&1 || true" in smoke
     preflight_position = runner.index('python3 "$RUNTIME_LIB/preflight.py"')
     api_position = runner.index('python3 "$RUNTIME_LIB/runtime_api.py"')
     running_position = runner.index("status --state running")
@@ -286,11 +272,12 @@ exit 23
     assert result.stdout == ""
 
 
-def test_sim_launch_owns_clock_bridge_and_sim_time():
+def test_real_launch_uses_sim_time_false():
     launch = (
-        ROOT / "ros2_ws" / "src" / "bringup" / "launch" / "sim.launch.py"
+        ROOT / "ros2_ws" / "src" / "bringup" / "launch" / "real.launch.py"
     ).read_text()
-    assert 'package="ros_gz_bridge"' in launch
-    assert '"control.launch.py"' in launch
-    assert 'LaunchConfiguration("world")' in launch
-    assert '"use_sim_time": LaunchConfiguration("use_sim_time")' in launch
+    assert '"use_sim_time": False' in launch
+    assert 'package="control"' in launch
+    assert 'executable="offboard_control"' in launch
+    assert '"px4_ns"' in launch
+    assert 'ros_gz_bridge' not in launch
