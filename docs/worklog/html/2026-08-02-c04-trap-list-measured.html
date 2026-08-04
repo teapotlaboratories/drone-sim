@@ -308,6 +308,33 @@ nearly led me to discard the cadence numbers as contaminated by duplicate publis
 <p>Cold start #3 — the first after a machine reboot — again came up with a stale EKF origin and
 again self-repaired. <code>scripts/lane_c_up.sh</code> is three for three.</p>
 
+<h2 id="segfault"><span class="secnum">07</span> Not fixed &mdash; a segfault at 57 minutes</h2>
+
+<div class="callout stop"><span class="lbl">Recorded because it is not one of the traps above</span>
+<p>The simulator segfaulted after <strong>57 minutes</strong> of continuous running:</p>
+<pre>Assertion failed: (Index &gt;= 0) &amp; (Index &lt; ArrayNum) [Array.h:1339]
+Array index out of bounds: <b>18823 into an array of size 0</b></pre>
+<p>preceded by one MAVLink <code>hil</code> <code>TcpClientPort socket send failed with error: 32</code>
+(EPIPE). Same <em>shape</em> as the callback-group race &mdash; a read against something concurrently
+emptied &mdash; but not diagnosed, and not the same bug as any trap above.</p></div>
+
+<div class="callout ok"><span class="lbl">Followed up 2026-08-03 &mdash; NOT reproduced</span>
+<p>A deliberate soak of the <strong>full</strong> stack &mdash; PX4, MAVLink, the wrapper polling
+Scene/Depth/GPU-LiDAR, plus a concurrent RPC client requesting <code>compress=true</code> &mdash; ran
+<strong>90 minutes and 74,253 captures with zero anomalies</strong> and did not crash. An isolated
+arm (one camera, no PX4) survived 6,000 calls beforehand.</p>
+<p><strong>Both candidate mechanisms are refuted.</strong> Upstream's own comment that the underlying
+read &ldquo;seems to segfault every 2000 or so calls&rdquo; is wrong by more than 30&times;. And the
+~57-minute interval did not hold &mdash; the soak ran clean through that window under a heavier load
+than the session that crashed.</p>
+<p><strong>Not reproduced is not fixed.</strong> The original is <code>n&nbsp;=&nbsp;1</code> with no
+stack trace beyond the assertion line, so a clean run is weak evidence. What did survive the exercise
+are two real source defects found while forming the hypotheses: a consumer guard that checks
+<code>width</code>/<code>height</code> but never <code>bmp.Num()</code>, and an iterate-not-index
+branch that publishes a <strong>fully uninitialised image as valid</strong> when the buffer is empty
+&mdash; silent corruption on the path Lane C actually uses. Detail in
+<code>docs/vendor/cosys-airsim.md</code>.</p></div>
+
 <div class="panel"><p style="margin:0"><strong>Next:</strong> add <code>Cameras</code> (RGB + depth)
 and GPU-LiDAR to <code>sim/ue5/settings.json</code> and re-check trap 4; put the <code>/clock</code>
 remap into the launch; decide how NWU&rarr;ENU is converted <em>once, in a tested place</em> per
