@@ -2203,70 +2203,112 @@ flown end to end over ROS 2 with its MCAP kept.
 
 ## `SIM-19` — review the Dockerfiles properly
 
-**Status:** `todo` · **Filed 2026-08-04** by the owner, immediately after `SIM-18` merged.
-The images were *changed* during the consolidation — Gazebo stripped, the `/clock` bridge
-removed, a video image rewritten — but they were changed to make the pivot correct, not
-because anyone had sat down and reviewed them as a set. That review is this task.
+**Status:** `todo` — **measured 2026-08-04, not yet implemented.** Filed by the owner right
+after `SIM-18` merged; the measurement pass below was run the same day and **corrected the
+first lead this entry originally carried.** Nothing is broken: all six images build and the
+stack flies on them. This is about what they contain.
 
-**Nothing here is broken.** All six images build and the stack flies on them. This is about
-what they cost and what they contain, and it is worth doing while the shape is fresh.
-
-### Where to start — measured 2026-08-04, not estimated
+### Measured, inside the images
 
 ```
 drone-sim/px4:v1.16.0      11.0 GB   FROM ubuntu:24.04
-drone-sim/ros2:v1.16.0     11.1 GB   FROM drone-sim/px4:v1.16.0
-drone-sim/qgc:v1.16.0      12.1 GB   FROM drone-sim/px4:v1.16.0
-drone-sim/video:v1.16.0    11.1 GB   FROM drone-sim/px4:v1.16.0
+drone-sim/ros2:v1.16.0     11.1 GB   FROM drone-sim/px4       (+ wrapper deps, ros-profile)
+drone-sim/qgc:v1.16.0      12.1 GB   FROM drone-sim/px4       (+ Xvfb, Qt xcb deps, AppImage)
+drone-sim/video:v1.16.0    11.1 GB   FROM drone-sim/px4       (+ ffmpeg)
 drone-sim/unreal:ue5.8     57.5 GB   FROM ghcr.io/epicgames/unreal-engine (credential-gated)
-drone-sim/airsim-client:1   0.4 GB   FROM python:3.11-slim
+drone-sim/airsim-client:1   0.4 GB   FROM python:3.11-slim    (already independent, already lean)
 ```
 
-**Read those numbers carefully before optimising anything.** Docker counts a shared layer once
-per image in this listing, so the four `drone-sim/*` images derived from one base do NOT cost
-46 GB on this disk — `docker system df` reports ~80 GB total across everything, dominated by
-the engine. The cost that is real is **pull size and build time on a fresh machine**, which is
-exactly the reproducibility goal's scenario.
+Docker counts a shared layer once **per image** in that listing, so the four derived images do
+not cost 46 GB of disk — `docker system df` reports ~80 GB total, dominated by the engine. The
+cost that is real is **pull and build time on a fresh machine**, which is the reproducibility
+goal's exact scenario.
 
-Four concrete leads, in the order they are likely to pay:
+Where the 11.0 GB actually sits:
 
-1. **`ros-jazzy-desktop` in the base is almost certainly the wrong metapackage**
-   (`docker/px4.Dockerfile:75`). It pulls rviz2, rqt and the demo nodes. `grep -rn 'rviz\|rqt'`
-   over `scripts/` and `ros2_ws/src/` returns **nothing** — no runtime consumer. `ros-base`
-   plus the handful of packages actually used is the obvious trade. **Do not assume it is
-   safe:** `px4_ros_com` and the AirSim wrapper both build against this image, so the
-   acceptance is a clean wrapper build plus a flight, not a smaller number.
+| | |
+|---|---|
+| `/usr` | **7.3 GB** — and `/usr/lib/arm-none-eabi` alone is 2.4 GB |
+| `/opt/px4` | 2.9 GB — `.git` **1.5 GB**, `docs` 312 MB, `Tools` 383 MB, `platforms` 239 MB |
+| `/opt/ros/jazzy` | **236 MB** |
+| `/opt/xrce` | 106 MB |
 
-2. **`qgc` and `video` inherit the PX4 base and use almost none of it.** QGroundControl needs
-   Qt, Xvfb and the AppImage; it does not need PX4, NuttX or `px4_msgs`. The video image needs
-   ffmpeg and nothing else. Both could come `FROM ubuntu:24.04` directly. The counter-argument
-   is layer sharing on a machine that already has the base — which is why this is a *review*
-   and not a foregone conclusion. Weigh it for the fresh-machine case.
+Largest packages: `libstdc++-arm-none-eabi-newlib` **2014 MB**, `gcc-arm-none-eabi` 493 MB,
+`libnewlib-arm-none-eabi` 417 MB, `openjdk-21-jre-headless` 194 MB, `openjdk-21-jdk-headless`
+92 MB.
 
-3. **The NuttX toolchain is kept deliberately** (`docker/px4.Dockerfile`, `--no-nuttx` not
-   passed) because real Pixhawk 6C firmware is flashed from that tree. That is a real
-   capability and the reason is recorded — but it is worth measuring what it costs and asking
-   whether flashing wants its own image rather than sitting in the one every container runs.
+### Correction to this entry's original first lead
 
-4. **The reinstate list after `--no-sim-tools` is partly redundant.** Raised in the `SIM-18`
-   review and confirmed: `pkg-config` and `libxml2-utils` are also installed by `ubuntu.sh`'s
-   general and NuttX blocks, so naming them at `docker/px4.Dockerfile:112` is belt-and-braces
-   rather than load-bearing. Harmless, but the comment above it implies otherwise.
+**It said `ros-jazzy-desktop` was "almost certainly the wrong metapackage" and probably the
+biggest win. That was wrong, and it was written from a guess.** `/opt/ros/jazzy` is 236 MB, and
+the wrapper genuinely needs perception-side packages that `ros-base` does not carry —
+`cv_bridge`, `image_transport`, `pcl`, `pcl_conversions` are all declared by
+`vendor/Cosys-AirSim/ros2/src/airsim_ros_pkgs/package.xml`. Dropping to `ros-base` means adding
+them back explicitly, and `pcl` is not small. What genuinely has no consumer is the **rviz-only
+system deps** — VTK (105 MB), `python3-vtk9` (47 MB), `libqt5webkit5` (46 MB) — a few hundred
+MB, not gigabytes.
 
-### One thing that is NOT a size question
+### The three real wins, in order, all verified
 
-**`docker/unreal.Dockerfile:76-98` carries a host-specific workaround.** The Vulkan ICD symlink
-(`/usr/lib64/libGLX_nvidia.so.0`) exists because this host is Bazzite/Fedora-family and its CDI
-spec injects an ICD naming a Fedora path that does not exist in an Ubuntu container — without
-it UE's renderer cannot start at all. It is documented and it works, but it is a **host
-assumption baked into an image**, which is precisely what the reproducible-as-Docker goal
-exists to eliminate. A Debian-family host would not need it; a different driver injection might
-need something else. Decide whether it belongs in the image, in the run command, or behind a
-detection step.
+1. **The NuttX / ARM toolchain: ~2.9 GB in every running container.** It exists so real Pixhawk
+   6C firmware can be flashed from the same tree — a capability worth keeping, and the reason
+   `--no-nuttx` was deliberately not passed. But no simulator container ever flashes anything.
+   `apt-cache rdepends` confirms the three packages are leaves.
+2. **The PX4 source tree: 2.5 GB, and SITL does not need it.** Verified by running it: with
+   `.git`, `docs`, `Tools`, `src`, `platforms` and `boards` deleted, `./bin/px4 -s
+   etc/init.d-posix/rcS` still starts, runs its preflight checks and exits normally.
+   `/opt/px4` goes 2.9 GB -> **386 MB**. The build needs the tree; the runtime does not.
+3. **`openjdk-21` (jre + jdk headless): ~286 MB**, installed by PX4's setup script, with no
+   reverse dependency outside its own family and nothing in this project invoking it.
 
-**Acceptance.** Whatever changes, the bar is unchanged: the wrapper builds, the stack comes up
-through all three barriers, and the example mission flies. A smaller image that does not fly is
-a regression, and image size has never been this project's constraint.
+Together **~5.7 GB of 11.0 GB**, with nothing that runs losing anything.
+
+### The structural question — what should actually be separate
+
+`qgc` and `video` inherit the PX4 base and use **nothing** from it. QGroundControl needs Xvfb,
+Qt xcb libraries and its AppImage; the video image needs `ffmpeg`. Neither touches PX4, NuttX,
+ROS or `px4_msgs`. `ros2` and `px4` genuinely do share ROS 2 and the branch-matched `px4_msgs`,
+so a shared base is right for those two and only those two.
+
+Proposed shape, to be confirmed by building it:
+
+(names below are PROPOSED, not built — deliberately written without the `drone-sim/` prefix,
+because `scripts/check_image_refs.py` correctly fails on a reference to an image the repo does
+not build, and it caught exactly that when this entry was first written)
+
+```
+ubuntu:24.04
+ |- base      ROS 2 Jazzy + px4_msgs + px4_ros_com            (shared, and genuinely so)
+ |   |- px4     + PX4 SITL BUILD OUTPUT only + XRCE agent
+ |   \- ros2    + wrapper deps + ros-profile.sh
+ |- qgc       Xvfb + Qt xcb deps + QGC AppImage               (independent of PX4)
+ \- video     ffmpeg                                          (independent of PX4)
+
+ firmware    the full PX4 tree + NuttX toolchain, as a multi-stage `--target` rather than a
+             separate file — the flashing capability kept, but out of every container that
+             flies.
+```
+
+**Estimated** px4 ~5 GB (from 11.0), qgc ~1 GB (from 12.1), video ~0.2 GB (from 11.1). Those
+are arithmetic on the measurements above, **not** a built result — a multi-stage rewrite can
+surprise you, and the numbers are worth nothing until an image exists.
+
+### One item that is not about size
+
+**`docker/unreal.Dockerfile:76-98` bakes a host assumption into an image.** The Vulkan ICD
+symlink (`/usr/lib64/libGLX_nvidia.so.0`) exists because this host is Bazzite/Fedora-family and
+its CDI spec injects an ICD naming a Fedora path absent from an Ubuntu container — without it
+UE's renderer cannot start at all. Documented, load-bearing, and verified with `vulkaninfo`. But
+a Debian-family host would not need it and a different driver injection might need something
+else, which is exactly what the reproducible-as-Docker goal exists to remove. Decide whether it
+belongs in the image, in the run command, or behind a detection step.
+
+### Acceptance
+
+Unchanged by any of this: the wrapper builds, the stack comes up through all three barriers,
+and the example mission flies. **A smaller image that does not fly is a regression, and image
+size has never been this project's constraint** — pull time on a fresh machine is the thing
+being bought, and it should be stated as such rather than dressed up as disk.
 
 ---
 
