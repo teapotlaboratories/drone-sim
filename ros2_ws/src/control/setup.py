@@ -19,6 +19,7 @@ setup(
     entry_points={
         "console_scripts": [
             "offboard_control = control.offboard_control:main",
+            "park_tour = control.park_tour:main",
         ],
     },
 )
