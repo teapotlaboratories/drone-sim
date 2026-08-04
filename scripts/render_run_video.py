@@ -49,7 +49,10 @@ def main():
     ap.add_argument("--image-topic", default="/airsim_node/PX4/front_center_Scene/image")
     ap.add_argument("--pose-topic", default="/fmu/out/vehicle_local_position")
     ap.add_argument("--summary", default="", help="summary.json, for the verdict caption")
-    ap.add_argument("--fps", type=int, default=15)
+    # "auto" derives the rate from the bag timestamps so playback is REAL TIME.
+    # A hardcoded rate silently rescales the flight: 15 fps turned a 252 s flight
+    # into an 89 s video (~3x) with nothing on screen saying so.
+    ap.add_argument("--fps", default="auto")
     ap.add_argument("--scale", type=float, default=1.0)
     a = ap.parse_args()
 
@@ -68,6 +71,17 @@ def main():
             verdict = (f"{'PASS' if d.get('ok') else 'FAIL'}  "
                        f"worst {d['worst_error_m']} m  mean {d['mean_error_m']} m  "
                        f"{len(d.get('legs', []))} legs")
+
+    if a.fps == "auto":
+        img_t = [t for _, _, t in read_bag(a.bag, [a.image_topic])]
+        if len(img_t) > 1:
+            med = float(np.median(np.diff(img_t)) / 1e9)
+            fps = max(1.0, min(60.0, 1.0 / med)) if med > 0 else 15.0
+        else:
+            fps = 15.0
+        print(f"  derived fps: {fps:.2f} -> real time")
+    else:
+        fps = float(a.fps)
 
     bridge = CvBridge()
     writer, n, size = None, 0, None
@@ -105,7 +119,7 @@ def main():
 
         if writer is None:
             size = (canvas.shape[1], canvas.shape[0])
-            writer = cv2.VideoWriter(a.out, cv2.VideoWriter_fourcc(*"mp4v"), a.fps, size)
+            writer = cv2.VideoWriter(a.out, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
             if not writer.isOpened():
                 print("FATAL: VideoWriter would not open", file=sys.stderr)
                 return 1
@@ -116,7 +130,7 @@ def main():
         print(f"FATAL: no messages on {a.image_topic} — nothing to render", file=sys.stderr)
         return 1
     writer.release()
-    print(f"  wrote {a.out}: {n} frames, {size[0]}x{size[1]}, {n / a.fps:.1f}s at {a.fps} fps")
+    print(f"  wrote {a.out}: {n} frames, {size[0]}x{size[1]}, {n / fps:.1f}s at {fps:.2f} fps")
     return 0
 
 
