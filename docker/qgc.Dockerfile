@@ -13,9 +13,9 @@
 #
 # WHY THIS IS SEPARATE FROM docker/video.Dockerfile
 # ------------------------------------------------------------
-# The demo image adds ffmpeg, xterm, openbox and xdotool to record videos. None of that is
-# needed to hold a datalink. This image carries only what QGC needs to run, so the core
-# stack does not depend on demo tooling.
+# docker/video.Dockerfile adds ffmpeg, to re-encode renders after a flight. None of that is
+# needed to hold a datalink. This image carries only what QGC needs to run, so the core stack
+# does not depend on presentation tooling.
 #
 # QGC IS BAKED INTO THIS IMAGE, pinned and checksum-verified at build time.
 #

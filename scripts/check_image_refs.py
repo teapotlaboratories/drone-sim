@@ -93,12 +93,18 @@ def main() -> int:
     # still catches a rename while never demanding that prose carry a version.
     declared_names = {t.split(":", 1)[0] for t in declared}
 
-    files = subprocess.run(["git", "ls-files"], cwd=REPO,
-                           capture_output=True, text=True).stdout.split()
+    # -z, and split on NUL. Splitting `git ls-files` on whitespace fragments any path with a
+    # space in it into nonexistent paths, which then fail to open and are silently skipped by
+    # the except below — so the file is never scanned and the check still exits 0. A CI check
+    # that fails OPEN on an unusual filename is worse than no check.
+    files = subprocess.run(["git", "ls-files", "-z"], cwd=REPO,
+                           capture_output=True, text=True).stdout.split("\0")
     problems: list[str] = []
     seen: set[str] = set()
 
     for rel in files:
+        if not rel:
+            continue
         if rel.startswith(EXCLUDE_PREFIXES) or rel in EXCLUDE_FILES:
             continue
         if rel.endswith(BINARY_SUFFIXES):

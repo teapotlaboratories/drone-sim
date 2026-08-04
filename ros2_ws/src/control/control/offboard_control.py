@@ -479,7 +479,7 @@ class OffboardControl(Node):
                                    "failure_reason": f"non-finite value in result: {exc}"})
             result = json.loads(rendered)
         # Graph-side verdict, so the bag carries its own outcome. The JSON below remains
-        # the HOST-side transport: run_scenario.py drives docker compose and has no ROS
+        # the HOST-side transport: run_scenario.py drives the bring-up script and has no ROS
         # environment, so it cannot subscribe. Two transports, one source of truth.
         rmsg = MissionResult()
         rmsg.header.stamp = self.get_clock().now().to_msg()

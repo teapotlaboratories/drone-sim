@@ -321,7 +321,7 @@ no green component-level check will show.
   - Run a **seeded scenario** (`scripts/run_scenario.py`, which drives `sim_up.sh`
     directly) and assert the outcome — takeoff, waypoint square, collision-free traversal,
     land — as a **success rate over N seeded runs**, not a single lucky pass. Record a
-    **rosbag2 → MCAP** artifact per run as evidence (`scripts/record_flight.py`).
+    **rosbag2 → MCAP** artifact per run as evidence (`scripts/run_scenario.py`).
   - **Know what a seed currently controls: the spawn pose, and nothing else.** The retired
     Gazebo harness seeded wind and vehicle mass through a generated world overlay; **there
     is no equivalent here yet** — it needs Cosys-AirSim's wind API, which is still open
