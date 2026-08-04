@@ -104,9 +104,9 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>3</b></span>
-    <span>Newest <b>2026-07-29</b></span>
-    <span>Phase <b>0</b></span>
+    <span>Entries <b>16</b></span>
+    <span>Newest <b>2026-08-03</b></span>
+    <span>Phase <b>0&ndash;4</b></span>
   </div>
 </header>
 
@@ -115,8 +115,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-03-c11-washout-root-cause.html">
+    <span class="k">2026-08-03 · C-11 · newest</span>
+    <h3>Three Bugs Wearing One Costume</h3>
+    <p>A day of "the AirSim capture looks washed out" had produced seven failed fixes and one confident negative result — all chasing a defect that did not exist. Measured against Unreal's own render of the <em>same camera actor at the same transform</em>, the two agree to <strong>1.15 of 255</strong>: <code>simGetImages</code> does not render worse. The symptom was <strong>three unrelated faults</strong> — RGB read as BGR in my own measuring client, a camera buried in world geometry, and <code>PIPCamera.cpp:701-715</code> <em>forcing</em> Lumen GI and reflections to <code>None</code>. The previous day's negative result was <strong>void</strong>: Unreal had silently loaded a stale backup plugin from inside <code>Plugins/</code> and ignored the patched one. Contrast <strong>144 → 198</strong> for ~8.6% of the RGB rate, on a stock plugin binary.</p>
+    <div class="tags">
+      <span class="pill p-ok">1.15/255 vs native</span>
+      <span class="pill p-stop">prior result VOID</span>
+      <span class="pill p-warn">3 causes, not 1</span>
+      <span class="pill p-chrome">31 Hz claim retired</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-02-c04-trap-list-measured.html">
-    <span class="k">2026-08-02 · C-04 · newest</span>
+    <span class="k">2026-08-02 · C-04</span>
     <h3>The Trap List, Measured &amp; Two Fixed</h3>
     <p>Four documented traps checked against a <em>running</em> node instead of against the docs. <strong>Three confirmed.</strong> Frames are <strong>NWU, not ENU</strong> — <code>convert_tf_msg_to_enu()</code> has zero call sites, and measured yaw missed ENU by 97&deg; and NWU by 7&deg;. <code>/clock</code> is a <em>double</em> defect: the parameter is never declared <em>and</em> it publishes to <code>~/clock</code>. Worst of all, the IMU: <strong>1501 Hz published but only 6630 distinct samples — 77.9% duplicates</strong>, real rate ~333 Hz, with gaps up to 3&times; base. <code>ros2 topic hz</code> would have called that healthy.</p>
     <div class="tags">
