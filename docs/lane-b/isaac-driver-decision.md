@@ -1,5 +1,15 @@
 # Lane B — Isaac Sim: investigation, blocker, and decision to defer
 
+> **Update 2026-08-04 — this driver now costs a second capability.** NVENC cannot open an
+> encode session on 610.43.03 (`OpenEncodeSessionEx: unsupported device (2)`), which blocks
+> hardware video encoding and therefore 1080p60 capture (`C-17`). CUDA initialises fine; the
+> encoder specifically refuses. See [`../lane-c/nvenc-driver-blocker.md`](../lane-c/nvenc-driver-blocker.md).
+>
+> That strengthens the case in §5 for rebasing the host: a single R580 driver change would
+> plausibly restore **both** Isaac Sim and hardware video encode. The decision below was taken
+> when Isaac was the only thing at stake.
+
+
 **Status:** Lane B is **deferred**. Lane C (UE5.5 + Cosys-AirSim) is promoted to the
 photorealistic-perception lane in its place.
 **Decided:** 2026-07-29 · **Decided by:** owner, on the evidence below.

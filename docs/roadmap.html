@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>drone-sim — Phases &amp; Timeline</title>
+<title>drone-sim — Phases &amp; Timeline — 2026-08-03</title>
 <style>
 /* ==========================================================================
    CANONICAL WORKLOG DESIGN SOURCE.
@@ -162,16 +162,16 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 </head>
 <body>
 <div class="topbar">
-  <span class="brand">Roadmap · snapshot 2026-08-02</span>
-  <nav><a href="#now">Now</a><a href="#timeline">Timeline</a><a href="#lanes">Lanes</a><a href="#phases">Phases</a><a href="#next">Next</a></nav>
+  <span class="brand">Roadmap · snapshot 2026-08-03</span>
+  <nav><a href="#now">Now</a><a href="#timeline">Timeline</a><a href="#lanes">Lanes</a><a href="#phases">Phases</a><a href="#next">Next</a><a href="quickstart.html">Quickstart</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
 <header class="mast">
-  <span class="eyebrow">Roadmap · snapshot 2026-08-02</span>
+  <span class="eyebrow">Roadmap · snapshot 2026-08-03</span>
   <h1>Phases &amp; Timeline</h1>
-  <p class="sub">Phase 1 is closed with its exit criterion met. Phase 0 stands at 4 of 5, with Isaac deferred for a driver conflict. <strong>Lane C now flies</strong> &mdash; the unmodified Lane A controller reaches 4/4 waypoints in Unreal, and the perception graph is up. Phase 2 begins there, not in Gazebo.</p>
-  <div class="mastmeta"><span>Elapsed <b>6 days</b></span><span>Off-target tests <b>66</b></span><span>Lane C flight <b>4/4</b></span><span>Lane A gate <b>10/10</b></span><span>Primary lane <b>C</b></span><span>Next <b>C-05</b></span></div>
+  <p class="sub">Phase 1 is closed with its exit criterion met. Phase 0 stands at 4 of 5, with Isaac deferred for a driver conflict. <strong>Lane C flies and now looks right</strong> &mdash; the unmodified Lane A controller reaches 4/4 waypoints in Unreal, and its imagery matches Unreal&rsquo;s own render to 1.15 of 255. What the world still lacks is <strong>people and traffic</strong>.</p>
+  <div class="mastmeta"><span>Elapsed <b>7 days</b></span><span>Off-target tests <b>99</b></span><span>Lane C flight <b>4/4</b></span><span>Capture vs Unreal <b>1.15/255</b></span><span>Primary lane <b>C</b></span><span>Next <b>C-11 actors</b></span></div>
 </header>
 
 <div class="callout"><span class="lbl">How to read this</span>
@@ -184,7 +184,7 @@ extrapolated onto Phase 2, which is dominated by porting EGO-Planner.</p></div>
 <div class="grid g3">
 <div class="stat ok"><div class="k">Phase 1</div><div class="v">CLOSED</div><div class="n">every task done, exit criterion met</div></div>
 <div class="stat warn"><div class="k">Phase 0</div><div class="v">4 / 5</div><div class="n">Isaac deferred — driver conflict</div></div>
-<div class="stat ok"><div class="k">Next</div><div class="v">C-05</div><div class="n">Isaac ROS perception on Lane C imagery</div></div>
+<div class="stat ok"><div class="k">Next</div><div class="v">C-11 ACTORS</div><div class="n">people &amp; traffic over the RPC surface</div></div>
 </div>
 
 <div class="callout stop"><span class="lbl">Decision — 2026-07-31</span>
@@ -231,6 +231,41 @@ deterministic.</li>
 (<code>Reentrant</code> callback group on a <code>MultiThreadedExecutor</code>). Fixed as a recorded
 patch; <code>vendor/</code> stays pristine.</li>
 </ul>
+</div>
+
+<div class="callout ok"><span class="lbl">Update — 2026-08-03 · the imagery is photorealistic</span>
+<p><code>simGetImages</code> now matches Unreal&rsquo;s own render of the <strong>same camera actor at
+the same transform</strong> to <strong>1.15 of 255</strong>, across six scenes from close-up to 70 m.
+The long-running &ldquo;the AirSim capture looks washed out&rdquo; turned out to be
+<strong>three unrelated faults wearing one costume</strong>:</p>
+<ul class="tight">
+<li>the measurement client read the buffer as <strong>BGR</strong> when Cosys-AirSim returns
+<strong>RGB</strong> &mdash; which does not look like a bug, it looks like a plausible cyan colour cast;</li>
+<li>the camera was <strong>inside world geometry</strong>, and a near surface blurred by
+depth-of-field is itself a film over everything behind it;</li>
+<li><code>PIPCamera.cpp:701-715</code> does not merely skip Lumen when the default is false &mdash; it
+<strong>forces</strong> global illumination and reflections to <code>None</code>, in a world authored for Lumen.</li>
+</ul>
+<p>The fix is <strong>three <code>settings.json</code> keys on a stock plugin binary</strong> &mdash;
+<code>LumenGIEnable</code>, <code>LumenReflectionEnable</code>, <code>ForceUpdate</code> &mdash; costing
+~8.6% RGB and ~10% LiDAR on the real graph. <code>C-13</code> landed the same day: the operator can
+now pass <code>--spawn X,Y,Z[,YAW]</code> when starting the simulator, and the vehicle holds position
+with <strong>0.000 m drift over 6 s unheld</strong>, retiring a pose-holding workaround.</p>
+</div>
+
+<div class="callout stop"><span class="lbl">Two corrections worth more than the fix</span>
+<p><strong>The previous day&rsquo;s negative result was VOID.</strong> Unreal de-duplicates plugins by
+name+version and had silently loaded a <em>stale backup</em> left inside <code>Plugins/</code>; the
+patched binary was never loaded. The md5 check that &ldquo;verified&rdquo; it inspected the file on
+disk, not the one the engine resolved. <strong>Verifying that an artifact exists is not verifying it
+was used.</strong></p>
+<p><strong>The &ldquo;31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR&rdquo; figure is retired.</strong> It does
+not reproduce &mdash; stock settings now measure <strong>18.7 / 18.1 / 10.0 Hz</strong> on the same
+grey-box world. It predates <code>lane_c_perception.launch.py</code>, which pins the poll periods at
+<strong>20 Hz</strong> imagery and <strong>10 Hz</strong> LiDAR, so today&rsquo;s numbers sit at 94% and
+100% of their ceilings. The clearest tell: 17.4 Hz from a sensor configured
+<code>RotationsPerSecond: 10</code> was reporting <em>poll</em> rate, not data rate.
+<strong>Nothing regressed; the old number measured the wrong thing.</strong></p>
 </div>
 
 <h2 id="timeline"><span class="secnum">02</span> Timeline</h2>
@@ -385,10 +420,43 @@ not transfer.</p>
 <h2 id="next"><span class="secnum">05</span> What is actually next</h2>
 
 <div class="grid g2">
-<div class="callout ok"><span class="lbl">Done since this page was last written</span><p><code>C-06</code> wrapper on Jazzy, <code>C-01</code> pin, <code>C-02</code> UE5.8 image, <code>C-03</code> <code>/fmu/*</code> parity, <code>C-09</code> make it fly, <code>C-10</code> deterministic bring-up. <code>C-04</code> is all but finished &mdash; cameras, depth and GPU-LiDAR are in the graph and all four documented traps are confirmed, three of them fixed.</p></div>
+<div class="callout ok"><span class="lbl">Done since this page was last written</span><p><code>C-06</code> wrapper on Jazzy, <code>C-01</code> pin, <code>C-02</code> UE5.8 image, <code>C-03</code> <code>/fmu/*</code> parity, <code>C-09</code> make it fly, <code>C-10</code> deterministic bring-up, <code>C-04</code> sensors into the graph. <strong>2026-08-03:</strong> <code>C-11</code>&rsquo;s photorealism half and <code>C-13</code> operator spawn. <code>C-12</code> (capture aliasing) deferred deliberately; <code>C-14</code> (automatic spawn) filed and already unblocked.</p></div>
 
-<div class="callout"><span class="lbl">Next: C-05 — Isaac ROS perception</span><p>Run <strong>cuVSLAM</strong> (<code>isaac_ros_visual_slam</code>) and <strong>nvblox</strong> against Lane C's camera and depth topics. Acceptance: cuVSLAM produces odometry from Lane C imagery, nvblox produces a costmap.</p>
-<p><strong>Isaac ROS is not Isaac Sim.</strong> These are ROS 2 <em>Jazzy</em> packages that consume image and depth topics from any source, so deferring Lane B cost us the renderer and not the GPU perception stack. It is also a second, independent argument for staying on Jazzy: moving to Humble to satisfy a documentation preference would have put the perception stack on the wrong side of the split.</p></div>
+<div class="callout"><span class="lbl">Next: C-11 — actors in the user&rsquo;s world</span>
+<p>The world is photorealistic and the drone can be placed in it deliberately. What it has no
+<strong>people, vehicles or moving obstacles</strong> &mdash; the other half of &ldquo;a photorealistic
+simulator with actors&rdquo;.</p>
+<p><strong>The path needs no project C++ and no plugin change.</strong> The RPC surface
+(<code>simListAssets</code>, <code>simSpawnObject</code>, <code>simSetObjectPose</code>,
+<code>simSetObjectScale</code>, <code>simDestroyObject</code>, plus
+<code>simAddDetectionFilterMeshName</code> for ground-truth labels) works in any project, preserving
+the A1 drop-in property. <code>simGetObjectPose</code> was exercised against City Park on 2026-08-03,
+so that surface is known live in this build rather than assumed.</p>
+<p><strong>One decision to make deliberately:</strong> the vendored <code>-startSeed</code>/<code>-spawnAI</code>
+determinism lives on the <strong>C++ side</strong> &mdash; adding a <code>Source/</code> module turns A1
+into A2, breaking bring-your-own-world for exactly the feature the eval gate needs.
+<strong>Seed it in our own scenario harness instead</strong> (seeded RNG &rarr; spawn poses &rarr; record
+the seed): reproducible in <em>any</em> world, no vendor change, and squarely the &ldquo;glue is the
+original work&rdquo; split this project is built on. Reimplementing a vendor feature normally deserves
+suspicion; here the vendor&rsquo;s version is unusable without abandoning A1.</p>
+<p><strong>First step, deliberately small:</strong> spawn a few actors into City Park over RPC, confirm
+they appear in <strong>both</strong> RGB and GPU-LiDAR, and re-measure rates with actors present &mdash;
+RGB already sits at <strong>17.1 Hz against a 20 Hz cap</strong>. (The old &ldquo;the segfault gets
+likelier with more actors&rdquo; caveat is <strong>withdrawn</strong> &mdash; it never had a
+measurement behind it, and a 90-minute full-stack soak on 2026-08-03 did not reproduce the crash at
+all.)</p></div>
+
+<div class="callout warn"><span class="lbl">Deferred on purpose, with the reason recorded</span>
+<p><code>C-12</code> &mdash; the capture carries more high-frequency speckle than Unreal&rsquo;s render.
+<code>ForceUpdate</code> removed the Lumen-attributable part (&minus;13.9%, free), and a Lumen-off
+control proved that is exactly what it denoises. <strong>The residual number is not trustworthy:</strong>
+it survives 2&times; supersampling, which real edge aliasing would not &mdash; so much of the &ldquo;2.5&times;
+noisier&rdquo; is likely <em>native&rsquo;s TSR softening the reference</em>. The first task there is a
+better metric, not a better fix.</p>
+<p><code>C-14</code> &mdash; automatic spawn siting, <strong>unblocked for free</strong> by <code>C-13</code>:
+spawn-and-settle <em>is</em> a ground probe. Release high, read <code>simGetObjectPose</code>, and the
+resting Z is the terrain surface. Settings plus RPC only; no plugin change, which was the open
+question it was blocked on.</p></div>
 
 <div class="callout warn"><span class="lbl">The constraint C-05 inherits, measured</span><p><strong>The IMU is 78% duplicates.</strong> <code>airsim_node</code> publishes at 1501 Hz but only <strong>6630 of 30022 messages carry a distinct timestamp</strong> &mdash; the real sensor runs at ~333 Hz, with gaps up to 3&times; the base interval. The 1501 Hz is the RPC poll rate, not a sensor rate.</p>
 <p>This is <strong>measured, not fixed</strong>, and it is a live design input: cuVSLAM and any preintegrating VIO want a dense, evenly-spaced stream, and this is the bad case on both axes &mdash; repeated timestamps <em>and</em> non-uniform spacing. <code>ros2 topic hz</code> reports a healthy-looking 1501 Hz at 0.17 ms jitter and tells you none of it.</p></div>
@@ -402,7 +470,7 @@ not transfer.</p>
 <p>Still genuinely open from that list: the PX4 <code>VMIN</code> defect remains unreported upstream, and <code>D-06</code> (container boundaries) stays deferred.</p></div>
 </div>
 
-<div class="panel"><p style="margin:0"><strong>Source of truth:</strong> <code>docs/drone-sim-todo.md</code> and the per-area backlogs. This page is a snapshot on 2026-08-02; if it disagrees with those, trust them and update this.</p></div>
+<div class="panel"><p style="margin:0"><strong>Source of truth:</strong> <code>docs/drone-sim-todo.md</code> and the per-area backlogs. This page is a snapshot on <strong>2026-08-03</strong>; if it disagrees with those, trust them and update this.</p></div>
 
 </div>
 <script>

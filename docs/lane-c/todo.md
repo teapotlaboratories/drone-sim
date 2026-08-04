@@ -1,5 +1,9 @@
 # Lane C — UE5.8 + Cosys-AirSim — backlog
 
+> **Running the simulator?** See [`../quickstart.md`](../quickstart.md)
+> ([HTML](../quickstart.html)) — launch, world selection, sensor selection and tuning,
+> the sensor topic/type/rate table, and the ROS 2 command interface.
+
 **Area:** the project's **primary simulator**. Photorealistic perception, obstacle
 avoidance, and benchmark reproduction.
 **Indexed from:** [`../drone-sim-todo.md`](../drone-sim-todo.md).
@@ -857,9 +861,12 @@ in-place edit:
 
    **Still open on `C-04`:**
    - the unexplained 7.342° yaw residual;
-   - **the simulator segfaults after ~57 minutes** — `Array index out of bounds: 18823 into an
-     array of size 0`, preceded by a MAVLink `hil` EPIPE. Uncharacterised, and a real ceiling on
-     long missions.
+   - **the simulator segfaulted once after ~57 minutes** — `Array index out of bounds: 18823
+     into an array of size 0`, preceded by a MAVLink `hil` EPIPE. **Soaked 2026-08-03 and NOT
+     reproduced**: 90 minutes of the full stack plus a concurrent RPC load, 74,253 captures,
+     zero anomalies. Both the count hypothesis (upstream's "every 2000 or so calls") and the
+     time hypothesis (~57 min) are refuted. Still `n = 1` with no stack trace, so this is
+     *unreproduced*, not fixed.
 
 **Blocked by:** nothing — the crash is fixed; the work is now the trap list.
 
@@ -1462,13 +1469,412 @@ natural/cluttered-outdoor scene, not a city — acceptable for a default.
 - **Does the prebuilt plugin drop cleanly into a foreign project**, or does UBT insist on
   rebuilding? Upstream's precompiled path says it works when engine and platform match; ours
   match by construction.
-- **Rendering cost is entirely unmeasured.** The 31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR
-  baseline was measured on grey boxes. Re-measure per world; a heavy user world may not hold it.
-- **The ~57-minute segfault** is uncharacterised and gets more likely with more actors.
+- **Rendering cost is entirely unmeasured.** Re-measure per world; a heavy user world may not
+  hold it.
+  **Partly answered 2026-08-03** — the image-quality settings were priced on the real ROS 2
+  graph (two cameras + GPU-LiDAR, Blocks, `scripts/measure_lane_c_rates.sh`):
+
+  | config | RGB | depth | LiDAR | IMU |
+  |---|---|---|---|---|
+  | stock settings | 18.7 Hz | 18.1 Hz | 10.0 Hz | 333 Hz |
+  | + Lumen GI/reflections | 17.3 Hz | 16.8 Hz | 9.9 Hz | 333 Hz |
+  | + `ForceUpdate` | 17.1 Hz | 16.6 Hz | 9.0 Hz | 333 Hz |
+
+  Lumen costs ~7% of RGB; `ForceUpdate` costs ~1% more on RGB but ~9% on LiDAR. Total ~8.6%
+  RGB and ~10% LiDAR for the image quality — an acceptable trade, and **the frame rate is
+  capped by the launch file, not by these settings**: `lane_c_perception.launch.py` pins
+  `update_airsim_img_response_every_n_sec = 0.05` (20 Hz) and `update_gpulidar_every_n_sec
+  = 0.1` (10 Hz), so 18.7 Hz is 94% of its ceiling and the LiDAR sits exactly on target.
+
+- **CORRECTION — the "31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR" figure is retired.** It does
+  not reproduce: stock settings on the same grey-box world now measure 18.7 / 18.1 / 10.0 Hz.
+  It predates `lane_c_perception.launch.py`, i.e. it was the free-running rate before the five
+  timer periods were pinned — and that same launch file records the measured Scene+Depth RPC
+  ceiling as **~21.7 Hz**, so 31 Hz was never a sustainable Scene+Depth rate. The LiDAR figure
+  is the clearest tell: 17.4 Hz from a sensor configured `RotationsPerSecond: 10` was reporting
+  poll rate, not data rate. Nothing regressed; the old number was measuring the wrong thing.
+- **The ~57-minute segfault** is uncharacterised. **Corrected 2026-08-03:** an earlier version
+  of this line claimed it "gets more likely with more actors". That claim has no measurement
+  behind it and is withdrawn — it was observed **once**, before any actor work existed.
 
 **Blocks:** `C-07` — a flight gate is worth more against a real world than against grey boxes.
 
+### `C-12` — the capture is noisier than Unreal's own render (deferred)
+
+**Status:** `todo` · **Deferred 2026-08-03**, deliberately: the tone problem it was entangled
+with is solved and verified, and this residue does not block building the simulator.
+
+AirSim's `simGetImages` carries visibly more high-frequency speckle and colour fringing on
+foliage than Unreal's `HighResShot` of the identical view. `"ForceUpdate": true` (now shipped in
+`sim/ue5/settings.json`) removes the Lumen-attributable part — measured −13.9% at 1080p, and a
+Lumen-off control confirms it is specifically denoising Lumen's stochastic GI sampling.
+
+**What is left is not trustworthy as a number.** A residual of ~17.6 vs native ~7.0 survives
+every stock lever, and — the important detail — **is not meaningfully reduced by 2× supersampling**
+(−3.5% for 2.3× the frame-rate cost). Genuine geometric edge aliasing would have collapsed under
+a box filter. That points at a large part of the gap being **native's TSR softening the
+reference** rather than AirSim adding noise: the metric used, `|image − median3|`, cannot
+distinguish speckle from sharpness, and the native frame is measurably blurrier.
+
+**So the first task here is a better metric, not a better fix**: match blur before comparing, or
+score chroma against a luma-preserving baseline. Only then is "how much noisier" a real question.
+
+Rejected already, with numbers (`out/lane-c/noise-exp/`, `scripts/noise_experiment.py`):
+- `r.AntiAliasingMethod 1` (FXAA) — AirSim's own noise went *up* 2%. Its better-looking *ratio*
+  was an artifact of degrading the native reference too (hf 7.04 → 10.36). **Ratios are only
+  meaningful when the denominator holds still.**
+- 2× supersample + downsample — 2.3× the frame-rate cost for 3.5%.
+
+Untried, and cheap: TSR/TAA cvars (`r.TSR.History.*`, `r.TemporalAACurrentFrameWeight`) over
+`simRunConsoleCommand`; a longer settle before capture so accumulation converges further; and
+whether the residual even matters to the consumers — feature trackers and VLMs may be entirely
+indifferent to it, which would close this as won't-fix rather than as a fix.
+
+**Blocks:** nothing.
+
+### Filed late — the capture measurement harness (`C-11`/`C-12` tooling)
+
+**This should have been a TODO before it was built, and was not.** Recording it now rather than
+leaving it undocumented. Eight artifacts, all reusable, all in the repo:
+
+| artifact | what it is for |
+|---|---|
+| `docker/airsim-client.Dockerfile` | pinned AirSim RPC client, replacing throwaway `pip install`s |
+| `scripts/_capture_client.py` | single capture; encodes *never `simPause`* and *hold pose by re-assertion* |
+| `scripts/capture_experiment.py` | settings variants as a factorial, one simulator run per cell |
+| `scripts/capture_pose_sweep.py` | many poses in ONE run (pose is free over RPC; settings are not) |
+| `scripts/capture_vs_native.py` + `_capture_paired.py` | AirSim vs Unreal `HighResShot`, same actor, same frame |
+| `scripts/compare_vs_native.py` | scores the pairs; crops `HighResShot`'s letterbox first |
+| `scripts/noise_experiment.py` + `_capture_noise.py` + `noise_compare.py` | prices anti-aliasing levers, measures capture rate |
+| `scripts/measure_lane_c_rates.sh` | sensor rates across image-quality configs on the real graph |
+| `scripts/_check_channel_order.py` | asserts the raw buffer is RGB against AirSim's own PNG encoder |
+
+`docker/airsim-client.Dockerfile` pins `msgpack-rpc-python==0.4.1`, `tornado<5`,
+`numpy==1.26.4`, `opencv-python-headless==4.10.0.84` — the first two because msgpack-rpc-python
+is unmaintained and tornado ≥ 5 breaks its IOLoop usage.
+
 ---
+
+## `C-13` — operator-supplied spawn coordinates
+
+**Status:** `todo` · **Planned 2026-08-03, before implementation** · **Phase 4** · **Scoped
+down deliberately:** automatic derivation is deferred to `C-14`. Ship the manual coordinate
+first — it unblocks everything `C-14` would, at a fraction of the cost, and the operator
+already knows where their own world is usable.
+
+**The change.** Let the operator pass a spawn position **when starting the simulator**:
+
+```
+scripts/lane_c_up.sh --spawn X,Y,Z[,YAW]        # or: SPAWN=X,Y,Z ./scripts/lane_c_up.sh
+```
+
+It writes vehicle-level `X`/`Y`/`Z`/`Yaw` (`AirSimSettings.hpp:1061-1062`,
+`createVectorSetting`/`createRotationSetting`) into a **run-time copy** of `settings.json`, not
+into the committed one — spawn is per-world and per-run, so baking it into a reviewed repo
+artifact would be wrong.
+
+**Why this shape.** Two footguns must be handled loudly or the feature is worse than nothing:
+- **`Z` is NED — negative is UP.** An operator who types `10` expecting 10 m altitude gets 10 m
+  *underground*, which is the exact failure this task exists to fix.
+- **Silent no-ops.** A malformed `--spawn` must abort, never fall through to origin.
+
+**Acceptance:**
+
+1. ✅ `--spawn 50,-30,-10,315` places the vehicle at exactly that X/Y —
+   `simGetObjectPose("PX4")` returns `(50.0, -30.0, …)`.
+2. ✅ **The pose holds without `simSetVehiclePose` re-assertion** — measured **drift 0.000 m
+   over 6 s unheld**. This retires the holding-loop workaround, and was the criterion that
+   mattered.
+3. ✅ Malformed input fails with a message naming the problem and the stack does not start —
+   `1,2` / `a,b,c` / `1,2,nan` / positive `Z` unacknowledged all exit 1 with no container
+   created.
+4. ✅ The committed `sim/ue5/settings.json` is byte-identical after a spawn run (md5 checked).
+5. ✅ 25 off-target unit tests (`tests/test_apply_spawn.py`).
+6. ⚠️ **Dropped as written.** The original criterion was "`min(depth) > 1.0 m` at spawn". It
+   cannot distinguish *buried in terrain* from *legitimately landed on grass* — a landed
+   drone's forward camera always sees near ground. Replaced by the judgement in `C-14`, which
+   is where automatic siting belongs.
+
+**Status: the mechanism is done and verified; picking a good coordinate is the operator's job
+(and `C-14`'s).**
+
+### Two findings from verifying it
+
+**1. AirSim's NED frame is anchored at the SPAWN point, not at world origin.** So
+`simGetVehiclePose` after a spawn reads *displacement since spawn*, not world position — it
+returned `(0, 0, 25.9)` while the vehicle was demonstrably at world `(50, -30, 15.9)`. Use
+**`simGetObjectPose("PX4")` for world coordinates**; reading the wrong one makes a working
+spawn look like it was ignored, which is exactly how the first verification run was misread.
+
+**2. A spawn Z is a RELEASE height, not a resting height.** The vehicle falls to whatever is
+below. At City Park `(50, -30)` the terrain surface is world **Z ≈ +15.9**, so releasing from
+`-10` drops it 25.9 m — and it lands in dense undergrowth (32% of the depth frame under 0.5 m;
+releasing from just above ground instead gave 100% under 0.5 m, i.e. fully embedded). The
+coordinate is bad, not the mechanism: that XY is scrub on a slope. This is the concrete
+argument for `C-14`.
+
+**Not a bug — a fuse-overlayfs constraint worth remembering.** The generated settings file
+cannot live in `/tmp`: it is on the container's fuse-overlayfs and a read-only bind mount from
+there is refused (`remount-ro …: operation not permitted`). It is written to
+`sim/ue5/.settings.run.json` (gitignored) instead, beside the source, which is a host bind
+mount and mounts identically.
+
+**Blocks:** the rest of `C-11` (dynamic actors, `-startSeed`) — unblocked for any world where
+the operator knows a good coordinate.
+
+---
+
+## `C-14` — automatic spawn derivation (deferred)
+
+**Status:** `backlog` · **Deferred 2026-08-03** in favour of `C-13`'s manual coordinate.
+
+**The change.** Derive a sane spawn from the world's own geometry so a user pointing Lane C at
+an unfamiliar world needs no coordinates at all.
+
+**`C-13` handed this a working probe, for free.** Verifying the manual spawn established that
+**spawn-and-settle IS a ground-height measurement**: release the vehicle high at some `(X, Y)`,
+let it fall, and read `simGetObjectPose("PX4")` — the resting Z is the terrain surface at that
+XY, to within the vehicle's own height. That worked first time at City Park `(50, -30)` and
+returned `Z ≈ +15.9`. It needs **no plugin change and no geometry API** — only settings plus
+RPC, which was the open question this task was blocked on.
+
+So the shape of `C-14` is now concrete rather than speculative:
+
+1. Probe a coarse grid of `(X, Y)` by spawn-and-settle, recording resting Z per cell.
+2. Score each cell for *openness*, not just for ground height — the `C-13` run landed exactly
+   on its commanded XY and was still useless, because it was scrub on a slope. A depth frame at
+   the resting pose gives this directly: `frac(depth < 0.5 m)` was **0.32** in undergrowth and
+   **1.00** fully embedded, against a clear view where it should be near zero.
+3. Pick the best cell and write it as the spawn.
+
+Cost: one simulator start per probe unless several vehicles can be spawned at once — worth
+checking, since `settings.json` supports multiple vehicles and that would turn a serial sweep
+into a single run.
+
+**Why.** An arbitrary world has no obligation to put usable ground at the origin or to ship a
+`PlayerStart`. City Park has neither, so AirSim falls back to origin and the drone spawns **inside
+the terrain**. This is intrinsic to the bring-your-own-world path, not a City Park quirk, and it
+is the single most expensive defect this lane has hit: **four separate investigations were
+confounded by it** — three by the camera being buried, one by the `simPause` workaround adopted
+to stop the vehicle falling. Every image measurement taken in a user world is suspect until it is
+fixed, and the working altitude currently in use (`z = −10`) was found by sweeping, not derived.
+
+Requiring users to add a `PlayerStart` to their level would defeat the point of the path.
+
+**Acceptance — all four, or it is not done:**
+
+1. `inject_airsim.py --spawn auto` writes a finite `X`/`Y`/`Z` into `settings.json` for a world
+   it has never seen, **without** the operator supplying coordinates.
+2. On City Park, the vehicle spawns **above** the terrain: a `simGetImages` frame at spawn shows
+   no depth-of-field concrete border, and `min(depth) > 1.0 m` (i.e. nothing is point-blank).
+3. **The pose is stable without `simSetVehiclePose` re-assertion** — the drone rests on ground
+   rather than falling, so captures no longer need a holding loop. This is the acceptance
+   criterion that retires the workaround.
+4. `scripts/verify_lane_c_sensors.py` passes against City Park with rates re-measured, and the
+   numbers recorded here.
+
+**Verification.** `scripts/capture_pose_sweep.py` against the derived spawn (contrast should be
+near its peak, not on the buried-camera shoulder), plus the sensor verifier above. Both already
+exist.
+
+**Open question to answer first, cheaply:** what does AirSim actually expose over RPC for world
+geometry? `simListSceneObjects` is known to return the landscape; whether bounds/height are
+reachable without a plugin change decides between a geometric derivation and a
+raycast/probe-based one. **The binary stays stock** — if this cannot be done from settings + RPC,
+say so rather than patching the plugin.
+
+**Blocks:** nothing directly — `C-13`'s manual coordinate unblocks the work this would have.
+Its value is that a user pointing Lane C at an unfamiliar world needs no coordinates at all.
+
+---
+
+
+---
+
+## `C-15` — the navigation command interface, confirmed end to end
+
+**Status:** `todo` · **Planned 2026-08-03, before implementation** · **Phase 2** · **SITL only —
+nothing real is armed or flown.**
+
+**Why this comes before navigation code.** Autonomy is about to be built on top of a command
+interface that has only ever been exercised in one shape: `TrajectorySetpoint.position` on a
+seeded square. Before a planner or a VLM starts issuing commands, each command *kind* must be
+shown to move the actual aircraft — because the failure mode is not a crash, it is a planner
+that emits setpoints PX4 quietly ignores while the flight looks "fine".
+
+**The five capabilities to confirm, each by measurement rather than by topic presence:**
+
+| # | capability | mechanism | state |
+|---|---|---|---|
+| 1 | local waypoint | `TrajectorySetpoint.position` + `OffboardControlMode.position` | ✅ proven — 4/4 waypoints, max error 0.79 m (`C-03`) |
+| 2 | **GPS waypoint** | `VehicleCommand` `VEHICLE_CMD_DO_REPOSITION` (192) — lat/lon/alt in params 5/6/7 | ❓ **never exercised** |
+| 3 | velocity | `TrajectorySetpoint.velocity` with `position = NaN` + `OffboardControlMode.velocity` | ❓ never exercised |
+| 4 | sensors in | camera, depth, GPU-LiDAR, GPS, IMU, mag, odom | ✅ all publish and pass value checks (2026-08-03) |
+| 5 | all of it over ROS 2 | `px4_msgs` over uXRCE-DDS + `airsim_node` | ✅ for 1 and 4; 2 and 3 unproven |
+
+**The finding that shapes this: there is NO global setpoint message.** `GotoSetpoint` is local
+NED (`position # [m] NED local world frame`) and `VehicleGlobalPosition` is an *estimate output*,
+not a command. So a GPS waypoint cannot be streamed the way a local one is — it goes as a
+**one-shot `VehicleCommand`**, and PX4 executes it in its own navigation mode rather than in
+offboard. **That is an architectural difference, not a detail**: offboard streaming and
+`DO_REPOSITION` are different control paths with different failsafes, and a planner cannot mix
+them casually. Confirming this is the main point of the task.
+
+**Acceptance — each proven by the vehicle MOVING, not by a publisher existing:**
+
+1. **Local waypoint:** commanded a position, reaches it within 1.0 m and holds.
+2. **GPS waypoint:** given a lat/lon ~30 m away, `VehicleGlobalPosition` converges to within
+   ~2 m of the commanded point, and the *local* position moves consistently with it.
+3. **Velocity:** commanded 2 m/s on one axis, measured velocity matches within 0.5 m/s for
+   ≥3 s **and** position integrates in the right direction — velocity alone can be satisfied by
+   a stationary vehicle reporting noise, so both are required.
+4. **Sensors:** `scripts/verify_lane_c_sensors.py` passes (already automated).
+5. **Every command and reading crosses the ROS 2 graph** — no MAVLink shortcut, no RPC.
+   Recorded as an MCAP bag so the evidence is reviewable rather than asserted.
+
+**Verification.** One script, `scripts/verify_nav_interface.py`, run against a `lane_c_up.sh`
+stack; each capability isolated so a failure names which one. Rejections and timeouts are
+failures, not warnings.
+
+**Known risk to check while doing it:** mode transitions. `DO_REPOSITION` requires PX4 to be in
+a nav mode that accepts it, while offboard streaming requires `OFFBOARD` — so the script must
+leave the vehicle in a defined mode between checks or the second check inherits the first's
+state and fails for the wrong reason.
+
+**Blocks:** all Lane C autonomy — planner, VLM client, and the eval harness all emit through
+this interface.
+
+
+---
+
+## `C-16` — an example mission: fly a circuit of the park over ROS 2, recorded
+
+**Status:** `todo` · **Planned 2026-08-03, before implementation** · **Phase 2** · **SITL only.**
+
+**The change.** A runnable example that flies the drone a closed circuit of a world using
+**only** the ROS 2 interface, and records the run in the **same artifact layout Lane A uses**
+so the two lanes stay comparable.
+
+**Why.** `C-15` confirmed the command interface one capability at a time, in isolation. Nothing
+yet shows the interface driving a *whole mission* — takeoff, a multi-leg route, yaw control,
+return, land — with the perception graph running alongside and the whole thing captured. That is
+also the first artifact that makes Lane C demonstrable to someone who is not reading logs.
+
+**Deliberately an example, not a planner.** It flies a fixed geometric circuit. No obstacle
+avoidance, no perception in the loop — those are `C-11` actors and the planner work. Its job is
+to be the reference for *how you drive this vehicle from ROS 2*, short enough to read in one sitting.
+
+**Artifact layout — matches Lane A (`run_gate.py`), which writes `out/<name>-seed<N>/`:**
+
+```
+out/lane-c/park-tour-<UTC timestamp>/
+  park-tour_0.mcap     all /fmu/* + /airsim_node/* + /tf + /clock
+  metadata.yaml        ros2 bag's own
+  summary.json         waypoints, per-leg error, verdict, versions
+  mission.log          the node's stdout
+```
+
+**Acceptance:**
+
+1. Completes a closed circuit and lands, **using only ROS 2** — no RPC, no MAVLink.
+2. Every leg reaches its waypoint within tolerance; worst-case error recorded, not just the mean.
+3. The MCAP contains imagery **and** `/fmu/*` for the whole run — replayable evidence.
+4. `summary.json` carries a machine-readable verdict, matching Lane A's shape.
+5. **Verified in Blocks first**, then run in City Park. Blocks is the known-good control: if the
+   park run fails, that ordering says whether it is the mission or the world.
+
+**Known risk.** City Park's ground at the surveyed spawn is scrub on a slope, and the vehicle
+rests embedded there (`C-13`). Whether PX4 will arm from that pose is **unverified** — if it does
+not, the mission is fine and the spawn needs `C-14`. Test in Blocks first precisely so that
+distinction stays visible.
+
+**Extended 2026-08-03 — a smooth orbit, and the path visualised.** The first implementation flew
+discrete corners and *stopped* at each (arrival required speed < 0.7 m/s), which is correct for a
+waypoint test and looks terrible as a demo: accelerate, brake, rotate, repeat. Added a
+**`mode:=circle`** that streams a continuously moving setpoint around a parametric circle with
+**velocity feed-forward**, so PX4 tracks a smooth arc instead of chasing a stationary target.
+
+Note this uses position **and** velocity together, which is *not* the same as the pure-velocity
+case: with both finite and both flags set, velocity is a feed-forward term. The "position must be
+NaN" rule applies only when commanding velocity alone.
+
+Also produces, from the bag rather than live:
+- `path.png` — the flown ground track against the commanded circle, plus altitude and speed traces
+- `rosgraph.png` — the ROS 2 node/topic graph (headless, via graphviz — `rqt_graph` needs a GUI)
+
+
+---
+
+## `C-17` — 1080p60 video via Pixel Streaming (NVENC), off the perception path
+
+**Status:** 🚫 `blocked` · **Planned and blocked the same day, 2026-08-04** · **Phase 4**
+
+> **BLOCKED — NVENC cannot open an encode session on driver 610.43.03.** UE 5.8's only
+> NVIDIA encoder backend is NVENC, so PixelStreaming2 would fall back to *software* VP8,
+> which is CPU-bound **and** needs frames in system memory — reintroducing the readback
+> this task exists to remove. Evidence, ruled-out causes and options:
+> [`nvenc-driver-blocker.md`](nvenc-driver-blocker.md). Resolving it is an **owner
+> decision** (host driver rebase), and the same change would reopen Lane B.
+>
+> **Interim:** 960×540 at ~14 Hz — measured, works today, ~3× smoother than 1080p's 4.69 Hz.
+
+**The problem, measured.** Every capture route AirSim offers goes through
+`RenderRequest::getScreenshot`, which waits for the next rendered frame and then does a
+**blocking GPU→CPU readback**. Measured cost is ~**71 ms fixed** plus ~5 ms/MB:
+
+| capture | data | time | rate |
+|---|---|---|---|
+| 960×540 | 1.56 MB | 71.1 ms | 14.1 Hz |
+| 1920×1080 | 6.22 MB | 96.9 ms | 10.3 Hz |
+
+4× the data costs only 26 ms more, so this is **latency-bound, not bandwidth-bound** — the
+ceiling is ~13–14 Hz at *any* resolution. Through the ROS 2 wrapper and rosbag it fell to
+**4.69 Hz**. Real-time factor stayed 1.0 throughout, so the engine is not the limit; the round
+trip is.
+
+**AirSim's built-in `startRecording()` does not help** — `FRecordingThread::Run()`
+(`Recording/RecordingThread.cpp:124`) calls the same `getImages()` path. It removes the RPC and
+rosbag hops, not the stall. Checked before testing, which saved the experiment.
+
+**The change.** Use **`PixelStreaming2`** (present in this engine build) to encode the viewport
+with **NVENC on the 3080**. Frames never cross PCIe uncompressed, so the readback disappears and
+60 fps becomes reachable.
+
+**The trick that makes the chase view streamable:** Pixel Streaming encodes the *viewport*, not
+an arbitrary `PIPCamera`. But `SimModeBase.cpp:2120` attaches the viewport to the camera named
+**`"fpv"`** — so naming the chase camera `fpv` and setting `ViewMode: "Fpv"` puts the chase view
+on the viewport, which is what gets encoded. Same discovery that made the vs-native comparison
+possible in `C-11`.
+
+**This keeps the two paths separate, which is the real point.** Perception keeps 640×480 raw in
+ROS 2 at ~20 Hz, undisturbed and in the bag. Video becomes a GPU-side concern that never touches
+DDS. Pushing a presentation artifact down a perception path is what cost the frame rate.
+
+**Acceptance:**
+
+1. The simulator starts headless (`-RenderOffScreen`) with PixelStreaming2 loaded and **NVENC
+   initialised** — confirmed in the log, not assumed.
+2. A recorded file at **1920×1080, ≥30 fps sustained** (60 preferred), of the chase view.
+3. **Perception is unaffected**: `verify_lane_c_sensors.py` still passes and RGB still measures
+   ~17–20 Hz *while streaming*. If video costs perception, the design has failed.
+4. Output is **H.264 yuv420p +faststart** — playable on a phone. (`mp4v` from `cv2` is MPEG-4
+   Part 2 and renders black on most phones; this cost a delivery already.)
+5. Reproducible from a script, not a sequence of manual steps.
+
+**Risks, stated up front:**
+
+- **Headless viewport.** Pixel Streaming is designed for headless cloud rendering, so this
+  *should* work with `-RenderOffScreen`, but it is unverified here.
+- **Consuming the stream is the hard part.** WebRTC needs a signalling server and a client. A
+  browser is not available headless; the candidates are the bundled signalling server plus a
+  gstreamer/`webrtcbin` sink, or `PixelStreamingPlayer`.
+- **New dependency.** A signalling server is Node.js infrastructure the stack does not currently
+  carry, which works against the "reproducible as Docker" goal. It must end up in a Dockerfile,
+  not in someone's shell history.
+
+**Go/no-go spike first:** get the plugin to load headless and NVENC to initialise. If that
+fails, the remaining honest options are 960×540 at 14 Hz, or interpolating frames and labelling
+them as synthesised.
 
 ## C-08 — Cesium georeferenced terrain
 

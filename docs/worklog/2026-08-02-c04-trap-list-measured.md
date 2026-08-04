@@ -286,6 +286,13 @@ no-return sentinel; IMU reads 9.807 m/s² at rest; LiDAR 1500/1500 sampled point
 That is a stability ceiling nobody has characterised, and it is not the same bug as any of the
 above.
 
+> **Followed up 2026-08-03 — not reproduced.** A 90-minute soak of the full stack (PX4, MAVLink,
+> the wrapper polling Scene/Depth/GPU-LiDAR, plus a concurrent RPC client) ran **74,253 captures
+> with zero anomalies** and did not crash. Both candidate mechanisms are refuted: upstream's
+> "segfaults every 2000 or so calls" (wrong by >30×) and the ~57-minute interval. This paragraph
+> is left as written because it was accurate at the time; the current state is in
+> [`docs/vendor/cosys-airsim.md`](../vendor/cosys-airsim.md).
+
 ## Next
 
 1. ~~Put the `/clock` remap into the launch~~ — **done.**

@@ -1,5 +1,11 @@
 # drone-sim — master backlog index
 
+> **Running the simulator? Start at [`quickstart.md`](quickstart.md)**
+> ([HTML](quickstart.html)) — how to launch it, choose a world, select and tune sensors, the
+> full list of sensor topics with types and measured rates, and how to command the drone.
+> **The control interface is ROS 2 only.** Project status lives in
+> [`roadmap.html`](roadmap.html).
+
 **This file only points.** The detail — the change, the reason, and the acceptance
 criterion — lives in the per-area TODO doc. Every feature or non-trivial change must
 exist as a documented TODO in its area doc *before* it is built, and be marked done when
@@ -55,7 +61,37 @@ end to end rather than argued.
 | `C-06` wrapper on Jazzy · `C-01` pin · `C-02` UE5.8 image · `C-03` `/fmu/*` parity | ✅ done |
 | `C-09` make Lane C fly | ✅ done — a stale PX4 EKF origin, not lockstep |
 | `C-10` deterministic bring-up | 🟡 built, verified once; gate now voids mis-ordered stacks |
-| **`C-04` sensors into the ROS 2 graph** | 🟡 **in progress — the current work.** `airsim_node` runs and publishes 14 topics after fixing an upstream data race |
+| `C-04` sensors into the ROS 2 graph | ✅ done — RGB, depth, GPU-LiDAR, IMU, GPS, mag, odom all publish and pass value-based checks |
+| `C-11` photoreal world + actors | 🟡 **in progress.** Photorealism ✅ (see below); **actors not started — the current work** |
+| `C-12` capture aliasing | ⏸️ deferred — `ForceUpdate` fixed the Lumen part; the residual metric is untrustworthy |
+| `C-13` operator-supplied spawn | ✅ done 2026-08-03 |
+| `C-14` automatic spawn derivation | 📋 backlog — unblocked, `C-13` handed it a working ground probe |
+
+### Status 2026-08-03 — **Lane C's imagery is photorealistic, and the reason it wasn't is instructive**
+
+`simGetImages` now matches Unreal's own render of the **same camera actor at the same
+transform** to **1.15 of 255**, across six scenes from close-up to 70 m. The long-running "the
+AirSim capture looks washed out" was **three unrelated faults**, not one:
+
+1. the measurement client read the buffer as BGR when Cosys-AirSim returns **RGB**;
+2. the camera was **inside world geometry** (a near surface blurred by depth-of-field is a film
+   over everything behind it);
+3. `PIPCamera.cpp:701-715` **forces** Lumen GI and reflections to `None` when the settings
+   default is false — in a world authored for Lumen.
+
+**The fix is three `settings.json` keys on a stock plugin binary** — `LumenGIEnable`,
+`LumenReflectionEnable`, `ForceUpdate` — costing ~8.6% RGB and ~10% LiDAR on the real graph.
+
+Two corrections came out of it, both worth more than the fix:
+
+- **The previous day's "the LDR patch changes nothing" was VOID.** Unreal de-duplicates plugins
+  by name+version and had silently loaded a stale backup left inside `Plugins/`; the patched
+  binary was never loaded. Verifying that an artifact *exists* is not verifying it was *used*.
+- **The "31 Hz RGB / 29.6 Hz depth / 17.4 Hz LiDAR" figure is retired.** It does not reproduce
+  (stock now measures 18.7 / 18.1 / 10.0) because it predates `lane_c_perception.launch.py`
+  pinning the poll periods — the launch file caps imagery at 20 Hz and LiDAR at 10 Hz, so the
+  current numbers sit at 94% and 100% of their ceilings. **Nothing regressed; the old number
+  was measuring poll rate, not data rate.**
 
 **Three facts worth carrying into any Lane C session:**
 
@@ -68,9 +104,28 @@ end to end rather than argued.
 - **The Cosys-AirSim fix is not in the tree.** `vendor/` is pristine and must stay so — it needs
   a recorded patch plus `docs/vendor/cosys-airsim.md`.
 
-**Next work: `C-04`'s trap list**, now checkable against a running node — NWU-vs-ENU frames (the
-upstream docs are wrong), `/clock` on the wrong topic, polled-IMU cadence, and the `camera_info`
-frame_id mismatch. All four unverified.
+**Next work: dynamic actors in the user's world — the remaining half of `C-11`.** The world is
+photorealistic and the drone can be placed in it deliberately; what it has no people, vehicles or
+moving obstacles.
+
+The path is settled and needs **no project C++ and no plugin change**: the RPC surface
+(`simListAssets`, `simSpawnObject`, `simSetObjectPose`, `simSetObjectScale`, `simDestroyObject`,
+plus `simAddDetectionFilterMeshName` for ground-truth labels) works in any project, keeping the
+A1 drop-in property. `simGetObjectPose` was exercised against City Park on 2026-08-03, so that
+surface is known live in this build.
+
+**One design decision to make deliberately:** the vendored `-startSeed`/`-spawnAI` determinism
+lives on the **C++ side**, which means adding a `Source/` module and turning A1 into A2 —
+breaking bring-your-own-world for exactly the feature the eval gate needs. **Seed it in our own
+scenario harness instead** (seeded RNG → `simSpawnObject` poses → record the seed): reproducible
+in *any* world, no vendor change, and squarely the "glue is the original work" split this project
+is built on.
+
+**First step, deliberately small:** spawn a few actors into City Park over RPC, confirm they
+appear in **both** RGB and GPU-LiDAR, and re-measure sensor rates with actors present — the
+RGB already sits at 17.1 Hz against a 20 Hz cap. (The old "the segfault gets likelier with more
+actors" caveat is **withdrawn** — it never had a measurement behind it, and a 90-minute full-stack
+soak on 2026-08-03 did not reproduce the crash at all. See `docs/vendor/cosys-airsim.md`.)
 
 ---
 
@@ -231,10 +286,21 @@ Tracked here because they cross phase boundaries. Detail lives in the area doc.
 | ID | Blocker | Blocks | Detail |
 |---|---|---|---|
 | `P0-09` | **RESOLVED as a decision, not a fix.** Isaac Sim 5.1 SIGSEGVs on driver 610.43.03 (validated: 580.65.06); driver comes from the immutable host | Lane B — now **deferred** | [`lane-b/isaac-driver-decision.md`](lane-b/isaac-driver-decision.md) |
+| `C-17b` | **NVENC cannot open an encode session** on driver 610.43.03 — `OpenEncodeSessionEx: unsupported device (2)`. CUDA works; the encoder specifically refuses. UE 5.8's only NVIDIA backend is NVENC, so Pixel Streaming would fall back to *software* VP8 — which reintroduces the readback it exists to avoid | `C-17` (1080p60 video). **Nothing that flies** | [`lane-c/nvenc-driver-blocker.md`](lane-c/nvenc-driver-blocker.md) |
 
-Lane A, Lane C and the VLM server are unaffected. The one open owner-decision is whether
-to rebase the host to an R580 driver, which would reopen Lane B exactly as originally
-planned.
+**The same driver now costs two capabilities, which changes the calculus.** `P0-09` alone was
+arguably tolerable — Lane B was deferred for independent reasons too. With NVENC added, one
+host driver rebase to R580 would plausibly restore **both** Isaac Sim and hardware video
+encoding. That is now the single highest-leverage owner decision open.
+
+Everything that flies is unaffected: perception imagery (640×480 → ROS 2 at ~17–20 Hz), flight,
+control, sensors and MCAP recording all work. What is lost is presentation-quality video above
+~14 Hz, and Lane B.
+
+**Cruel detail worth knowing before deciding:** the driver *does* expose
+`VK_KHR_video_encode_h264` — the hardware encoder is present and functional through Vulkan.
+Neither UE 5.8 (no Vulkan-video-encode backend) nor our ffmpeg 6.1 (no `h264_vulkan`) can reach
+it. The capability exists; the software cannot use it.
 
 ---
 
