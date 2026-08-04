@@ -63,10 +63,18 @@ def main():
     print(f"  {len(xs)} samples, {rel[-1]:.1f}s, xy_valid false on {ok.count(False)}")
 
     cmd_r = cmd_alt = None
+    cmd_cx = cmd_cy = 0.0
     if a.summary and Path(a.summary).exists():
         d = json.load(open(a.summary))
         p = d.get("params", {})
         cmd_r, cmd_alt = p.get("radius"), p.get("altitude")
+        # The orbit is centred on the TAKEOFF position, not on the local origin. summary.json
+        # already records it; assuming (0,0) is right only while takeoff happens to be there,
+        # and would silently mis-draw the reference the moment it is not -- in a plot whose
+        # whole job is to make that kind of divergence visible.
+        org = d.get("origin") or []
+        if len(org) >= 2:
+            cmd_cx, cmd_cy = float(org[0]), float(org[1])
 
     S = a.size
     img = np.full((S + 260, S, 3), BG, np.uint8)
@@ -86,7 +94,7 @@ def main():
         cv2.line(img, p1, p2, GRID, 1)
 
     if cmd_r:
-        c = to_px(0.0, 0.0)
+        c = to_px(cmd_cx, cmd_cy)
         rpx = int(cmd_r / span * (S - 2 * pad))
         cv2.circle(img, c, rpx, CMD, 1, cv2.LINE_AA)
         text(img, f"commanded r={cmd_r:g} m", (c[0] - 60, c[1] - rpx - 10), 0.45, CMD)

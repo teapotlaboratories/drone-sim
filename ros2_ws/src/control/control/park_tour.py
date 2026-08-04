@@ -348,8 +348,52 @@ class ParkTour(Node):
                 "origin": [round(v, 2) for v in self.origin],
                 "track": samples[::10]}
 
+    def validate(self) -> str | None:
+        """Reject parameters that cannot describe a flight. Returns an error, or None.
+
+        Checked BEFORE anything arms, because the alternative is an exception partway through
+        a mission with the vehicle already in the air. `--speed 0` and `--radius 0` both reach
+        `speed / radius` and raise ZeroDivisionError; a negative radius reaches math.sqrt and
+        raises a domain error. None of those is a useful message to debug from.
+        """
+        if self.radius <= 0:
+            return f"radius must be > 0, got {self.radius:g}"
+        if self.alt <= 0:
+            return f"altitude must be > 0, got {self.alt:g} (it is a height, not a NED z)"
+        if self.mode == "circle":
+            if self.speed <= 0:
+                return f"speed must be > 0 for a circle, got {self.speed:g}"
+            if self.laps <= 0:
+                return f"laps must be > 0, got {self.laps:g}"
+            if self.max_accel <= 0:
+                return f"max_accel must be > 0, got {self.max_accel:g}"
+        else:
+            if self.legs < 3:
+                return f"legs must be >= 3 to close a circuit, got {self.legs}"
+            if self.tol <= 0:
+                return f"tolerance must be > 0, got {self.tol:g}"
+        if self.mode not in ("circle", "waypoints"):
+            return f"mode must be 'circle' or 'waypoints', got {self.mode!r}"
+        return None
+
+    def safe_land(self) -> bool:
+        """Land and disarm. Called on the failure path too -- see main().
+
+        An armed vehicle must never be abandoned because the mission code raised. PX4's
+        offboard-loss failsafe would eventually act in SITL, but this node is the reference for
+        driving the aircraft from ROS 2 and the sim/real boundary here is only a transport swap.
+        """
+        self.command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+        landed = self.spin_until(lambda: not self.armed(), 90.0)
+        self.command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, p1=0)
+        self.spin_until(lambda: not self.armed(), 5.0)
+        return landed
+
     def run(self) -> dict:
         log = self.get_logger()
+        bad = self.validate()
+        if bad:
+            return {"ok": False, "error": f"invalid parameters: {bad}"}
         if not self.spin_until(lambda: self.local is not None and self.status is not None, 30.0):
             return {"ok": False, "error": "no /fmu/out telemetry — check QoS (trap 1)"}
 
@@ -376,9 +420,7 @@ class ParkTour(Node):
 
         if self.mode == "circle":
             result = self.run_circle()
-            self.command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-            result["landed"] = self.spin_until(lambda: not self.armed(), 90.0)
-            self.command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, p1=0)
+            result["landed"] = self.safe_land()
             result["ok"] = bool(result.get("ok")) and result["landed"]
             return result
 
@@ -431,9 +473,7 @@ class ParkTour(Node):
                      f"settled {err_settled:.2f} m")
 
         # --- land
-        self.command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-        landed = self.spin_until(lambda: not self.armed(), 90.0)
-        self.command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, p1=0)
+        landed = self.safe_land()
 
         worst = max((l["error_m"] for l in legs), default=float("nan"))
         ok = all(l["ok"] for l in legs) and landed
@@ -450,8 +490,15 @@ def main(argv=None):
     node = ParkTour()
     try:
         result = node.run()
-    except Exception as e:                                     # a crash must still leave a record
+    except (Exception, KeyboardInterrupt) as e:                # a crash must still leave a record
         result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        # An armed vehicle must not be abandoned because the mission code raised. Ctrl-C is
+        # included deliberately: interrupting a flight is the most likely way this path is hit.
+        try:
+            if node.armed():
+                result["emergency_land"] = node.safe_land()
+        except Exception as land_err:
+            result["emergency_land_error"] = f"{type(land_err).__name__}: {land_err}"
     finally:
         path = node.summary_path
         node.destroy_node()
