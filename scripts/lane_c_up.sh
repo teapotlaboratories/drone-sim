@@ -24,8 +24,87 @@ SETTLE_SAMPLES=${SETTLE_SAMPLES:-5}     # consecutive stable ground-truth reads 
 SETTLE_EPS=${SETTLE_EPS:-0.05}          # metres of movement tolerated between reads
 ORIGIN_RETRIES=${ORIGIN_RETRIES:-2}     # PX4 restarts allowed before giving up
 
+# C-13: where to put the vehicle. AirSim spawns at a level's PlayerStart and falls back to world
+# ORIGIN when there isn't one -- and an arbitrary world has no obligation to put usable ground
+# there, so in a user's own map the drone can spawn INSIDE the terrain. Blocks has ground at the
+# origin, so the default is empty and nothing changes for it.
+#   ./scripts/lane_c_up.sh --spawn 50,-30,-10       (metres, NED: Z NEGATIVE is UP)
+#   SPAWN=50,-30,-10,315 ./scripts/lane_c_up.sh     (fourth component is yaw, degrees)
+SPAWN=${SPAWN:-}
+SPAWN_VEHICLE=${SPAWN_VEHICLE:-}
+SPAWN_ALLOW_BELOW=${SPAWN_ALLOW_BELOW:-}
+WORLD=${WORLD:-}                        # .uproject to load; default is the vendored Blocks
+
 log() { printf '\033[36m[lane-c]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[lane-c] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+usage: lane_c_up.sh [--world PATH.uproject] [--settings PATH.json]
+                    [--spawn X,Y,Z[,YAW]] [--vehicle NAME] [--allow-below-origin]
+
+  --settings PATH       your own settings.json — selects which sensors are active and
+                        their tuning (camera resolution/FOV, LiDAR channels, rates).
+                        Copied to a run-time file; the committed artifact is untouched.
+
+  --spawn X,Y,Z[,YAW]   vehicle spawn in metres, NED. Z NEGATIVE is UP: for 10 m of
+                        altitude pass Z=-10. Written into a RUN-TIME copy of
+                        sim/ue5/settings.json; the committed file is never modified.
+  --vehicle NAME        required only when settings.json defines several vehicles.
+  --world PATH          .uproject to load (default: the vendored Blocks environment).
+  --allow-below-origin  permit a positive Z (i.e. genuinely below the origin).
+
+Environment equivalents: SPAWN, SPAWN_VEHICLE, WORLD, SETTINGS_FILE, SPAWN_ALLOW_BELOW.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --settings)           SETTINGS_FILE="${2:-}"; shift 2 ;;
+    --settings=*)         SETTINGS_FILE="${1#*=}"; shift ;;
+    --spawn)              SPAWN="${2:-}";         shift 2 ;;
+    --spawn=*)            SPAWN="${1#*=}";        shift ;;
+    --vehicle)            SPAWN_VEHICLE="${2:-}"; shift 2 ;;
+    --vehicle=*)          SPAWN_VEHICLE="${1#*=}"; shift ;;
+    --world)              WORLD="${2:-}";         shift 2 ;;
+    --world=*)            WORLD="${1#*=}";        shift ;;
+    --allow-below-origin) SPAWN_ALLOW_BELOW=1;    shift ;;
+    -h|--help)            usage; exit 0 ;;
+    *)                    usage >&2; die "unknown argument: $1" ;;
+  esac
+done
+
+# The settings file the simulator is actually given. Rewritten only when a spawn is requested,
+# so a plain run still mounts the committed artifact unchanged.
+BASE_SETTINGS="${SETTINGS_FILE:-$REPO/sim/ue5/settings.json}"
+[ -f "$BASE_SETTINGS" ] || die "settings file not found: $BASE_SETTINGS"
+
+# A user-supplied settings file is NORMALISED into the run-time copy rather than mounted from
+# wherever it lives. Two reasons: a file under /tmp cannot be bind-mounted read-only (it is on
+# the container's fuse-overlayfs — "remount-ro: operation not permitted"), and copying keeps the
+# committed artifact untouched whichever source is used.
+SETTINGS="$BASE_SETTINGS"
+if [ -n "$SPAWN" ] || [ "$BASE_SETTINGS" != "$REPO/sim/ue5/settings.json" ]; then
+  RUN_SETTINGS="$REPO/sim/ue5/.settings.run.json"
+  cp "$BASE_SETTINGS" "$RUN_SETTINGS"
+  chmod 644 "$RUN_SETTINGS"
+  SETTINGS="$RUN_SETTINGS"
+  [ "$BASE_SETTINGS" != "$REPO/sim/ue5/settings.json" ] && log "settings: $BASE_SETTINGS"
+fi
+if [ -n "$SPAWN" ]; then
+  # Deliberately NOT mktemp/$TMPDIR. /tmp is on the container's fuse-overlayfs, and a read-only
+  # bind mount from there is refused by the daemon:
+  #   remount-ro /var/lib/docker/fuse-overlayfs/.../settings.json: operation not permitted
+  # The repo is a host bind mount, so a file beside the source mounts exactly like the source.
+  # Gitignored as sim/ue5/.settings.run.json.
+  args=(--settings "$SETTINGS" --out "$SETTINGS" --spawn "$SPAWN")
+  [ -n "$SPAWN_VEHICLE" ]     && args+=(--vehicle "$SPAWN_VEHICLE")
+  [ -n "$SPAWN_ALLOW_BELOW" ] && args+=(--allow-below-origin)
+  # A bad spawn must ABORT here. Falling through to the committed settings would start the
+  # stack at the origin while the operator believes their coordinate took effect -- which is
+  # the original bug wearing a fix's clothing.
+  python3 "$REPO/scripts/apply_spawn.py" "${args[@]}" || die "spawn rejected; not starting"
+fi
 
 # --------------------------------------------------------------------------------------
 teardown() {
@@ -37,16 +116,25 @@ start_sim() {
   log "starting simulator (ipc shareable: it is the netns + /dev/shm donor)"
   # --ipc shareable is not optional: Fast-DDS discovers over UDP but DELIVERS over shared
   # memory, and a joiner with its own /dev/shm sees silence on a healthy stack (D-02).
+  local mounts=(-v "$REPO/vendor/Cosys-AirSim:/src")
+  local uproject=/src/Unreal/Environments/Blocks/Blocks.uproject
+  if [ -n "$WORLD" ]; then
+    [ -f "$WORLD" ] || die "world not found: $WORLD"
+    # The user's project is mounted read-write: Unreal writes Saved/ and shader caches into it.
+    mounts+=(-v "$(cd "$(dirname "$WORLD")" && pwd):/world")
+    uproject="/world/$(basename "$WORLD")"
+    log "world: $uproject"
+  fi
   docker run -d --name "$SIM" \
     --ipc shareable \
     --gpus '"device=nvidia.com/gpu=0"' \
-    -v "$REPO/vendor/Cosys-AirSim:/src" \
-    -v "$REPO/sim/ue5/settings.json:/settings.json:ro" \
+    "${mounts[@]}" \
+    -v "$SETTINGS:/settings.json:ro" \
     -v lane-c-ddc:/home/ue4/.config/Epic \
     drone-sim/lane-c:ue5.8 \
-    bash -lc '/home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
-      /src/Unreal/Environments/Blocks/Blocks.uproject -game -RenderOffScreen -nosound \
-      -unattended -stdout -settings=/settings.json' >/dev/null
+    bash -lc "/home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
+      $uproject -game -RenderOffScreen -nosound \
+      -unattended -stdout -settings=/settings.json" >/dev/null
 }
 
 join() {  # join(name, image, cmd...) -- share the sim's network AND ipc namespaces
