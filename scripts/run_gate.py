@@ -100,8 +100,9 @@ def check_run(result: dict, scenario: dict) -> tuple[bool, str]:
 
 
 # How long to keep waiting for the EKF to establish an origin after a stack restart, and
-# how often to re-ask. restart_stack() waits for CONTAINER HEALTH, which is not the same
-# event -- PX4 can be up and healthy with ref_alt still NaN for several seconds.
+# how often to re-ask. sim_up.sh returns once it has verified an origin, but the gate must not
+# assume that: --reuse skips the restart entirely, and a stack brought up by hand has had no
+# such verification. PX4 can be running with ref_alt still NaN for several seconds.
 ORIGIN_WAIT_S = 90
 ORIGIN_POLL_S = 3
 
@@ -134,8 +135,8 @@ def _origin_void_reason() -> str:
 
     WAITS for an origin before judging, which the first version did not.
 
-    `restart_stack()` returns once containers report healthy, and PX4 publishes `ref_alt` as
-    NaN until its EKF has actually established an origin. Checking immediately therefore
+    A stack can be up while PX4 still publishes `ref_alt` as NaN -- the EKF has not yet
+    established an origin. Checking immediately therefore
     races the estimator: the checker correctly reports VOID_UNKNOWN, the seed is voided, and
     because ANY void blocks the criterion, one slow start turns the whole gate INCONCLUSIVE.
     A 10-seed run passed 10/10 with zero voids before this wait existed -- by timing

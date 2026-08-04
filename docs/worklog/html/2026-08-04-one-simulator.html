@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog · 2026-08-04 · SIM-18</span>
-  <nav><a href="#why">Why now</a><a href="#moved">What moved</a><a href="#cold">Cold cache</a><a href="#unrecorded">Unrecorded image</a><a href="#gazebo">The strip</a><a href="#frozen">Left alone</a><a href="#flew">It flew</a><a href="#open">Still open</a><a href="index.html">Index</a></nav>
+  <nav><a href="#why">Why now</a><a href="#moved">What moved</a><a href="#cold">Cold cache</a><a href="#unrecorded">Unrecorded image</a><a href="#gazebo">The strip</a><a href="#frozen">Left alone</a><a href="#flew">It flew</a><a href="#review">Review</a><a href="#open">Still open</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -189,6 +189,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <li><a href="#gazebo">The Gazebo strip, measured</a></li>
   <li><a href="#frozen">Two things deliberately not done</a></li>
   <li><a href="#flew">Verified by flying it</a></li>
+  <li><a href="#review">What the review found</a></li>
   <li><a href="#open">One observation left open</a></li>
 </ol></div>
 
@@ -360,7 +361,60 @@ recorded patches:</p>
 <p><code>landed: true</code> &middot; worst 1.856 m against a 2.0 m tolerance &middot; MCAP 3.0 GB kept
 &middot; tier-1 CI passes all eight checks.</p>
 
-<h2 id="open"><span class="secnum">08</span> One observation left open rather than explained away</h2>
+<h2 id="review"><span class="secnum">08</span> The review found two real defects &mdash; one written the same hour</h2>
+<p>Run against the PR before merge. Both are in code this change introduced.</p>
+
+<div class="callout stop"><span class="lbl">1 &mdash; <code>grep -q</code> on a pipe, under <code>pipefail</code>. The same trap, twice in one session.</span>
+<p><code>wait_for_sim_link</code> detected the link with
+<code>docker logs sim-px4 2&gt;&amp;1 | grep -q '&hellip;'</code>. <code>grep -q</code> exits on its
+first match and closes the pipe; <code>docker logs</code> takes SIGPIPE and the pipeline returns
+141. Under <code>set -o pipefail</code> the <code>if</code> reads <strong>false at exactly the
+moment the match succeeds</strong> &mdash; but only when PX4 has printed enough after the match to
+still be writing. The link is never detected, the bring-up burns the full 900 s, and it fails
+with &ldquo;PX4 never connected&rdquo; on a stack that connected fine.</p>
+<p><strong>It passed twice in testing because the log happened to be small enough both times.</strong>
+A timing-dependent failure that passes your verification run is worse than one that always fails.
+Fixed by capturing to a variable and matching with <code>case</code> &mdash; no pipe at all.</p>
+<p>The identical defect had been caught and fixed in <code>docker/video.Dockerfile</code> earlier
+the same day, where <code>ffmpeg -encoders | grep -q libx264</code> failed the image build with exit
+141. Knowing the trap did not stop it being written again eighty lines later.</p></div>
+
+<div class="callout stop"><span class="lbl">2 &mdash; moving the harness off compose silently deleted an artifact assertion</span>
+<p>The retired compose stack wrote <code>/ros2_ws/.build-ok</code> only after proving
+<code>install/control/lib/control/offboard_control</code> existed and
+<code>import drone_interfaces.msg</code> worked, and gated a healthcheck on it.
+<code>sim_up.sh</code> echoes <code>BUILD_OK</code> and <strong>nothing reads it</strong>.</p>
+<p>Nothing downstream could catch the gap: <code>wait_for_fmu</code> and <code>verify_origin</code>
+both source <code>/ros2_ws/install/setup.bash</code>, which the image already ships populated with
+<code>px4_msgs</code>, so both pass on the base image alone. The script would print
+<strong>&ldquo;safe to fly&rdquo;</strong> over a container with no <code>control</code> package in
+it; the gate would then score every seed a <strong>flight failure</strong> with the compiler output
+already discarded to <code>/dev/null</code>.</p>
+<p>A build error reported as a control defect is exactly the failure shape this project keeps
+paying for &mdash; the EKF-origin bug presented the same way for a full day.</p></div>
+
+<p><b>Verified by breaking the code it guards.</b> A syntax error in <code>control/setup.py</code>
+now yields:</p>
+<pre><code>Failed   &lt;&lt;&lt; control [0.09s, exited with code 1]
+[sim] FATAL: the ROS 2 workspace did not build within 300s. Do NOT score runs on this
+             stack -- a missing 'control' package presents as a flight failure, not a
+             build failure.</code></pre>
+
+<p>Eight lower-severity findings were also fixed: a <code>versions.lock</code> pointer in three
+<code>settings.json</code> files that the section rename had broken
+(<code>simulator.px4</code> &rarr; <code>renderer.px4</code>), <code>check_image_refs.py</code>
+splitting <code>git ls-files</code> on whitespace instead of <code>-z</code> (fail-open on any path
+with a space), the Gazebo pin that both new <code>versions.lock</code> headers <em>claimed</em> had
+moved to <code>retired:</code> but had not, <code>autopilot.px4</code> still describing a
+<code>gz_x500</code> build and a <code>GZ_IP</code> launch env, and four stale comments naming the
+deleted compose stack.</p>
+
+<div class="callout"><span class="lbl">Worth noting about the review itself</span>
+<p>38 candidate findings, <strong>20 refuted on inspection</strong>. Several of the refutations were
+the useful part &mdash; &ldquo;this is byte-identical to <code>main</code>&rdquo; and &ldquo;this
+describes pre-existing behaviour&rdquo; kept real-looking findings out of the fix list.</p></div>
+
+<h2 id="open"><span class="secnum">09</span> One observation left open rather than explained away</h2>
 <div class="callout stop"><span class="lbl">Leg 2 settles 73.603 m from where it arrived</span>
 <p>Its arrival error was 1.856 m, and legs 1, 3, 4 and 5 all settle inside 0.3 m. Leg 3 then
 arrives correctly at <code>[-25.2, 0.15]</code>, so whatever happened did not derail the mission.</p>

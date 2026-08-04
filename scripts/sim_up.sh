@@ -213,21 +213,77 @@ SIM_LINK_TIMEOUT=${SIM_LINK_TIMEOUT:-900}
 wait_for_sim_link() {
   log "waiting for PX4 to connect to the renderer on TCP 4560 (up to ${SIM_LINK_TIMEOUT}s)"
   log "  a cold shader cache makes the first run of a world slow; this is progress, not a hang"
-  local waited=0
+  local waited=0 px4log running
   while [ "$waited" -lt "$SIM_LINK_TIMEOUT" ]; do
-    if docker logs sim-px4 2>&1 | grep -q 'Simulator connected on TCP port 4560'; then
-      log "renderer link up after ${waited}s"
-      return 0
-    fi
-    # A crashed renderer must not be waited out for fifteen minutes.
-    docker ps --format '{{.Names}}' | grep -qx sim-unreal \
-      || die "sim-unreal exited while PX4 was waiting for it -- check: docker logs sim-unreal"
+    # CAPTURE THEN MATCH -- deliberately NOT `docker logs ... | grep -q`.
+    #
+    # `grep -q` exits on its first match and closes the pipe; `docker logs` then takes
+    # SIGPIPE and the pipeline returns 141. Under `set -o pipefail` (line 24) the `if`
+    # therefore reads FALSE at exactly the moment the match succeeds, and only when PX4 has
+    # printed enough after the match to still be writing -- so the link is never detected,
+    # bring-up burns the full 900 s, and it fails with "PX4 never connected" on a stack that
+    # connected fine. It is timing-dependent, which is worse than always broken.
+    px4log=$(docker logs sim-px4 2>&1 || true)
+    case "$px4log" in
+      *"Simulator connected on TCP port 4560"*)
+        log "renderer link up after ${waited}s"
+        return 0 ;;
+    esac
+    # Neither the renderer nor PX4 dying should be waited out for fifteen minutes. Same
+    # capture-then-match rule: a pipeline here would reintroduce the defect above.
+    running=$(docker ps --format '{{.Names}}')
+    case "$running" in
+      *sim-unreal*) : ;;
+      *) die "sim-unreal exited while PX4 was waiting for it -- check: docker logs sim-unreal" ;;
+    esac
+    case "$running" in
+      *sim-px4*) : ;;
+      *) die "sim-px4 exited before it could reach the renderer -- check: docker logs sim-px4" ;;
+    esac
     sleep 5
     waited=$((waited + 5))
     [ $((waited % 60)) -eq 0 ] && log "  still waiting (${waited}s) -- shader compilation on a cold cache"
   done
   die "PX4 never connected to the renderer within ${SIM_LINK_TIMEOUT}s. Raise SIM_LINK_TIMEOUT, \
 or check: docker logs sim-unreal"
+}
+
+# Wait for the ROS 2 workspace to BUILD, and assert its artifacts.
+#
+# WHY THIS IS A BARRIER OF ITS OWN, added 2026-08-04.
+#
+# Nothing downstream can catch a failed workspace build. wait_for_fmu and verify_origin both
+# source /ros2_ws/install/setup.bash, which the image already ships populated with px4_msgs and
+# px4_ros_com -- so both pass happily on the base image alone, and this script would print
+# "safe to fly" over a container with no `control` package in it. The gate would then exec
+# `ros2 run control offboard_control`, get "Package 'control' not found", write no result, and
+# score the seed as a FLIGHT FAILURE. A build error would be reported as a control defect, for
+# every seed, with the compiler output already discarded.
+#
+# The retired compose stack got this right with a `.build-ok` marker written only after the
+# artifacts were proven, gated by a healthcheck. That guarantee is restored here rather than
+# lost with the file.
+WORKSPACE_TIMEOUT=${WORKSPACE_TIMEOUT:-300}
+
+wait_for_workspace() {
+  log "waiting for the ROS 2 workspace to build (up to ${WORKSPACE_TIMEOUT}s)"
+  local waited=0
+  while [ "$waited" -lt "$WORKSPACE_TIMEOUT" ]; do
+    if docker exec sim-ros2 test -f /ros2_ws/.build-ok 2>/dev/null; then
+      log "workspace built and artifacts verified after ${waited}s"
+      return 0
+    fi
+    docker exec sim-ros2 true 2>/dev/null \
+      || die "sim-ros2 is not running -- check: docker logs sim-ros2"
+    sleep 5
+    waited=$((waited + 5))
+  done
+  # Surface the reason rather than the symptom: the container logs carry the FATAL line and
+  # the build tail, and both are far more useful than a timeout message.
+  log "workspace never built. Last output from sim-ros2:"
+  docker logs --tail 40 sim-ros2 2>&1 | sed 's/^/    /' || true
+  die "the ROS 2 workspace did not build within ${WORKSPACE_TIMEOUT}s. Do NOT score runs on \
+this stack -- a missing 'control' package presents as a flight failure, not a build failure."
 }
 
 wait_for_fmu() {
@@ -281,14 +337,38 @@ join sim-qgc  drone-sim/qgc:v1.16.0
 docker run -d --name sim-ros2 --network "container:$SIM" --ipc "container:$SIM" \
   -v "$REPO/ros2_ws:/ros2_ws_src" -v "$REPO/out:/out" \
   -v "$REPO/vendor/Cosys-AirSim:/vendor/Cosys-AirSim:ro" drone-sim/ros2:v1.16.0 bash -lc '
-    mkdir -p /ros2_ws/src; for p in interfaces control bringup; do cp -r "/ros2_ws_src/src/$p" "/ros2_ws/src/$p"; done
-    cd /ros2_ws && colcon build --symlink-install --packages-skip px4_msgs px4_ros_com >/dev/null 2>&1 && echo BUILD_OK
+    rm -f /ros2_ws/.build-ok
+    mkdir -p /ros2_ws/src
+    # A failed copy used to be indistinguishable from a healthy start. Fail loudly.
+    for p in interfaces control bringup; do
+      rm -rf "/ros2_ws/src/$p"
+      cp -r "/ros2_ws_src/src/$p" "/ros2_ws/src/$p" \
+        || { echo "ros2: FATAL - could not copy $p from /ros2_ws_src"; exit 1; }
+    done
+    cd /ros2_ws
+    # ASSERT ON ARTIFACTS, NOT ON THE EXIT STATUS. `colcon build` exits 0 when it finds no
+    # packages at all, and an ament_python build never checks imports -- which is exactly how
+    # drone_interfaces once shipped missing while colcon reported success and the node died at
+    # import. The marker file is written ONLY after both artifacts are proven to exist.
+    if colcon build --symlink-install --packages-skip px4_msgs px4_ros_com > /ros2_ws/build.log 2>&1; then
+      if [ -x /ros2_ws/install/control/lib/control/offboard_control ] \
+         && bash -lc ". /ros2_ws/install/setup.bash && python3 -c \"import drone_interfaces.msg\"" >/dev/null 2>&1; then
+        touch /ros2_ws/.build-ok; echo "ros2: workspace built, artifacts verified"
+      else
+        echo "ros2: FATAL - colcon reported success but the artifacts are not there"
+      fi
+    else
+      echo "ros2: FATAL - workspace build failed; see /ros2_ws/build.log"
+      tail -30 /ros2_ws/build.log
+    fi
     exec sleep infinity' >/dev/null
 
-# Two distinct waits, in order, because they fail for different reasons and a single
+# Three distinct waits, in order, because they fail for different reasons and a single
 # combined timeout cannot tell them apart:
-#   1. PX4 <-> renderer MAVLink link   -- slow on a cold shader cache, minutes
-#   2. EKF establishes a finite origin -- seconds once sensors flow
+#   1. the ROS 2 workspace BUILDS         -- ~90 s, and a failure here is not a flight failure
+#   2. PX4 <-> renderer MAVLink link      -- slow on a cold shader cache, minutes
+#   3. EKF establishes a finite origin    -- seconds once sensors flow
+wait_for_workspace
 wait_for_sim_link
 wait_for_fmu
 

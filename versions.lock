@@ -174,13 +174,15 @@ autopilot:
     disk: 2.6 GB
     status: LOCKED   # smoke-tested 2026-07-28 (P0-07)
     vendor_path: vendor/PX4-Autopilot-v1.16
-    build: bash Tools/setup/ubuntu.sh && make px4_sitl gz_x500
-    smoke: "make px4_sitl gz_x500 — do NOT append _default"
+    build: bash Tools/setup/ubuntu.sh --no-sim-tools && make px4_sitl_default
+    smoke: "make px4_sitl_default — do NOT append _default to a target name"
     smoke_result: >-
-      P0-07, 300 s continuous headless: 0 Accel/Mag TIMEOUT, 0 ERROR lines, RTF
-      1.000/1.000/1.000 over 15 samples, 24 /fmu/out/* topics at 100.02 Hz
-      (std dev 0.002 s), px4+gz+agent all alive at end.
-    launch_env: "HEADLESS=1 GZ_IP=127.0.0.1"
+      HISTORICAL, measured 2026-07-28 against the retired Gazebo stack and kept because it is
+      the provenance of this pin: 300 s continuous headless, 0 Accel/Mag TIMEOUT, 0 ERROR
+      lines, RTF 1.000/1.000/1.000 over 15 samples, 24 /fmu/out/* topics at 100.02 Hz
+      (std dev 0.002 s). Do NOT quote that RTF for the current stack — lockstep is dead code
+      in Cosys-AirSim, so every timing number here is free-running.
+    launch_env: "HEADLESS=1"   # GZ_IP dropped 2026-08-04 with Gazebo
     launch_requirement: >-
       MUST be launched with a BLOCKING stdin, e.g. under screen with `stty min 1 time 0`.
       PX4's pxh shell (platforms/posix/src/px4/common/px4_daemon/pxh.cpp) clears ICANON
@@ -190,7 +192,7 @@ autopilot:
       core consumed. This filled a 32 GB tmpfs, destroyed RTF measurements mid-run, broke
       tooling, and caused sensor TIMEOUTs via I/O saturation. With `stty min 1`: ~28 KB per
       300 s. Upstream defect; report it. Recommended launcher:
-      screen -dmS px4sitl -L -Logfile <log> bash -c "stty min 1 time 0; make px4_sitl gz_x500"
+      screen -dmS px4sitl -L -Logfile <log> bash -c "stty min 1 time 0; ./bin/px4 ..."
       (also gives an attachable, interactive console: screen -r px4sitl)
     note: >-
       This tree also serves REAL hardware (Pixhawk 6C). v1.16 introduced uORB message
@@ -210,18 +212,6 @@ autopilot:
       reproducible pin, the dated sync stamp (20260616.084553) is. rclpy imports on
       Python 3.12.3 — this is the system-Jazzy half of the Isaac 3.11/3.12 split, and it
       must never be sourced into Isaac's interpreter.
-  gazebo:
-    version: Harmonic
-    exact_version: gz-harmonic 1.0.0-1~noble   # installed + verified 2026-07-28
-    gz_sim: gz-sim8 8.14.0-1~noble
-    gz_tools: gz-tools2 2.0.3-2~noble
-    status: observed
-    installed_by: PX4 Tools/setup/ubuntu.sh (exit 0, 0 errors)
-    note: >-
-      Constrain transport to LOOPBACK — Gazebo multicast flooding the host network is a
-      documented root cause of the Accel/Mag TIMEOUT failures (PX4/PX4-Autopilot#24595).
-      Runs here set GZ_IP=127.0.0.1 and HEADLESS=1. The container's isolated netns helps
-      but is not a substitute for the setting.
   nuttx_toolchain:
     arm_none_eabi_gcc: "20231009"
     status: observed
@@ -340,6 +330,24 @@ autopilot:
 retired:
   role: components this project retired. Kept because each is reversible, and because
         deleting a pin deletes the reason it was chosen.
+  gazebo:
+    version: Harmonic
+    exact_version: gz-harmonic 1.0.0-1~noble   # installed + verified 2026-07-28
+    gz_sim: gz-sim8 8.14.0-1~noble
+    gz_tools: gz-tools2 2.0.3-2~noble
+    status: retired          # removed from the image 2026-08-04
+    was_installed_by: PX4 Tools/setup/ubuntu.sh (exit 0, 0 errors)
+    removed: >-
+      2026-08-04, with the parallel Gazebo stack. docker/px4.Dockerfile now builds with
+      `Tools/setup/ubuntu.sh --no-sim-tools` and ASSERTS the absence (`! dpkg -s gz-harmonic`),
+      because an apt install elsewhere in the chain could pull it back in silently.
+      MEASURED: 11.6 GB -> 11.0 GB. The renderer is Unreal, reached over the Simulator MAVLink
+      API, so nothing in this project loads a gz world.
+    note: >-
+      Kept as a pin because the reasoning is still worth having if Gazebo ever returns:
+      constrain transport to LOOPBACK — multicast flooding the host network is a documented
+      root cause of the Accel/Mag TIMEOUT failures (PX4/PX4-Autopilot#24595). Runs then set
+      GZ_IP=127.0.0.1 and HEADLESS=1; an isolated netns helps but does not replace the setting.
   px4:
     repo: https://github.com/PX4/PX4-Autopilot.git
     tag: v1.14.3

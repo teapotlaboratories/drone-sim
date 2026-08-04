@@ -217,6 +217,65 @@ thing this project has learned costs a day later.
 
 ---
 
+## The review found two real defects in this work, and one of them I had just written
+
+Run against the PR before merge. Both are in code this change introduced.
+
+**1. `grep -q` on a pipe, under `pipefail` — the same trap, twice in one session.**
+`wait_for_sim_link` detected the link with `docker logs sim-px4 2>&1 | grep -q '...'`.
+`grep -q` exits on its first match and closes the pipe; `docker logs` then takes SIGPIPE and
+the pipeline returns 141. Under `set -o pipefail` the `if` therefore reads **false at exactly
+the moment the match succeeds** — but only when PX4 has printed enough after the match to
+still be writing. So the link is never detected, the bring-up burns the full 900 s, and it
+fails with "PX4 never connected" on a stack that connected fine.
+
+It passed twice in testing because the log happened to be small enough both times. **A
+timing-dependent failure that passes your verification run is worse than one that always
+fails.** Fixed by capturing to a variable and matching with `case` — no pipe at all.
+
+The same defect had been caught and fixed in `docker/video.Dockerfile` earlier the same day,
+where `ffmpeg -encoders | grep -q libx264` failed the image build with exit 141. Knowing the
+trap did not stop me writing it again eighty lines later.
+
+**2. Moving the harness off compose silently deleted an artifact assertion.** The retired
+compose stack wrote `/ros2_ws/.build-ok` only after proving
+`install/control/lib/control/offboard_control` existed and `import drone_interfaces.msg`
+worked, and gated a healthcheck on it. `sim_up.sh` echoes `BUILD_OK` and **nothing reads it**.
+
+Nothing downstream could catch the gap either: `wait_for_fmu` and `verify_origin` both source
+`/ros2_ws/install/setup.bash`, which the image already ships populated with `px4_msgs` — so
+both pass on the base image alone. The script would print **"safe to fly"** over a container
+with no `control` package in it, the gate would exec `ros2 run control offboard_control`, get
+`Package 'control' not found`, write no result, and score the seed as a **flight failure** —
+for every seed, with the compiler output already discarded to `/dev/null`.
+
+A build error reported as a control defect is exactly the failure shape this project keeps
+paying for: the EKF-origin bug presented the same way for a full day.
+
+Fixed with a `wait_for_workspace` barrier that asserts both artifacts before writing the
+marker, and surfaces the build tail on timeout. **Verified by breaking the code it guards** —
+a syntax error in `control/setup.py` now yields:
+
+```
+Failed   <<< control [0.09s, exited with code 1]
+[sim] FATAL: the ROS 2 workspace did not build within 300s. Do NOT score runs on this
+             stack -- a missing 'control' package presents as a flight failure, not a
+             build failure.
+```
+
+Eight lower-severity findings were also fixed: a `versions.lock` pointer in three
+`settings.json` files that the section rename had broken (`simulator.px4` → `renderer.px4`),
+`check_image_refs.py` splitting `git ls-files` on whitespace instead of `-z` (fail-open on any
+path with a space), the Gazebo pin that both new `versions.lock` headers *claimed* had moved
+to `retired:` but had not, `autopilot.px4` still describing a `gz_x500` build and a `GZ_IP`
+launch env, and four stale comments naming the deleted compose stack.
+
+**Worth noting about the review itself:** 38 candidate findings, 20 refuted on inspection.
+Several of the refutations were the useful part — "this is byte-identical to `main`" and "this
+describes pre-existing behaviour" kept real-looking findings out of the fix list.
+
+---
+
 ## What this changes for anyone working here
 
 - The bring-up is `./scripts/sim_up.sh`. There is no compose file, and there never was one for

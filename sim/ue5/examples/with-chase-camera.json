@@ -24,7 +24,7 @@
     "tracking wall time rather than stepping. LockStep is left true deliberately - it states",
     "the INTENT and will start working the moment the vendor patch lands (SIM-09). Until then,",
     "treat every timing number here as free-running. See versions.lock",
-    "simulator.px4.THREE_DEFECTS_TO_EXPECT (2)."
+    "renderer.px4.THREE_DEFECTS_TO_EXPECT (2)."
   ],
   "ClockType": "SteppableClock",
   "Vehicles": {
