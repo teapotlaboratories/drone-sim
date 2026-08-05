@@ -10,7 +10,7 @@
 # absolute altitude) commanded a descent into the ground, nothing moved, PX4 auto-disarmed,
 # and every symptom pointed at the flight code. The flight code was fine.
 #
-# So this script does NOT just start five containers. It waits for the vehicle to be settled
+# So this script does NOT just start four containers. It waits for the vehicle to be settled
 # before PX4 connects, and then VERIFIES the origin rather than assuming the wait was enough.
 #
 # The configuration below was recovered from a stack that was verified flying 4/4 waypoints,
@@ -114,6 +114,9 @@ fi
 # --------------------------------------------------------------------------------------
 teardown() {
   log "removing any previous stack"
+  # sim-xrce is listed although this script no longer creates it: the agent moved into
+  # sim-ros2, and a stale sim-xrce left by an older checkout would still hold udp/8888,
+  # so the new agent would fail to bind -- and it exits 0 when it does.
   docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce "$SIM" >/dev/null 2>&1 || true
 }
 
@@ -124,7 +127,7 @@ start_sim() {
   #
   # --shm-size=2g goes with it. Docker defaults /dev/shm to 64 MB, and because this container
   # DONATES its namespace, that 64 MB is the whole stack's shared-memory budget -- PX4, the
-  # XRCE agent and every ROS 2 node included. Fast-DDS starves at that size; it was measured
+  # uXRCE-DDS agent and every ROS 2 node included. Fast-DDS starves at that size; it was measured
   # on the retired Gazebo stack, which set it in compose and is where the number comes from.
   # The simulator ran without it, which proves 64 MB is survivable at these rates, not that
   # it is correct: the failure mode is silent starvation under load, not a clean error.
@@ -242,10 +245,43 @@ wait_for_sim_link() {
     esac
     sleep 5
     waited=$((waited + 5))
-    [ $((waited % 60)) -eq 0 ] && log "  still waiting (${waited}s) -- shader compilation on a cold cache"
+    # Report what is ACTUALLY happening rather than asserting a cause. The old message said
+    # "shader compilation on a cold cache" unconditionally, and when a user world failed to load
+    # for an entirely different reason it sent the reader to raise a timeout that was never the
+    # problem. An error that names an unverified cause is worse than one that names none.
+    if [ $((waited % 60)) -eq 0 ]; then
+      if [ "$(docker logs "$SIM" 2>&1 | grep -aic airsim || true)" -gt 0 ]; then
+        log "  still waiting (${waited}s) -- AirSim is up; the level is still loading"
+      else
+        log "  still waiting (${waited}s) -- AirSim has logged nothing yet"
+      fi
+    fi
   done
-  die "PX4 never connected to the renderer within ${SIM_LINK_TIMEOUT}s. Raise SIM_LINK_TIMEOUT, \
-or check: docker logs sim-unreal"
+  # DIAGNOSE before dying. The three causes look identical from PX4's side -- it just sits in
+  # "Waiting for simulator to accept connection on TCP port 4560" -- but they need opposite
+  # fixes, and only one of them is a timeout.
+  local airsim_lines workers
+  airsim_lines=$(docker logs "$SIM" 2>&1 | grep -aic airsim || true)
+  workers=$(docker exec "$SIM" bash -lc 'ps -eo comm 2>/dev/null | grep -c ShaderCompileWorker' 2>/dev/null || echo 0)
+  log "diagnosis: AirSim log lines=${airsim_lines}  shader workers=${workers}"
+  if [ "$airsim_lines" -eq 0 ]; then
+    die "PX4 never reached the renderer in ${SIM_LINK_TIMEOUT}s, and THE AIRSIM PLUGIN LOGGED \
+NOTHING -- so it never instantiated and there was never going to be a listener on 4560. This is \
+almost always the world's config, not a timeout. Check that GlobalDefaultGameMode is \
+/Script/AirSim.AirSimGameMode:
+    grep -i GlobalDefaultGameMode <your-project>/Config/DefaultEngine.ini
+  Fix it by injecting properly:  scripts/inject_airsim.py <your.uproject> --map <YourMap> --force
+  Raising SIM_LINK_TIMEOUT will NOT help."
+  fi
+  if [ "$workers" -gt 0 ]; then
+    die "PX4 never reached the renderer in ${SIM_LINK_TIMEOUT}s, but ${workers} ShaderCompileWorker \
+process(es) are still running -- it is genuinely still compiling, not stuck. Re-run with a larger \
+budget; the derived-data cache persists in the sim-ddc volume, so the next run is much faster:
+    SIM_LINK_TIMEOUT=3600 ./scripts/sim_up.sh ..."
+  fi
+  die "PX4 never reached the renderer in ${SIM_LINK_TIMEOUT}s. AirSim HAS logged (${airsim_lines} \
+lines) but no shader work is in progress, so it is neither misconfigured nor still compiling -- \
+read the renderer log directly:  docker logs $SIM"
 }
 
 # Wait for the ROS 2 workspace to BUILD, and assert its artifacts.
@@ -321,22 +357,52 @@ teardown
 start_sim
 wait_for_settled_vehicle
 
-log "starting XRCE agent, PX4, QGC and the ROS 2 workspace"
-join sim-xrce drone-sim/px4:v1.16.0 bash -lc 'MicroXRCEAgent udp4 -p 8888'
-join sim-px4  drone-sim/px4:v1.16.0 bash -lc \
-  'stty min 1 time 0 2>/dev/null; cd /opt/px4/build/px4_sitl_default && \
-   PX4_SYS_AUTOSTART=10016 PX4_SIM_HOSTNAME=127.0.0.1 ./bin/px4 -s etc/init.d-posix/rcS -d 2>&1'
-# QGC supplies the GCS datalink. NAV_DLL_ACT is left ENFORCED on purpose, because a real
-# Pixhawk refuses to arm without a datalink and the whole point is that sim and real differ
-# only by transport -- so this container is load-bearing, not a convenience. Stop it and
-# arming is denied, verified both directions.
-join sim-qgc  drone-sim/qgc:v1.16.0
+log "starting the companion (agent + ROS 2), PX4 and QGC"
+
+# THE COMPANION CONTAINER GOES UP FIRST, and that ordering is load-bearing.
+#
+# It hosts the uXRCE-DDS agent, which PX4 dials at 127.0.0.1:8888 the moment its
+# uxrce_dds_client starts. The agent used to live in its own container created BEFORE PX4;
+# folding it in here without moving this `docker run` up would have started PX4 first and
+# left the client retrying against nothing.
+#
 # vendor/ is mounted read-only for SIM-04: the Cosys-AirSim ROS 2 wrapper (airsim_node) is
 # built from source here, and colcon compiles AirLib itself via add_subdirectory, so it needs
 # the whole tree rather than just ros2/src.
 docker run -d --name sim-ros2 --network "container:$SIM" --ipc "container:$SIM" \
   -v "$REPO/ros2_ws:/ros2_ws_src" -v "$REPO/out:/out" \
   -v "$REPO/vendor/Cosys-AirSim:/vendor/Cosys-AirSim:ro" drone-sim/ros2:v1.16.0 bash -lc '
+    # --- the uXRCE-DDS agent, supervised ------------------------------------------------
+    #
+    # It runs HERE because this is the companion computer. On the aircraft the agent is a
+    # process on the Jetson beside every other ROS 2 node, not a machine of its own -- it is
+    # plumbing that makes /fmu/* appear, and nothing connects to it directly. Giving it a
+    # container of its own modelled a boundary that does not exist.
+    #
+    # A SUPERVISING SUBSHELL, not `agent &` and not `exec agent`. Both of those were measured
+    # and both are silently wrong:
+    #   * `MicroXRCEAgent & ... exec sleep infinity` -- exec REPLACES the parent, so nothing
+    #     ever reaps the child. A crashed agent becomes a ZOMBIE that `pgrep -f MicroXRCEAgent`
+    #     still matches, so a liveness check reports healthy over a dead bridge. `--init` does
+    #     not fix it.
+    #   * `exec MicroXRCEAgent` as PID 1 -- a crash then takes the whole container down,
+    #     including the ROS 2 workspace and any in-flight `docker exec`, which destroys the
+    #     MCAP that is the only evidence a failing run leaves.
+    # The loop below stays the parent, so it reaps, and it restarts the bridge rather than
+    # leaving the graph silently dead. That is strictly more than the separate container had:
+    # this stack has never carried a restart policy on anything.
+    #
+    # `MicroXRCEAgent` EXITS 0 ON A BIND FAILURE, so "it started" proves nothing. What proves
+    # it is wait_for_fmu below: real /fmu/out topics with a finite EKF origin.
+    ( while true; do
+        MicroXRCEAgent udp4 -p 8888 2>&1 | sed -u "s/^/[xrce] /"
+        # PIPESTATUS[0], not $? -- the agent is the HEAD of a pipe, so $? is sed'"'"'s status and
+        # reports 0 no matter how the agent died. Measured: a SIGKILLed agent logged "rc=0".
+        rc=${PIPESTATUS[0]}
+        echo "[xrce] agent exited (rc=$rc) -- restarting in 2s"
+        sleep 2
+      done ) &
+
     rm -f /ros2_ws/.build-ok
     mkdir -p /ros2_ws/src
     # A failed copy used to be indistinguishable from a healthy start. Fail loudly.
@@ -362,6 +428,15 @@ docker run -d --name sim-ros2 --network "container:$SIM" --ipc "container:$SIM" 
       tail -30 /ros2_ws/build.log
     fi
     exec sleep infinity' >/dev/null
+
+join sim-px4  drone-sim/px4:v1.16.0 bash -lc \
+  'stty min 1 time 0 2>/dev/null; cd /opt/px4/build/px4_sitl_default && \
+   PX4_SYS_AUTOSTART=10016 PX4_SIM_HOSTNAME=127.0.0.1 ./bin/px4 -s etc/init.d-posix/rcS -d 2>&1'
+# QGC supplies the GCS datalink. NAV_DLL_ACT is left ENFORCED on purpose, because a real
+# Pixhawk refuses to arm without a datalink and the whole point is that sim and real differ
+# only by transport -- so this container is load-bearing, not a convenience. Stop it and
+# arming is denied, verified both directions.
+join sim-qgc  drone-sim/qgc:v1.16.0
 
 # Three distinct waits, in order, because they fail for different reasons and a single
 # combined timeout cannot tell them apart:

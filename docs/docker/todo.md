@@ -516,6 +516,67 @@ transports.
 | Jetson Orin NX — companion: **XRCE agent + ROS 2 nodes** | one `companion` container | **split across `sim-xrce` and `sim-ros2`** |
 | Ground laptop — QGroundControl | `sim-qgc` | `sim-qgc` ✅ |
 
+### The companion row is DONE — 2026-08-04. Agent merged into `sim-ros2`; 5 containers -> 4
+
+Prompted by "can we merge the agent, PX4 and ROS 2 — in the real world that is one machine?"
+**PX4 is not on that machine**: `versions.lock` `hardware:` puts PX4 on the Pixhawk 6C and the
+agent + ROS 2 nodes on the Jetson Orin NX, joined by a UART. So the companion row is
+agent + ROS 2, PX4 stays out — and that is what shipped.
+
+**The honest case for it is simplicity, not fidelity, and the distinction is worth keeping.**
+The agent is *plumbing*: it makes `/fmu/*` appear, nothing connects to it directly, and on the
+Jetson it is a process beside the ROS 2 nodes rather than a machine. Its own container modelled
+a boundary that exists nowhere in the real system. What the merge does **not** buy:
+
+- **It moves zero packets.** `sim-xrce` and `sim-ros2` already shared one netns and one
+  `/dev/shm` (`sim_up.sh:153-157`, open-coded again at the ros2 `docker run`). On the real
+  Jetson, agent↔nodes is also loopback + shared memory. The link the merge touched was already
+  faithful.
+- **The unfaithful link is untouched.** Real hardware runs `uxrce_dds_client -t serial -d
+  ${SERIAL_DEV}` (`module.yaml:1-14`); SITL hardcodes `-t udp -h 127.0.0.1` at
+  `ROMFS/…/init.d-posix/rcS:317`. `PX4_UXRCE_DDS_PORT` and `_NS` are env-overridable; **the
+  HOST is not.** This doc's trap note used to say "the address is a parameter, so this is
+  configuration" — that was optimistic, and it is corrected above. Making it real needs a
+  custom `-s` startup script or a vendor patch under the least-destructive rule.
+- **The image boundary is leakier than the container boundary ever was.** `drone-sim/ros2` is
+  `FROM drone-sim/px4`, so the "Jetson" container already ships the whole PX4 SITL build
+  (~90 `px4-*` modules) and is amd64 where the Jetson is arm64.
+
+**What it DID buy, and this is the part that justified doing it:** supervision the stack never
+had. Three shapes were measured; two are silently wrong.
+
+| Shape | What a crash does |
+|---|---|
+| `agent & … exec sleep infinity` | `exec` replaces the parent, nothing reaps — the dead agent becomes a **zombie** that `pgrep -f` still matches. Green healthcheck, dead bridge. `--init` does not fix it |
+| `exec MicroXRCEAgent` as PID 1 | takes the workspace and any in-flight `docker exec` with it, **destroying the MCAP** |
+| **supervising subshell** (shipped) | stays the parent, so it reaps and restarts |
+
+Verified by killing it: agent SIGKILLed at pid 55, back at pid 1546 within ~2 s, container still
+`Running`, **0 zombies**, `[xrce] agent exited … restarting` in `docker logs`. Before this, no
+container in the stack had a restart policy at all — a regression from the retired compose stack
+that this row closes for the agent.
+
+**Two traps found while building it, both now in `docker/README.md`:**
+
+1. **`MicroXRCEAgent` exits 0 on a bind failure**, so "it started and returned success" is
+   compatible with no bridge at all.
+2. **`pgrep -f MicroXRCEAgent` matches the supervising loop**, whose own command line contains
+   the string — it reports a hit whether or not the agent is alive. Measured: `pgrep` returned
+   the loop's pid, not the agent's.
+   **So never health-check the agent by its process.** `wait_for_fmu` asserts the data — real
+   `/fmu/out` topics with a finite EKF origin — which is what actually proves a bridge.
+3. Diagnostic bug caught in review of the shipped loop: `$?` after `agent | sed` is **sed's**
+   status, so a SIGKILLed agent logged `rc=0`. Uses `${PIPESTATUS[0]}` now; demonstrated —
+   `false | sed` gives `$?=0` but `PIPESTATUS[0]=1`, and a SIGKILL gives `137`.
+
+`sim-xrce` remains in both teardown lists (`sim_up.sh`, `run_park_tour.sh`) although nothing
+creates it: a stale container from an older checkout would hold `udp/8888`, and per trap 1 the
+new agent would exit 0 rather than complain.
+
+**Still open on this task — the harder two rows.** The renderer is still the namespace donor the
+whole stack joins, which this doc calls the worst of the three boundaries and which the
+companion merge does not touch. Do not read this row's completion as `D-06` being done.
+
 **Why.** The current split does **not** buy isolation, and it never did: every container
 shares one network namespace *and* one `/dev/shm`. That is one machine wearing five hats —
 they can see each other's loopback and each other's shared memory, and the only real boundary

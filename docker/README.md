@@ -56,13 +56,44 @@ else is bind-mounted at run time, so editing a script does not trigger an 11 GB 
 
 ## The containers `sim_up.sh` starts
 
-| Container | Image | Role |
-|---|---|---|
-| `sim-unreal` | `drone-sim/unreal:ue5.8` | the renderer, on **GPU 0**. Donates its network namespace, IPC namespace and `/dev/shm` to the rest |
-| `sim-xrce` | `drone-sim/px4:v1.16.0` | `MicroXRCEAgent udp4 -p 8888` — the PX4↔ROS 2 bridge |
-| `sim-px4` | `drone-sim/px4:v1.16.0` | PX4 SITL, airframe 10016, talking the Simulator MAVLink API to the renderer |
-| `sim-qgc` | `drone-sim/qgc:v1.16.0` | the GCS datalink. **Load-bearing, not a viewer** |
-| `sim-ros2` | `drone-sim/ros2:v1.16.0` | builds and runs `interfaces`, `control`, `bringup`; hosts the AirSim wrapper |
+**Four, and the rule is one container per machine that will exist when this flies for real.**
+
+| Container | Image | Real counterpart | Role |
+|---|---|---|---|
+| `sim-unreal` | `drone-sim/unreal:ue5.8` | none — it *is* the world | the renderer, on **GPU 0**. Donates its network namespace, IPC namespace and `/dev/shm` to the rest |
+| `sim-px4` | `drone-sim/px4:v1.16.0` | **Pixhawk 6C** | PX4 SITL, airframe 10016, talking the Simulator MAVLink API to the renderer |
+| `sim-ros2` | `drone-sim/ros2:v1.16.0` | **Jetson Orin NX** | the uXRCE-DDS agent **and** `interfaces`/`control`/`bringup`; hosts the AirSim wrapper |
+| `sim-qgc` | `drone-sim/qgc:v1.16.0` | **ground station** | the GCS datalink. **Load-bearing, not a viewer** |
+
+**PX4 stays separate because that boundary is the sim-to-real claim.** On the aircraft PX4 runs
+on its own flight-controller board and reaches the companion over a UART; sim and real differ
+*only* by the transport across that line. Folding PX4 into `sim-ros2` would erase it in the
+layout.
+
+**The agent is not separate, because it is plumbing.** `MicroXRCEAgent` is what makes `/fmu/*`
+appear; nothing connects to it directly, and on the Jetson it is a process beside the ROS 2
+nodes rather than a machine. It had its own `sim-xrce` container until 2026-08-04 — a boundary
+that exists nowhere in the real system.
+
+It now runs inside `sim-ros2` under a **supervising subshell**, not `agent &` and not
+`exec agent`. Both of those were measured and both are silently wrong:
+
+| Shape | What a crash does |
+|---|---|
+| `agent & … exec sleep infinity` | `exec` replaces the parent, so nothing reaps: the dead agent becomes a **zombie** that `pgrep -f` still matches. Healthcheck green, bridge dead. `--init` does not fix it |
+| `exec MicroXRCEAgent` as PID 1 | takes the container down with it — the ROS 2 workspace **and** any in-flight `docker exec`, destroying the MCAP that is a failing run's only evidence |
+| **supervising loop** (what is used) | loop stays the parent, so it reaps and restarts. Verified: agent SIGKILLed, back in ~2 s with a new pid, container still `Running`, **0 zombies**, restart logged |
+
+That is strictly more than the separate container had — this stack has never carried a restart
+policy on anything.
+
+> **Two reasons never to health-check the agent by its process.** `MicroXRCEAgent` **exits 0 on
+> a bind failure**, and `pgrep -f MicroXRCEAgent` **also matches the supervising loop**, whose
+> command line contains the string. Both report success over a dead bridge. Assert on the data:
+> `wait_for_fmu` requires real `/fmu/out` topics with a **finite** EKF origin.
+
+`sim-xrce` is still in both teardown lists on purpose — a stale one from an older checkout would
+hold `udp/8888`, and the new agent exits 0 when it cannot bind.
 
 Volume `sim-ddc` holds Unreal's derived-data cache (`/home/ue4/.config/Epic`), so a second
 run does not recompile shaders.
