@@ -153,7 +153,7 @@ is not enough, and a container per process is too many.
 |---|---|---|
 | `sim-unreal` | `drone-sim/unreal:ue5.8` | **none** — it *is* the world. Also the namespace donor (see below) |
 | `sim-px4` | `drone-sim/px4:v1.16.0` | the **Pixhawk 6C** — PX4 firmware, on its own board |
-| `sim-ros2` | `drone-sim/ros2:v1.16.0` | the **Jetson Orin NX** — the uXRCE-DDS agent *and* every ROS 2 node |
+| `sim-ros2` | `drone-sim/ros2:v1.16.0` | the **Jetson Orin NX** — the uXRCE-DDS bridge and this repo's reference nodes. **Not where your code goes** — see below |
 | `sim-qgc` | `drone-sim/qgc:v1.16.0` | the **ground station** — the only MAVLink-over-IP client |
 
 **Why PX4 is separate.** On the aircraft PX4 runs on dedicated flight-controller hardware and
@@ -178,6 +178,36 @@ that modelled a boundary which does not exist anywhere in the real system. It no
 >
 > What proves the bridge is up is the bring-up's `wait_for_fmu`: real `/fmu/out` topics
 > carrying a **finite** EKF origin. **Assert on the data, never on the process.**
+
+#### Your code does not live in any of them
+
+**The simulator does not host your application.** `sim-ros2` runs the uXRCE-DDS bridge and this
+repo's reference nodes — `interfaces`, `control`, `bringup` — which exist to prove the graph
+works, not to be where you build. Your autonomy code stays yours: your image, your workspace,
+your branch. It attaches to the running graph from outside:
+
+```bash
+./scripts/attach.sh --image my/autonomy:latest ros2 run my_pkg my_node
+./scripts/attach.sh                 # or just an interactive shell, ROS 2 already sourced
+```
+
+> **Sharing the network namespace is not enough, and the failure is silent.** Fast-DDS
+> *discovers* over UDP but *delivers* over shared memory, and every container gets its own
+> `/dev/shm`. Measured against a live stack:
+>
+> | attach | `ros2 topic list` | `ros2 topic echo` |
+> |---|---|---|
+> | `--network container:sim-unreal` | **51 topics** | **nothing** |
+> | `--network …` **and** `--ipc container:sim-unreal` | 51 topics | `123.283` |
+>
+> The half-right invocation gives you a graph that looks perfect in every diagnostic and
+> carries no data at all — you would debug your own node for an afternoon. `attach.sh` passes
+> both flags so you cannot get it half right.
+
+Two things your image needs: **`px4_msgs` built from the same branch as the firmware**
+(`release/1.16` — base on `drone-sim/ros2:v1.16.0` and you get it), and **`BEST_EFFORT` +
+`TRANSIENT_LOCAL` QoS** on `/fmu/out/*`, because a default `RELIABLE` subscription matches
+nothing and reads as silence. Both are in [`docs/conventions.md`](docs/conventions.md).
 
 **Why QGroundControl is a container and not an afterthought.** PX4 refuses to arm without a GCS
 datalink (`NAV_DLL_ACT=2`), and that check is deliberately left **enforced** because a real
