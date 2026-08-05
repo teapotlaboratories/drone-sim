@@ -191,18 +191,25 @@ your branch. It attaches to the running graph from outside:
 ./scripts/attach.sh                 # or just an interactive shell, ROS 2 already sourced
 ```
 
-> **Sharing the network namespace is not enough, and the failure is silent.** Fast-DDS
-> *discovers* over UDP but *delivers* over shared memory, and every container gets its own
-> `/dev/shm`. Measured against a live stack:
+**A native `ros2` install needs no configuration at all.** A process in its own namespaces
+already receives the whole graph — Fast-DDS falls back to UDP on its own. No DDS profile, no
+published ports, no flags. All it needs is `px4_msgs` (below).
+
+> **The one combination that does NOT work is sharing the network namespace alone** — and it
+> is worse than sharing nothing. Measured against a live stack, same subscriber, three ways:
 >
-> | attach | `ros2 topic list` | `ros2 topic echo` |
-> |---|---|---|
-> | `--network container:sim-unreal` | **51 topics** | **nothing** |
-> | `--network …` **and** `--ipc container:sim-unreal` | 51 topics | `123.283` |
+> | attach | messages received |
+> |---|---|
+> | no namespaces shared (fully separate) | **3** ✓ |
+> | `--network container:sim-unreal` | **0** ✗ |
+> | `--network …` **and** `--ipc container:sim-unreal` | **3** ✓ |
 >
-> The half-right invocation gives you a graph that looks perfect in every diagnostic and
-> carries no data at all — you would debug your own node for an afternoon. `attach.sh` passes
-> both flags so you cannot get it half right.
+> Sharing the netns makes Fast-DDS see the peer as same-host, so it picks the shared-memory
+> transport — but `/dev/shm` is still your own, and nothing is delivered. `ros2 topic list`
+> shows all 51 topics throughout. **Share both, or share neither.** `attach.sh` shares both.
+
+Use `attach.sh` when you want the shared-memory path (large image topics) or a shell with the
+stack's environment ready; run natively when you would rather not containerise.
 
 Two things your image needs: **`px4_msgs` built from the same branch as the firmware**
 (`release/1.16` — base on `drone-sim/ros2:v1.16.0` and you get it), and **`BEST_EFFORT` +

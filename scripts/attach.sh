@@ -16,17 +16,22 @@
 #
 # THE TRAP THIS SCRIPT EXISTS TO CLOSE -- MEASURED, NOT THEORETICAL
 #
-# Sharing the network namespace is NOT enough. Fast-DDS DISCOVERS over UDP but DELIVERS over
-# SHARED MEMORY, and each container gets its own /dev/shm. Measured against a live stack:
+# Sharing the network namespace WITHOUT sharing IPC is the one combination that does not
+# work, and it is worse than sharing nothing at all. Measured against a live stack, same
+# subscriber, three ways:
 #
-#   --network container:sim-unreal                    ros2 topic list -> 51 topics
-#                                                     ros2 topic echo -> NOTHING
-#   --network container:sim-unreal --ipc container:sim-unreal
-#                                                     ros2 topic list -> 51 topics
-#                                                     ros2 topic echo -> 123.283
+#   no namespaces shared (fully separate)   3 messages   OK
+#   --network container:sim-unreal          0 messages   BROKEN
+#   --network ... --ipc container:sim-unreal 3 messages  OK
 #
-# So the half-right invocation gives you a graph that looks perfect in every diagnostic and
-# carries no data at all. You would debug your own node for an afternoon. Both flags, always.
+# Why the middle one fails: sharing the netns makes Fast-DDS see the peer as same-host, so it
+# picks the SHARED MEMORY transport -- but /dev/shm is still your own, so nothing is
+# delivered. `ros2 topic list` shows all 51 topics throughout. Share both, or share neither.
+#
+# YOU MAY NOT NEED THIS SCRIPT AT ALL. A process in its own namespaces already receives the
+# whole graph over UDP, with no flags and no DDS configuration -- Fast-DDS falls back on its
+# own. Use attach.sh when you want the shared-memory path (large image topics) or a shell
+# with the stack's environment already set up.
 #
 # WHAT YOUR IMAGE NEEDS
 #
