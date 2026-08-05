@@ -262,7 +262,13 @@ wait_for_sim_link() {
   # fixes, and only one of them is a timeout.
   local airsim_lines workers
   airsim_lines=$(docker logs "$SIM" 2>&1 | grep -aic airsim || true)
-  workers=$(docker exec "$SIM" bash -lc 'ps -eo comm 2>/dev/null | grep -c ShaderCompileWorker' 2>/dev/null || echo 0)
+  # `|| true`, NOT `|| echo 0`. `grep -c` PRINTS its count and EXITS 1 when the count is zero,
+  # docker exec propagates that 1, so `|| echo 0` fires IN ADDITION to grep's own output and
+  # workers becomes "0\n0" -- which then makes `[ "$workers" -gt 0 ]` emit
+  # "integer expression expected". That is the common case, and it turned a diagnostic into a
+  # shell error. `true` prints nothing, so the count survives alone.
+  workers=$(docker exec "$SIM" bash -lc 'ps -eo comm 2>/dev/null | grep -c ShaderCompileWorker' 2>/dev/null || true)
+  workers=${workers:-0}
   log "diagnosis: AirSim log lines=${airsim_lines}  shader workers=${workers}"
   if [ "$airsim_lines" -eq 0 ]; then
     die "PX4 never reached the renderer in ${SIM_LINK_TIMEOUT}s, and THE AIRSIM PLUGIN LOGGED \
@@ -316,8 +322,12 @@ wait_for_workspace() {
   done
   # Surface the reason rather than the symptom: the container logs carry the FATAL line and
   # the build tail, and both are far more useful than a timeout message.
-  log "workspace never built. Last output from sim-ros2:"
-  docker logs --tail 40 sim-ros2 2>&1 | sed 's/^/    /' || true
+  # Filter the agent's own chatter FIRST, then tail. The uXRCE-DDS agent shares this
+  # container's log and narrates every DDS entity PX4 creates -- measured at 159 lines inside a
+  # minute -- so a plain `--tail 40` shows forty lines of [xrce] and hides the build error this
+  # message exists to surface.
+  log "workspace never built. Last output from sim-ros2 (agent chatter filtered):"
+  docker logs --tail 400 sim-ros2 2>&1 | grep -v '^\[xrce\] ' | tail -40 | sed 's/^/    /' || true
   die "the ROS 2 workspace did not build within ${WORKSPACE_TIMEOUT}s. Do NOT score runs on \
 this stack -- a missing 'control' package presents as a flight failure, not a build failure."
 }
