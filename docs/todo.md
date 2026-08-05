@@ -2380,6 +2380,64 @@ Still open:
 
 ---
 
+## `SIM-20` — reach the graph across a link with no multicast
+
+**Status:** `done` — **2026-08-05.** `DISCOVERY_SERVER=<ip>:<port>` in `sim_up.sh`.
+
+The question was how an autonomy computer on another machine subscribes to this simulator.
+`NET_MODE=host` (`SIM-18` follow-up) answered it for a LAN that forwards multicast. It does
+**not** answer it for a VPN or a routed subnet, because DDS discovers over UDP multicast
+(`239.255.0.1:7400`) and neither forwards it — `mc_forwarding=0` on every interface here, and
+no mroute daemon.
+
+### The correction this entry exists to record
+
+**This was filed as "tested and rejected — participants undiscoverable by any route", and that
+conclusion was wrong.** The Discovery Server works. It was rejected on a measurement that could
+not have shown otherwise:
+
+1. The control experiment — two plain ROS 2 nodes through the server — was never run. Had it
+   been, it would have failed *too*, which points at the harness rather than the server.
+2. Both test containers shared `--network host` but **not** `/dev/shm`. That is the documented
+   discovery-without-delivery trap from `attach.sh`: Fast-DDS sees a same-host peer, picks the
+   shared-memory transport, and delivers nothing. Discovery had succeeded the whole time —
+   `count_publishers` returned 1. A **delivery** failure was read as a **discovery** failure.
+3. The stack's own health check made it look worse. `wait_for_fmu` runs `ros2 topic echo`, which
+   resolves the message **type** from the graph before subscribing. A plain discovery *client* is
+   never told about unmatched participants, so it fails with `Could not determine the type for
+   the passed topic` and the bring-up reported `no finite EKF origin` — pointing at the EKF for
+   what was a graph-introspection problem. `ROS_SUPER_CLIENT=true` fixes it and is now set.
+
+The lesson is the cheap one: **run the control experiment.** A negative result with no control
+is not a result.
+
+### Measured, 2026-08-05
+
+Full stack up under `NET_MODE=host DISCOVERY_SERVER=127.0.0.1:11811`, reaching `safe to fly`
+with the EKF origin verified. Subscriber in a container sharing **no** namespaces, discovery-server
+only — a DS client emits no multicast SPDP at all, so nothing else could have carried it:
+
+```
+topics seen by the peer    53   (51 /fmu)   identical to what the stack itself sees
+stack → peer               1904 vehicle_local_position + 1904 sensor_combined in 20 s
+                           ref_alt 123.285 m — matches the verified origin
+peer  → stack              5/5 commands published externally arrived inside the stack
+```
+
+Both directions, so this carries control and not only telemetry.
+
+### Notes for whoever touches this next
+
+- `ros2 node list` is **0** for `/fmu/*` in every mode, multicast included — the agent creates
+  raw DDS participants with no ROS 2 node metadata. Not a symptom.
+- The server is a discovery rendezvous only; **data still flows peer-to-peer**, so the two
+  machines need direct routable reachability. It removes the multicast requirement, not the
+  routing one.
+- Unrelated to this entry but load-bearing for any external subscriber: `/fmu/out/*` is
+  BEST_EFFORT + TRANSIENT_LOCAL, and a default RELIABLE subscription matches nothing.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:

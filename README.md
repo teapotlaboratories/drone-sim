@@ -316,9 +316,9 @@ variance.
 
 ### Network and ports
 
-`sim_up.sh` **publishes nothing to the host.** The renderer owns the network namespace and every
-other container joins it with `--network container:` **and** `--ipc container:` — sharing the
-network namespace alone gets you topic names in `ros2 topic list` and **silence** from
+**By default `sim_up.sh` publishes nothing to the host.** The renderer owns the network namespace
+and every other container joins it with `--network container:` **and** `--ipc container:` — sharing
+the network namespace alone gets you topic names in `ros2 topic list` and **silence** from
 `ros2 topic echo`, because Fast-DDS discovers over UDP but *delivers* over shared memory.
 
 Inside that namespace: **4560/tcp** simulator ↔ PX4 MAVLink, **8888/udp** uXRCE-DDS agent,
@@ -332,6 +332,70 @@ Inside that namespace: **4560/tcp** simulator ↔ PX4 MAVLink, **8888/udp** uXRC
 > today, and that is the safe default. If you publish any of these ports onto a host interface,
 > anyone routable can arm and command the vehicle — do that on a trusted network only, and note
 > that the same setting later points at a **real** Pixhawk.
+
+### Reaching the graph from another machine
+
+Your autonomy computer is usually not this machine — it is a Jetson on the bench or a box across
+the LAN. Two switches cover that, and **both are off by default**: the stack publishes nothing and
+is reachable only from the host it runs on, because host mode exposes unauthenticated MAVLink and
+that is a decision to make per network, not a default to inherit.
+
+Which switch you need is decided by **one question: does the path between the two machines carry
+UDP multicast?** DDS discovers over multicast (`239.255.0.1:7400`) by default, and a VPN or a routed
+subnet almost never forwards it.
+
+| Path between the machines | Switch | What the peer gets |
+|---|---|---|
+| Same host | *(default)* `NET_MODE=shared` | private namespace, nothing published |
+| LAN that forwards multicast | `NET_MODE=host` | the whole graph, no DDS config |
+| VPN / routed subnet — **no multicast** | `NET_MODE=host` + `DISCOVERY_SERVER=<ip>:<port>` | the whole graph over plain unicast |
+
+```bash
+# LAN
+NET_MODE=host ./scripts/sim_up.sh
+
+# VPN: run a discovery server anywhere both machines can reach, then point the stack at it
+fastdds discovery -i 0 -l 0.0.0.0 -p 11811 &
+NET_MODE=host DISCOVERY_SERVER=127.0.0.1:11811 ./scripts/sim_up.sh
+```
+
+`DISCOVERY_SERVER` changes only **how peers find each other** — it implies no network mode. You
+still need `NET_MODE=host` for the stack to advertise a routable address rather than the
+docker-bridge `172.17.0.2` that only this machine can reach.
+
+On the **subscriber**, point at the same server and use the UDP-only profile:
+
+```bash
+export ROS_DISCOVERY_SERVER=<server-ip>:11811
+export ROS_SUPER_CLIENT=true
+export FASTRTPS_DEFAULT_PROFILES_FILE=/path/to/configs/dds/udp-only.xml
+```
+
+Measured against a live stack, from a container sharing **no** namespaces with it and using **no**
+multicast — the graph the peer sees is identical to the graph the stack sees (53 topics, 51
+`/fmu/`), and both directions carry traffic:
+
+```
+stack → peer    1904 vehicle_local_position + 1904 sensor_combined   in 20 s
+                ref_alt 123.285 m — matches the verified EKF origin
+peer  → stack   5/5 commands published externally arrived inside the stack
+```
+
+> **`ROS_SUPER_CLIENT=true` is not optional, and omitting it looks like a total failure.** A plain
+> discovery *client* is only told about participants it has already matched. `ros2 topic echo` has
+> to resolve the message **type** from the graph *before* it can subscribe, so as a plain client it
+> fails with `Could not determine the type for the passed topic` — with a healthy publisher sitting
+> right there. `sim_up.sh` sets it for you; set it on your side too.
+
+> **`ros2 node list` returns 0 for `/fmu/*` — in every mode, including plain multicast.** The
+> uXRCE-DDS agent creates raw DDS participants without ROS 2 node metadata. Topics and data are
+> fine; only the node listing is empty. Do not read it as a broken link.
+
+> **The server is a rendezvous, not a relay.** Data still flows peer-to-peer, so the two machines
+> need direct routable reachability — it removes the multicast requirement, not the routing one.
+
+> Host mode puts PX4's **unauthenticated** MAVLink ports on every interface this machine has,
+> including the VPN. Use it on a network you trust.
 
 ---
 

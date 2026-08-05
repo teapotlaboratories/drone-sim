@@ -67,6 +67,72 @@ Each has an environment equivalent: `WORLD`, `SETTINGS_FILE`, `SPAWN`, `SPAWN_VE
 > beneath it. If you do not know the ground height at your `(X, Y)`, release high and read the
 > resting position back (§5) — that *is* a ground probe.
 
+### Running your autonomy on another machine
+
+By default the stack **publishes nothing** and is reachable only from the machine it runs on. That
+is `NET_MODE=shared`: the renderer donates a private network and IPC namespace and every other
+container joins it. If your code runs here too, use [`scripts/attach.sh`](../scripts/attach.sh) and
+stop reading.
+
+If your autonomy computer is a *different* machine — a Jetson on the bench, a box across the
+LAN — you opt in. Which switch you need is decided by **one question: does the path between the two
+machines carry UDP multicast?** DDS discovers over multicast (`239.255.0.1:7400`) by default, and a
+VPN or a routed subnet almost never forwards it.
+
+| Path between the machines | Switch | What the peer gets |
+|---|---|---|
+| Same machine | *(default)* `NET_MODE=shared` | private namespace, nothing published |
+| LAN that forwards multicast | `NET_MODE=host` | the whole graph, no DDS config |
+| VPN / routed subnet — **no multicast** | `NET_MODE=host` + `DISCOVERY_SERVER=<ip>:<port>` | the whole graph over plain unicast |
+
+```bash
+# LAN
+NET_MODE=host ./scripts/sim_up.sh
+
+# VPN: run a discovery server anywhere both machines can reach, then point the stack at it
+fastdds discovery -i 0 -l 0.0.0.0 -p 11811 &
+NET_MODE=host DISCOVERY_SERVER=127.0.0.1:11811 ./scripts/sim_up.sh
+```
+
+`DISCOVERY_SERVER` changes only **how peers find each other**. It does not imply a network mode —
+you still need `NET_MODE=host` for the stack to advertise a routable address instead of the
+docker-bridge `172.17.0.2` that only this machine can reach.
+
+On the **subscriber**, point at the same server and declare UDP as the only transport:
+
+```bash
+export ROS_DISCOVERY_SERVER=<server-ip>:11811
+export ROS_SUPER_CLIENT=true
+export FASTRTPS_DEFAULT_PROFILES_FILE=/path/to/configs/dds/udp-only.xml
+```
+
+Measured against a live stack from a container sharing **no** namespaces with it and using **no**
+multicast — the peer's view of the graph is identical to the stack's own, and both directions carry
+traffic:
+
+```
+topics seen by the peer   53  (51 /fmu)   same as the stack sees
+stack → peer              1904 vehicle_local_position + 1904 sensor_combined in 20 s
+peer  → stack             5/5 commands published externally arrived inside the stack
+```
+
+> **`ROS_SUPER_CLIENT=true` is not optional, and omitting it looks like total failure.** A plain
+> discovery *client* is only told about participants it has already matched, but `ros2 topic echo`
+> must resolve the message **type** from the graph *before* it can subscribe. As a plain client it
+> fails with `Could not determine the type for the passed topic` while a healthy publisher sits
+> right there. `sim_up.sh` sets it inside the stack; you must set it on your side.
+>
+> **`ros2 node list` returns 0 for `/fmu/*` — in every mode, multicast included.** The uXRCE-DDS
+> agent creates raw DDS participants with no ROS 2 node metadata. Topics and data are fine; only
+> the node listing is empty. It is not a broken link.
+>
+> **The server is a rendezvous, not a relay.** Data still flows peer-to-peer, so the two machines
+> need direct routable reachability — it removes the multicast requirement, not the routing one.
+>
+> **Host mode exposes PX4's unauthenticated MAVLink ports** on every interface this machine has,
+> including the VPN. Anyone routable can arm and command the vehicle. Use it on a trusted network
+> only, and note the same switch later points at a **real** Pixhawk.
+
 ---
 
 ## 2. Configure which sensors are active, and how they are tuned
