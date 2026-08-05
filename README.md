@@ -139,10 +139,57 @@ no editor, no GUI, no display.
 ./scripts/sim_up.sh
 ```
 
-Five containers — `sim-unreal` (renderer), `sim-xrce` (uXRCE-DDS agent), `sim-px4`, `sim-qgc`,
-`sim-ros2` — brought up **in the only order that works**. It waits for the vehicle to settle,
-then **verifies the EKF origin** before declaring the stack usable, printing
+**Four containers**, brought up **in the only order that works**. It waits for the vehicle to
+settle, then **verifies the EKF origin** before declaring the stack usable, printing
 `stack up and origin verified -- safe to fly` in roughly 80 s.
+
+#### Why four, and why these four
+
+**Each container is one machine that will exist when this flies for real.** That is the whole
+rule, and it is worth stating because the obvious alternatives are both wrong: one container
+is not enough, and a container per process is too many.
+
+| Container | Image | Real counterpart |
+|---|---|---|
+| `sim-unreal` | `drone-sim/unreal:ue5.8` | **none** — it *is* the world. Also the namespace donor (see below) |
+| `sim-px4` | `drone-sim/px4:v1.16.0` | the **Pixhawk 6C** — PX4 firmware, on its own board |
+| `sim-ros2` | `drone-sim/ros2:v1.16.0` | the **Jetson Orin NX** — the uXRCE-DDS agent *and* every ROS 2 node |
+| `sim-qgc` | `drone-sim/qgc:v1.16.0` | the **ground station** — the only MAVLink-over-IP client |
+
+**Why PX4 is separate.** On the aircraft PX4 runs on dedicated flight-controller hardware and
+reaches the companion computer over a **UART**. That boundary is the entire sim-to-real claim:
+sim and real differ *only* by the transport across it. Folding PX4 into the companion container
+would erase in the layout the one line the design rests on.
+
+**Why the agent is *not* separate.** The uXRCE-DDS agent is **plumbing, not a service** — it is
+what makes `/fmu/*` appear, and nothing connects to it directly; your code talks ROS 2. On the
+Jetson it is simply a process beside your nodes. It had its own container until 2026-08-04, and
+that modelled a boundary which does not exist anywhere in the real system. It now runs inside
+`sim-ros2` under a supervising loop that restarts it and prefixes its output `[xrce]`, which is
+**more** than it had before: this stack has never carried a restart policy on anything.
+
+> **Never health-check the agent by looking for its process.** Two independent traps, both
+> measured here:
+> - `MicroXRCEAgent` **exits 0 when it fails to bind**, so "it started and returned success"
+>   is compatible with no bridge at all.
+> - `pgrep -f MicroXRCEAgent` **matches the supervising loop as well as the agent** — the
+>   loop's own command line contains the string. It reports a hit whether or not the agent is
+>   alive.
+>
+> What proves the bridge is up is the bring-up's `wait_for_fmu`: real `/fmu/out` topics
+> carrying a **finite** EKF origin. **Assert on the data, never on the process.**
+
+**Why QGroundControl is a container and not an afterthought.** PX4 refuses to arm without a GCS
+datalink (`NAV_DLL_ACT=2`), and that check is deliberately left **enforced** because a real
+Pixhawk enforces it. Stop `sim-qgc` and arming is denied — verified in both directions. It is a
+functional dependency of flight, not a viewer.
+
+**The one boundary that is admittedly wrong.** `sim-unreal` donates the network and IPC
+namespaces every other container joins, so the renderer — the one component with *no* hardware
+analogue — is what the whole stack structurally depends on. That inverts reality, and it means
+the split does not buy isolation: it is one machine wearing four hats. Tracked as `D-06` in
+[`docs/docker/todo.md`](docs/docker/todo.md); the namespace sharing is load-bearing today
+because Fast-DDS delivers over shared memory (see *Network and ports* below).
 
 > **Why it verifies rather than just waits.** PX4 sets its EKF local origin **once**. If it
 > initialises before the simulated vehicle has settled onto geometry, `ref_alt` freezes at the

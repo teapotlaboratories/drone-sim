@@ -168,6 +168,8 @@ else
   log "WARNING: no summary.json — the mission node did not complete"
 fi
 
+# sim-xrce is listed although nothing creates it any more -- the agent lives in sim-ros2.
+# A stale one from an older checkout would hold udp/8888 and break the next bring-up.
 [ -n "$KEEP_UP" ] || docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce sim-unreal >/dev/null 2>&1
 log "artifacts in $RUN"
 exit "$MISSION_RC"
