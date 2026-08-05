@@ -58,6 +58,28 @@ WORLD=${WORLD:-}                        # .uproject to load; default is the vend
 NET_MODE=${NET_MODE:-shared}
 case "$NET_MODE" in shared|host) ;; *) echo "NET_MODE must be 'shared' or 'host'" >&2; exit 2 ;; esac
 
+# DISCOVERY_SERVER=<ip>:<port> -- reach the graph across a link that carries no multicast
+# (a VPN, a routed subnet). Every DDS participant in sim-ros2 becomes a discovery CLIENT of
+# that server and announces itself over plain unicast UDP; a remote subscriber points at the
+# same address and gets the whole graph, /fmu/* included. Unset means multicast, the default.
+DISCOVERY_SERVER=${DISCOVERY_SERVER:-}
+DS_ENV=()
+if [ -n "$DISCOVERY_SERVER" ]; then
+  case "$DISCOVERY_SERVER" in
+    *:*) ;;
+    *) echo "DISCOVERY_SERVER must be <ip>:<port>, e.g. 10.0.0.5:11811" >&2; exit 2 ;;
+  esac
+  # ROS_SUPER_CLIENT is NOT optional here, and leaving it out is what made this look
+  # impossible the first time. A plain discovery CLIENT is only told about participants it
+  # has already matched on a topic it subscribes to. Graph introspection needs the whole
+  # picture -- and `ros2 topic echo` performs introspection BEFORE it can subscribe, because
+  # it has to resolve the message TYPE from the graph. As a plain client it fails with
+  # "Could not determine the type for the passed topic" even though the publisher is right
+  # there and healthy. wait_for_fmu below runs exactly that command, so without this the
+  # bring-up fails its own health check and reports "no finite EKF origin".
+  DS_ENV=(-e "ROS_DISCOVERY_SERVER=$DISCOVERY_SERVER" -e "ROS_SUPER_CLIENT=true")
+fi
+
 
 log() { printf '\033[36m[sim]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[sim] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -417,7 +439,7 @@ log "starting the companion (agent + ROS 2), PX4 and QGC"
 # built from source here, and colcon compiles AirLib itself via add_subdirectory, so it needs
 # the whole tree rather than just ros2/src.
 mapfile -t ROS2_NS < <(netns_args)
-docker run -d --name sim-ros2 "${ROS2_NS[@]}" \
+docker run -d --name sim-ros2 "${ROS2_NS[@]}" ${DS_ENV[@]+"${DS_ENV[@]}"} \
   -v "$REPO/ros2_ws:/ros2_ws_src" -v "$REPO/out:/out" \
   -v "$REPO/vendor/Cosys-AirSim:/vendor/Cosys-AirSim:ro" drone-sim/ros2:v1.16.0 bash -lc '
     # --- the uXRCE-DDS agent, supervised ------------------------------------------------
