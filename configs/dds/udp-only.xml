@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Fast-DDS: UDPv4 only, no shared memory. Copy this to the REMOTE machine.
+
+  Use it on any subscriber that is not inside the stack's IPC namespace but can see its
+  network: another container on the host network, a native ros2 on the simulator host, or a
+  peer on the LAN or VPN when the stack runs with NET_MODE=host.
+
+  WHY. Fast-DDS delivers over shared memory whenever it believes the peer is same-host. Share
+  the network and not /dev/shm and it chooses shared memory, delivers nothing, and every
+  diagnostic still looks healthy: `ros2 topic list` shows the full graph. Declaring UDPv4 as
+  the only transport makes the reader advertise UDP locators alone, so the writer has no
+  shared-memory option to choose.
+
+  Setting it on the SUBSCRIBER is enough; measured with the stack unmodified:
+      fmu=2003  rgb=338  lidar=156  imu=6667      in 20 s
+
+  useBuiltinTransports=false is load-bearing. Without it Fast-DDS ADDS the default transports
+  (shared memory included) alongside the one declared here, and nothing changes.
+
+      export FASTRTPS_DEFAULT_PROFILES_FILE=/path/to/udp-only.xml
+      export FASTDDS_DEFAULT_PROFILES_FILE=/path/to/udp-only.xml
+      ros2 daemon stop      # the daemon caches the graph; it must restart with the profile
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="udp_participant" is_default_profile="true">
+      <rtps>
+        <userTransports><transport_id>udp_only</transport_id></userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

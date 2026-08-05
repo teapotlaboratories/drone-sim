@@ -40,6 +40,25 @@ SPAWN_VEHICLE=${SPAWN_VEHICLE:-}
 SPAWN_ALLOW_BELOW=${SPAWN_ALLOW_BELOW:-}
 WORLD=${WORLD:-}                        # .uproject to load; default is the vendored Blocks
 
+# NETWORK MODE. Default `shared`: the renderer donates a private network + IPC namespace and
+# every other container joins it. Nothing is published, nothing is reachable off this machine.
+#
+# `host` puts every container on the HOST's network and IPC namespaces instead. That is what
+# makes the ROS 2 graph reachable from another machine: DDS then binds the host's real
+# interfaces and advertises a ROUTABLE address, instead of the docker-bridge address
+# 172.17.0.2 that only this machine can reach. Loopback still means the same thing to every
+# container, so PX4 still dials 127.0.0.1 for both the agent and the renderer.
+#
+#   NET_MODE=host ./scripts/sim_up.sh
+#
+# EXPOSURE, stated plainly: in host mode PX4's MAVLink ports land on every interface this
+# machine has, including the VPN. MAVLink is unauthenticated -- anyone routable can arm and
+# command the vehicle. docs/docker/todo.md records that port 14540 was previously reachable
+# over the netbird overlay for exactly this reason. Use host mode on a network you trust.
+NET_MODE=${NET_MODE:-shared}
+case "$NET_MODE" in shared|host) ;; *) echo "NET_MODE must be 'shared' or 'host'" >&2; exit 2 ;; esac
+
+
 log() { printf '\033[36m[sim]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[sim] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
 
@@ -140,9 +159,18 @@ start_sim() {
     uproject="/world/$(basename "$WORLD")"
     log "world: $uproject"
   fi
+  local netargs=(--ipc shareable --shm-size=2g)
+  if [ "$NET_MODE" = host ]; then
+    # NETWORK namespace only. `--ipc host` is NOT used: this daemon refuses it
+    # ("error mounting mqueue ... operation not permitted" under rootless/nested Docker), and
+    # it buys nothing for the case host mode exists for -- a peer on another machine reaches
+    # us over UDP, never over shared memory. The renderer still donates the IPC namespace, so
+    # the containers keep their fast local path to each other.
+    netargs=(--network host --ipc shareable --shm-size=2g)
+    log "NET_MODE=host -- the graph will be reachable off this machine (see the header)"
+  fi
   docker run -d --name "$SIM" \
-    --ipc shareable \
-    --shm-size=2g \
+    "${netargs[@]}" \
     --gpus '"device=nvidia.com/gpu=0"' \
     "${mounts[@]}" \
     -v "$SETTINGS:/settings.json:ro" \
@@ -153,10 +181,19 @@ start_sim() {
       -unattended -stdout -settings=/settings.json" >/dev/null
 }
 
-join() {  # join(name, image, cmd...) -- share the sim's network AND ipc namespaces
+# In `shared` mode this joins the renderer's namespaces; in `host` mode every container goes
+# on the host's instead. Either way they all share ONE namespace, which is what makes 127.0.0.1
+# mean the same thing to PX4, the agent and the renderer.
+netns_args() {
+  if [ "$NET_MODE" = host ]; then printf '%s\n' --network host --ipc "container:$SIM"
+  else printf '%s\n' --network "container:$SIM" --ipc "container:$SIM"; fi
+}
+
+join() {  # join(name, image, cmd...)
   local name=$1 image=$2; shift 2
+  local n; mapfile -t n < <(netns_args)
   docker run -d --name "$name" \
-    --network "container:$SIM" --ipc "container:$SIM" \
+    "${n[@]}" \
     "$image" "$@" >/dev/null
 }
 
@@ -379,7 +416,8 @@ log "starting the companion (agent + ROS 2), PX4 and QGC"
 # vendor/ is mounted read-only for SIM-04: the Cosys-AirSim ROS 2 wrapper (airsim_node) is
 # built from source here, and colcon compiles AirLib itself via add_subdirectory, so it needs
 # the whole tree rather than just ros2/src.
-docker run -d --name sim-ros2 --network "container:$SIM" --ipc "container:$SIM" \
+mapfile -t ROS2_NS < <(netns_args)
+docker run -d --name sim-ros2 "${ROS2_NS[@]}" \
   -v "$REPO/ros2_ws:/ros2_ws_src" -v "$REPO/out:/out" \
   -v "$REPO/vendor/Cosys-AirSim:/vendor/Cosys-AirSim:ro" drone-sim/ros2:v1.16.0 bash -lc '
     # --- the uXRCE-DDS agent, supervised ------------------------------------------------
