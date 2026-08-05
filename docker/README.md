@@ -62,7 +62,7 @@ else is bind-mounted at run time, so editing a script does not trigger an 11 GB 
 |---|---|---|---|
 | `sim-unreal` | `drone-sim/unreal:ue5.8` | none — it *is* the world | the renderer, on **GPU 0**. Donates its network namespace, IPC namespace and `/dev/shm` to the rest |
 | `sim-px4` | `drone-sim/px4:v1.16.0` | **Pixhawk 6C** | PX4 SITL, airframe 10016, talking the Simulator MAVLink API to the renderer |
-| `sim-ros2` | `drone-sim/ros2:v1.16.0` | **Jetson Orin NX** | the uXRCE-DDS agent **and** `interfaces`/`control`/`bringup`; hosts the AirSim wrapper |
+| `sim-ros2` | `drone-sim/ros2:v1.16.0` | **Jetson Orin NX** | the uXRCE-DDS bridge, this repo's reference nodes (`interfaces`/`control`/`bringup`) and the AirSim wrapper. **User code does not go here** — it attaches from outside with `scripts/attach.sh` |
 | `sim-qgc` | `drone-sim/qgc:v1.16.0` | **ground station** | the GCS datalink. **Load-bearing, not a viewer** |
 
 **PX4 stays separate because that boundary is the sim-to-real claim.** On the aircraft PX4 runs
