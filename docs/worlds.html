@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bring your own world — convert and fly a third-party Unreal project</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/history/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">drone-sim · Bring your own world</span>
+  <nav><a href="#check">Check</a><a href="#pipeline">Pipeline</a><a href="#wp">World Partition</a><a href="#verify">Verify</a><a href="#trouble">Trouble</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+
+<header class="mast">
+  <span class="eyebrow">UE5.8 + Cosys-AirSim · converting a third-party Unreal project · measured 2026-08-05</span>
+  <h1>Bring Your<br>Own World</h1>
+  <p class="sub">Take an Unreal project that was never built for this simulator and fly a drone in it.
+  Two commands do the work. This page is about the <strong>four ways it fails</strong> &mdash; every
+  one of them silent, every one hit for real converting Epic&rsquo;s CitySample, and every number
+  here measured rather than quoted.</p>
+  <div class="mastmeta">
+    <span>Steps <b>4</b></span>
+    <span>Tiers <b>A1 · A2</b></span>
+    <span>CitySample <b>flies</b></span>
+    <span>Reliability <b>2 in 3</b></span>
+  </div>
+</header>
+
+<div class="panel">
+<pre>./scripts/convert_world.sh /path/to/Your.uproject --map /Game/Maps/YourMap
+./scripts/sim_up.sh       --world /path/to/Your.uproject --spawn 0,0,-50</pre>
+<p>The first converts and builds. The second flies it. Everything below is what those two lines do,
+and what to do when they do not work.</p>
+</div>
+
+<h2 id="check"><span class="secnum">01</span> Will it work at all?</h2>
+
+<div class="grid g2">
+  <div class="tw"><table>
+    <thead><tr><th>Requirement</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><strong>UE 5.8</strong></td><td>The engine is pinned. A 5.2&ndash;5.5 project usually compiles, but expect warnings-as-errors.</td></tr>
+      <tr><td><strong>Linux-buildable</strong></td><td>Windows-only plugins or Win64-only binaries will not link.</td></tr>
+      <tr><td><strong>Fits 10&nbsp;GB VRAM</strong></td><td>The render GPU is the 3080. <code>Big_City_LVL</code> does not fit; <code>Small_City_LVL</code> does.</td></tr>
+      <tr><td><strong>Internal NVMe</strong></td><td>UE5 streaming is latency-sensitive random I/O. A spinning disk works, loads slowly, and loses the streaming race more often.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><span class="lbl">A1 or A2 &mdash; the only question that changes the cost</span>
+  <p>If the project has a <code>Source/</code> directory it is <strong>A2</strong>: its C++ must be
+  compiled against UE5.8, and that is where the time goes. Content and Blueprints only is
+  <strong>A1</strong>.</p>
+  <p>The script detects this and prints it. It also changes <em>which build target is used</em>, and
+  getting that wrong is failure mode #2 below.</p></div>
+</div>
+
+<h2 id="pipeline"><span class="secnum">02</span> What the conversion does</h2>
+
+<figure>
+<svg viewBox="0 0 900 300" role="img" aria-label="Conversion pipeline: your uproject passes through inject, patch, and build, producing shared objects that sim_up.sh flies. The build step differs by tier: an A1 content-only project builds the engine's UnrealEditor target, while an A2 project with Source builds its own Name-Editor target.">
+  <defs>
+    <marker id="ar" markerWidth="10" markerHeight="10" refX="9" refY="3.2" orient="auto">
+      <path d="M0,0 L9,3.2 L0,6.4 z" fill="var(--ink2)"/>
+    </marker>
+    <marker id="arok" markerWidth="10" markerHeight="10" refX="9" refY="3.2" orient="auto">
+      <path d="M0,0 L9,3.2 L0,6.4 z" fill="var(--ok)"/>
+    </marker>
+  </defs>
+
+  <!-- main row -->
+  <rect x="8" y="46" width="128" height="54" rx="3" fill="var(--panel2)" stroke="var(--rule)"/>
+  <text x="72" y="68" text-anchor="middle" class="svg-ink" font-size="12" font-weight="600">Your.uproject</text>
+  <text x="72" y="86" text-anchor="middle" class="svg-ink2" font-size="10.5">unmodified</text>
+
+  <line x1="140" y1="73" x2="188" y2="73" stroke="var(--ink2)" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="164" y="65" text-anchor="middle" class="svg-ink2" font-size="9.5">1</text>
+
+  <rect x="192" y="40" width="150" height="66" rx="3" fill="var(--panel)" stroke="var(--chrome)" stroke-width="1.5"/>
+  <text x="267" y="60" text-anchor="middle" class="svg-ink" font-size="12" font-weight="600">inject</text>
+  <text x="267" y="78" text-anchor="middle" class="svg-ink2" font-size="10">game mode + plugin</text>
+  <text x="267" y="94" text-anchor="middle" class="svg-ink2" font-size="10">+ default map</text>
+
+  <line x1="346" y1="73" x2="394" y2="73" stroke="var(--ink2)" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="370" y="65" text-anchor="middle" class="svg-ink2" font-size="9.5">2</text>
+
+  <rect x="398" y="40" width="150" height="66" rx="3" fill="var(--panel)" stroke="var(--chrome)" stroke-width="1.5"/>
+  <text x="473" y="60" text-anchor="middle" class="svg-ink" font-size="12" font-weight="600">patch</text>
+  <text x="473" y="78" text-anchor="middle" class="svg-ink2" font-size="10">0005 streaming source</text>
+  <text x="473" y="94" text-anchor="middle" class="svg-ink2" font-size="10">into the plugin copy</text>
+
+  <line x1="552" y1="73" x2="600" y2="73" stroke="var(--ink2)" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="576" y="65" text-anchor="middle" class="svg-ink2" font-size="9.5">3&ndash;4</text>
+
+  <rect x="604" y="40" width="150" height="66" rx="3" fill="var(--panel)" stroke="var(--chrome)" stroke-width="1.5"/>
+  <text x="679" y="60" text-anchor="middle" class="svg-ink" font-size="12" font-weight="600">build</text>
+  <text x="679" y="78" text-anchor="middle" class="svg-ink2" font-size="10">UnrealBuildTool,</text>
+  <text x="679" y="94" text-anchor="middle" class="svg-ink2" font-size="10">in the engine image</text>
+
+  <line x1="758" y1="73" x2="806" y2="73" stroke="var(--ok)" stroke-width="1.6" marker-end="url(#arok)"/>
+  <rect x="810" y="46" width="82" height="54" rx="3" fill="var(--panel2)" stroke="var(--ok)" stroke-width="1.5"/>
+  <text x="851" y="68" text-anchor="middle" class="svg-ink" font-size="12" font-weight="600">.so</text>
+  <text x="851" y="86" text-anchor="middle" class="svg-ink2" font-size="10">artifacts</text>
+
+  <!-- tier split -->
+  <line x1="679" y1="110" x2="679" y2="138" stroke="var(--ink2)" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <text x="679" y="152" text-anchor="middle" class="svg-ink2" font-size="10.5" font-style="italic">the target depends on the tier</text>
+
+  <rect x="360" y="168" width="300" height="58" rx="3" fill="var(--panel2)" stroke="var(--rule)"/>
+  <text x="378" y="190" class="svg-ink" font-size="11.5" font-weight="600">A1 &middot; no Source/</text>
+  <text x="378" y="208" class="svg-ink2" font-size="10.5">target = UnrealEditor (the engine&rsquo;s own)</text>
+  <text x="378" y="221" class="svg-ink2" font-size="10">compiles the project&rsquo;s plugins; no target file needed</text>
+
+  <rect x="360" y="234" width="300" height="58" rx="3" fill="var(--panel2)" stroke="var(--rule)"/>
+  <text x="378" y="256" class="svg-ink" font-size="11.5" font-weight="600">A2 &middot; ships Source/</text>
+  <text x="378" y="274" class="svg-ink2" font-size="10.5">target = &lt;Name&gt;Editor &mdash; never the game target</text>
+  <text x="378" y="287" class="svg-ink2" font-size="10">and never <tspan font-style="italic">Cooked</tspan>Editor, which sorts first alphabetically</text>
+
+  <!-- side notes -->
+  <text x="8" y="182" class="svg-ink2" font-size="10.5">Fails silently if:</text>
+  <text x="8" y="200" class="svg-ink2" font-size="10">&bull; game mode stays the project&rsquo;s own</text>
+  <text x="8" y="216" class="svg-ink2" font-size="10">&bull; --map does not resolve</text>
+  <text x="8" y="232" class="svg-ink2" font-size="10">&bull; the wrong editor target builds</text>
+  <text x="8" y="248" class="svg-ink2" font-size="10">&bull; 0005 is missing on a WP world</text>
+</svg>
+<figcaption>The four steps, and the one decision that changes them &mdash; whether the project ships its own C++.</figcaption>
+</figure>
+
+<h3>1 &middot; Inject &mdash; the failure with no error message</h3>
+
+<p><code>inject_airsim.py</code> copies the built plugin, enables it, and sets two config keys. The
+one that matters:</p>
+
+<pre>GlobalDefaultGameMode=/Script/AirSim.AirSimGameMode</pre>
+
+<div class="callout stop"><span class="lbl">Skip this and nothing works, and nothing says so</span>
+<p>The project keeps its own game mode, AirSim never instantiates, nothing ever listens on TCP
+<strong>4560</strong>, and PX4 sits forever in <code>Waiting for simulator to accept connection on
+TCP port 4560</code>. There is <strong>no error line</strong>. Both City Park and CitySample hit
+this &mdash; CitySample&rsquo;s was <code>BP_CitySampleGameMode</code>.</p>
+<p>Raising <code>SIM_LINK_TIMEOUT</code> will never help, which is the trap: the symptom looks
+exactly like a slow load.</p></div>
+
+<p>Pass <code>--map</code> as well. A content path that does not resolve is written into config
+without complaint and then fails the same silent way, so the script now <strong>verifies the
+<code>.umap</code> on disk before touching anything</strong> and lists the maps the project really
+has. That check exists because a plausible-looking <code>/Game/Maps/Demonstration</code> was
+accepted for a project whose map is <code>/Game/CityPark/Maps/Showcase</code>.</p>
+
+<h3>2 &middot; Patch &mdash; the vendored tree stays pristine</h3>
+
+<p><code>vendor/Cosys-AirSim</code> is byte-identical to upstream. Deviations live in
+<code>patches/cosys-airsim/</code> and are applied to the <em>injected copy</em>. If a patch neither
+applies nor reverse-applies, the conversion <strong>stops</strong> rather than continuing quietly
+&mdash; skipping 0005 produces a world the drone falls through, which is precisely what it prevents.</p>
+
+<h3>3 &middot; Build &mdash; two things break on any project older than 5.8</h3>
+
+<div class="grid g2">
+  <div class="callout warn"><span class="lbl">-Werror on unreachable code</span>
+  <p>UE5.8 ships a newer clang and promotes <code>-Wunreachable-code-break</code> and
+  <code>-Wunreachable-code-loop-increment</code> to errors. On CitySample that hit <strong>14
+  files</strong> &mdash; across Epic&rsquo;s own RuleProcessor and Traffic plugins <em>and</em>
+  Cosys-AirSim. Downgrade exactly those two; do not disable warnings-as-errors wholesale.</p></div>
+
+  <div class="callout warn"><span class="lbl">UBT then refuses the compiler args</span>
+  <p>The editor target shares build products with <code>UnrealEditor</code>, so UBT rejects
+  per-target args and suggests <code>TargetBuildEnvironment.Unique</code> &mdash; which forces a
+  <strong>full engine rebuild</strong>, hours for two warnings. <code>bOverrideBuildEnvironment =
+  true</code> is the cheap door.</p></div>
+</div>
+
+<p>Both go into your <code>&lt;Name&gt;Editor.Target.cs</code>, backed up to <code>.pre-airsim</code>
+first. Build the <strong>editor</strong> target: <code>sim_up.sh</code> runs
+<code>UnrealEditor &lt;project&gt; -game</code>, so the editor modules are what must exist.</p>
+
+<h2 id="wp"><span class="secnum">03</span> World Partition &mdash; the one that costs a day</h2>
+
+<p><strong>Symptom:</strong> the level loads, PX4 connects, and the drone falls forever. Bring-up
+fails with <code>no finite EKF origin</code> &mdash; pointing at the EKF, which is innocent.</p>
+
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="Comparison. Without patch 0005 the AirSim pawn registers no World Partition streaming source, so every streaming cell stays dormant, no collision geometry exists, and the vehicle falls to plus 1697 metres. With the patch the pawn carries a streaming source, cells around it activate, ground exists, and the vehicle rests at minus 0.0004 metres.">
+  <defs>
+    <marker id="fall" markerWidth="10" markerHeight="10" refX="9" refY="3.2" orient="auto">
+      <path d="M0,0 L9,3.2 L0,6.4 z" fill="var(--stop)"/>
+    </marker>
+  </defs>
+
+  <!-- ---------- LEFT: without ---------- -->
+  <text x="16" y="22" class="svg-ink" font-size="12.5" font-weight="700">WITHOUT 0005</text>
+  <text x="16" y="40" class="svg-ink2" font-size="10.5">pawn registers no streaming source</text>
+  <rect x="16" y="52" width="404" height="248" rx="3" fill="none" stroke="var(--stop)" stroke-width="1.2" stroke-dasharray="4 3"/>
+
+  <!-- dormant cell grid -->
+  <g stroke="var(--rule)" fill="none" stroke-width="1">
+    <rect x="40" y="150" width="70" height="52"/><rect x="112" y="150" width="70" height="52"/>
+    <rect x="184" y="150" width="70" height="52"/><rect x="256" y="150" width="70" height="52"/>
+    <rect x="328" y="150" width="70" height="52"/>
+    <rect x="40" y="204" width="70" height="52"/><rect x="112" y="204" width="70" height="52"/>
+    <rect x="184" y="204" width="70" height="52"/><rect x="256" y="204" width="70" height="52"/>
+    <rect x="328" y="204" width="70" height="52"/>
+  </g>
+  <text x="218" y="235" text-anchor="middle" class="svg-ink2" font-size="10.5" font-style="italic">every cell dormant &mdash; no collision anywhere</text>
+
+  <!-- pawn + fall -->
+  <circle cx="218" cy="78" r="9" fill="var(--stop)"/>
+  <text x="236" y="82" class="svg-ink" font-size="11">pawn</text>
+  <line x1="218" y1="92" x2="218" y2="286" stroke="var(--stop)" stroke-width="1.8" marker-end="url(#fall)"/>
+  <text x="230" y="130" class="svg-ink2" font-size="10.5">falls through</text>
+  <text x="230" y="146" class="svg-ink2" font-size="10.5">everything</text>
+  <text x="218" y="312" text-anchor="middle" class="svg-ink" font-size="12" font-weight="600">resting z = +1697 m</text>
+
+  <!-- ---------- RIGHT: with ---------- -->
+  <text x="480" y="22" class="svg-ink" font-size="12.5" font-weight="700">WITH 0005</text>
+  <text x="480" y="40" class="svg-ink2" font-size="10.5">pawn carries UWorldPartitionStreamingSourceComponent</text>
+  <rect x="480" y="52" width="404" height="248" rx="3" fill="none" stroke="var(--ok)" stroke-width="1.2"/>
+
+  <!-- active cells near pawn, dormant further out -->
+  <g stroke="var(--rule)" fill="none" stroke-width="1">
+    <rect x="504" y="150" width="70" height="52"/><rect x="792" y="150" width="70" height="52"/>
+    <rect x="504" y="204" width="70" height="52"/><rect x="792" y="204" width="70" height="52"/>
+  </g>
+  <g stroke="var(--ok)" fill="var(--panel2)" stroke-width="1.4">
+    <rect x="576" y="150" width="70" height="52"/><rect x="648" y="150" width="70" height="52"/>
+    <rect x="720" y="150" width="70" height="52"/>
+    <rect x="576" y="204" width="70" height="52"/><rect x="648" y="204" width="70" height="52"/>
+    <rect x="720" y="204" width="70" height="52"/>
+  </g>
+  <text x="682" y="180" text-anchor="middle" class="svg-ink" font-size="10.5" font-weight="600">cells ACTIVE around the source</text>
+
+  <!-- pawn resting on ground -->
+  <circle cx="682" cy="78" r="9" fill="var(--ok)"/>
+  <text x="700" y="82" class="svg-ink" font-size="11">pawn</text>
+  <line x1="682" y1="92" x2="682" y2="144" stroke="var(--ok)" stroke-width="1.8"/>
+  <line x1="576" y1="148" x2="790" y2="148" stroke="var(--ok)" stroke-width="3"/>
+  <text x="700" y="126" class="svg-ink2" font-size="10.5">lands on ground</text>
+  <text x="682" y="312" text-anchor="middle" class="svg-ink" font-size="12" font-weight="600">resting z = &minus;0.0004 m</text>
+</svg>
+<figcaption>The mechanism: World Partition activates cells around a registered streaming source. Without one, nothing streams &mdash; so there is no ground in the entire level.</figcaption>
+</figure>
+
+<p><strong>Releasing higher only buys more fall</strong>, which is how you know it is not a
+spawn-height problem and not the underground-spawn trap. Measured on CitySample, resting <code>z</code>
+in <strong>NED, where +z is DOWN</strong>:</p>
+
+<div class="tw"><table>
+  <thead><tr><th>Spawn</th><th>Resting z</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td><code>0,0,0</code></td><td class="mono">+332 m</td><td>fell through</td></tr>
+    <tr><td><code>0,0,-150</code></td><td class="mono">+139.5 m</td><td>fell through</td></tr>
+    <tr><td><code>0,0,-150</code> + <code>wp.Runtime.EnableStreaming=0</code></td><td class="mono">+1481 m</td><td>fell through &mdash; the cvar route does not work</td></tr>
+    <tr><td><code>0,0,-150</code> <strong>with 0005</strong></td><td class="mono">&minus;0.00008 m</td><td><strong>on the ground</strong></td></tr>
+  </tbody>
+</table></div>
+
+<div class="callout stop"><span class="lbl">Necessary but NOT sufficient &mdash; a race remains</span>
+<p>Cell streaming takes seconds (<code>GenerateStreaming</code> measured <strong>7&ndash;22 s</strong>)
+while the vehicle falls immediately. It can still pass the ground plane before the cells beneath it
+activate. Measured on identical builds and the same spawn:</p>
+<pre>run 1   z = -8.4e-05 m   flew, 5/5 nav checks
+run 2   z = +1697 m      fell through
+run 3   z = -1.0e-03 m   flew, 4/4 waypoints, worst 0.855 m</pre>
+<p><strong>Roughly 2 runs in 3 succeed &mdash; retry on failure.</strong> A real fix must hold the
+vehicle until streaming completes rather than race it. Unsolved; tracked as <code>SIM-21</code>.</p></div>
+
+<h2 id="verify"><span class="secnum">04</span> Verifying &mdash; the part people skip</h2>
+
+<p>A level that renders is not a world that flies. <strong>Judge by resting <code>z</code>, not by
+the log.</strong></p>
+
+<figure>
+<svg viewBox="0 0 900 190" role="img" aria-label="A scale of resting z values in NED. Near zero means resting on the ground and is the only good reading. Large positive values, measured at plus 139, plus 332, plus 1481 and plus 1697 metres, all mean the vehicle fell through the world. Large negative means still falling or spawned above a rooftop.">
+  <line x1="60" y1="96" x2="840" y2="96" stroke="var(--ink2)" stroke-width="1.4"/>
+
+  <!-- zero zone -->
+  <rect x="404" y="70" width="92" height="52" rx="3" fill="var(--panel2)" stroke="var(--ok)" stroke-width="2"/>
+  <text x="450" y="92" text-anchor="middle" class="svg-ink" font-size="12" font-weight="700">z &asymp; 0</text>
+  <text x="450" y="110" text-anchor="middle" class="svg-ink2" font-size="10">on the ground</text>
+  <text x="450" y="146" text-anchor="middle" class="svg-ink2" font-size="10.5">the only good reading</text>
+  <text x="450" y="162" text-anchor="middle" class="svg-ink2" font-size="10">measured &minus;0.0004 &hellip; +0.0005</text>
+
+  <!-- negative side -->
+  <text x="200" y="60" text-anchor="middle" class="svg-ink" font-size="11.5" font-weight="600">z large NEGATIVE</text>
+  <text x="200" y="132" text-anchor="middle" class="svg-ink2" font-size="10.5">still falling, or spawned</text>
+  <text x="200" y="148" text-anchor="middle" class="svg-ink2" font-size="10.5">above a rooftop</text>
+  <line x1="60" y1="96" x2="396" y2="96" stroke="var(--ground)" stroke-width="3"/>
+
+  <!-- positive side -->
+  <text x="700" y="60" text-anchor="middle" class="svg-ink" font-size="11.5" font-weight="600">z large POSITIVE &mdash; fell through</text>
+  <line x1="504" y1="96" x2="840" y2="96" stroke="var(--stop)" stroke-width="3"/>
+  <g fill="var(--stop)">
+    <circle cx="560" cy="96" r="4"/><circle cx="620" cy="96" r="4"/>
+    <circle cx="730" cy="96" r="4"/><circle cx="800" cy="96" r="4"/>
+  </g>
+  <text x="560" y="120" text-anchor="middle" class="svg-ink2" font-size="9.5">+139</text>
+  <text x="620" y="120" text-anchor="middle" class="svg-ink2" font-size="9.5">+332</text>
+  <text x="730" y="120" text-anchor="middle" class="svg-ink2" font-size="9.5">+1481</text>
+  <text x="800" y="120" text-anchor="middle" class="svg-ink2" font-size="9.5">+1697</text>
+  <text x="700" y="148" text-anchor="middle" class="svg-ink2" font-size="10.5">retry once &mdash; then suspect no collision under the spawn</text>
+
+  <text x="450" y="185" text-anchor="middle" class="svg-ink2" font-size="10" font-style="italic">NED: +z is DOWN. ref_alt = nan is always a consequence of one of these, never the cause.</text>
+</svg>
+<figcaption>Every measured resting value from the CitySample conversion, on one scale. Only the middle band is a working world.</figcaption>
+</figure>
+
+<pre>docker exec sim-ros2 bash -lc 'source /opt/ros/jazzy/setup.bash; \
+  source /ros2_ws/install/setup.bash; ros2 topic echo --qos-reliability best_effort \
+  --qos-durability volatile --once --field z /fmu/out/vehicle_local_position'</pre>
+
+<p>Then fly it for real &mdash; <code>verify_nav_interface.py</code> arms and flies a
+<strong>simulated</strong> vehicle through takeoff, waypoint, velocity and GPS-waypoint checks.
+On CitySample, all five passed:</p>
+
+<div class="grid g3">
+  <div class="stat ok"><div class="k">waypoint</div><div class="v">1.00 m</div><div class="n">commanded (10.0, &minus;0.0) &middot; reached (9.27, &minus;0.69)</div></div>
+  <div class="stat ok"><div class="k">velocity</div><div class="v">1.89 m/s</div><div class="n">against 2.0 commanded &middot; 808 samples</div></div>
+  <div class="stat ok"><div class="k">gps waypoint</div><div class="v">27.0 m</div><div class="n">of 30 m commanded &middot; 3.00 m remaining</div></div>
+  <div class="stat ok"><div class="k">recorded mission</div><div class="v">4 / 4</div><div class="n">waypoints, worst error 0.855 m</div></div>
+  <div class="stat ok"><div class="k">EKF origin</div><div class="v">0.000 m</div><div class="n">ref_alt 123.322 vs GPS 123.322</div></div>
+  <div class="stat warn"><div class="k">bring-up reliability</div><div class="v">2 / 3</div><div class="n">the World Partition streaming race</div></div>
+</div>
+
+<div class="callout stop"><span class="lbl">Two measurements that lie</span>
+<p><strong>Counting <code>LogWorldPartition</code> cell-load lines is a bad proxy.</strong> UE does
+not log per-cell activation at default verbosity, so the count reads <strong>0 even when streaming
+works</strong>. It reported failure on a run that flew perfectly.</p>
+<p><strong>A rebuild may never reach the pawn that runs.</strong> AirSim spawns a <em>Blueprint
+subclass</em> (<code>BP_FlyingPawn_C</code>), not the C++ class, so a change that did not propagate
+looks identical from outside. If you are changing pawn C++, log from <code>BeginPlay</code> and read
+it back out of the running renderer &mdash; verify the artifact that <em>ran</em>.</p></div>
+
+<h2 id="trouble"><span class="secnum">05</span> Troubleshooting</h2>
+
+<div class="tw"><table>
+  <thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+  <tbody>
+    <tr><td>PX4 waits forever on 4560, AirSim logged <strong>nothing</strong></td><td><code>GlobalDefaultGameMode</code> is not <code>AirSimGameMode</code>. Re-run with <code>--force</code>. Raising <code>SIM_LINK_TIMEOUT</code> will not help.</td></tr>
+    <tr><td>PX4 waits, AirSim <strong>has</strong> logged, <code>ShaderCompileWorker</code> running</td><td>Genuinely still compiling. Raise <code>SIM_LINK_TIMEOUT</code>; the <code>sim-ddc</code> volume makes the next run much faster.</td></tr>
+    <tr><td><code>no such map: /Game/&hellip;</code></td><td>The content path does not resolve to a <code>.umap</code>. The error lists the maps that exist. Caught before anything is modified.</td></tr>
+    <tr><td>Build fails on another <code>-Werror</code> warning</td><td>Add it beside the two, same form, in <code>&lt;Name&gt;Editor.Target.cs</code>.</td></tr>
+    <tr><td>Build succeeds, <code>wrote NO shared object</code></td><td>The target compiled nothing for this project &mdash; usually the wrong target.</td></tr>
+    <tr><td>Wrong target on a project with several</td><td>The script prefers <code>&lt;Name&gt;Editor</code>. A bare <code>*Editor</code> glob sorts alphabetically and picks e.g. <code>FooCookedEditor</code> &mdash; a cooking target, not the one <code>-game</code> runs.</td></tr>
+    <tr><td>Drone falls through</td><td>World Partition. Retry once, then check collision under the spawn.</td></tr>
+    <tr><td>Vehicle spawns underground</td><td>Release from height with <code>--spawn X,Y,-Z</code> and read the resting position back &mdash; that <em>is</em> a ground probe. <code>Z</code> is NED: negative is up.</td></tr>
+  </tbody>
+</table></div>
+
+<h2><span class="secnum">06</span> What it leaves behind, and what is still missing</h2>
+
+<div class="grid g2">
+  <div class="panel">
+  <p><strong>In your project</strong> &mdash; all reversible:</p>
+  <ul class="tight">
+    <li><code>Plugins/AirSim/</code> &mdash; <code>--force</code> moves any existing copy aside to <code>AirSim.bak.&lt;timestamp&gt;</code> rather than overwriting.</li>
+    <li><code>Config/DefaultEngine.ini</code> &mdash; game mode, map, <code>SF_VULKAN_SM6</code>, cook directives. Backed up <code>.pre-airsim</code>.</li>
+    <li><code>Source/&lt;Name&gt;Editor.Target.cs</code> &mdash; the two build settings. Backed up <code>.pre-airsim</code>.</li>
+    <li><code>Binaries/</code>, <code>Intermediate/</code> &mdash; build output.</li>
+  </ul>
+  </div>
+  <div class="callout warn"><span class="lbl">Known gaps</span>
+  <p><code>inject_airsim.py</code> copies the <strong>built</strong> plugin from Blocks, so 0005 does
+  not travel with it &mdash; <code>convert_world.sh</code> applies it to the project&rsquo;s own copy
+  and rebuilds. That is why an A1 project still needs a build. Wiring the Unreal-side patches into
+  the Blocks plugin build is unsolved.</p>
+  <p><code>CarPawn</code> has the same World Partition gap and is deliberately untouched &mdash;
+  nothing here drives a car.</p>
+  <p>A stale plugin copy under <code>Plugins/</code> <strong>silently wins</strong>.
+  <code>inject_airsim.py</code> refuses rather than guess when it finds two.</p></div>
+</div>
+
+<footer>
+  <span>drone-sim · bring your own world</span>
+  <span>SITL only · measured 2026-08-05</span>
+  <span><a href="quickstart.html">&larr; Quickstart</a></span>
+</footer>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

@@ -7,6 +7,9 @@ every failure described is one that actually happened, with the measurement that
 The automated path is [`scripts/convert_world.sh`](../scripts/convert_world.sh); the manual steps
 are documented so you can debug it when it does not work.
 
+> There is an illustrated version of this page at [`worlds.html`](worlds.html) — same content, with
+> diagrams of the conversion pipeline, the World Partition failure, and the resting-`z` verdict.
+
 ```bash
 ./scripts/convert_world.sh /path/to/Your.uproject --map /Game/Maps/YourMap
 ./scripts/sim_up.sh --world /path/to/Your.uproject --spawn 0,0,-50
