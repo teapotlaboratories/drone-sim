@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-19 — what is in these Docker images, and the plan</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/history/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">drone-sim · SIM-19</span>
+  <nav><a href="#what">What</a><a href="#where">Where</a><a href="#plan">Plan</a><a href="#done">Done</a><a href="#open">Open</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+
+<header class="mast">
+  <span class="eyebrow">SIM-19 · docker image review · measured 2026-08-04, slice 1 built 2026-08-06</span>
+  <h1>What&rsquo;s In<br>These Images</h1>
+  <p class="sub">Six images, ~80&nbsp;GB on disk, and <strong>nothing is broken</strong> &mdash; every
+  one builds and the stack flies on them. This is about what they <em>contain</em>: about half the
+  PX4 image is build-time material that no running container ever reads, and three of the four
+  derived images inherit a base they use nothing from.</p>
+  <div class="mastmeta">
+    <span>PX4 image <b>11.0 &rarr; 4.73 GB</b></span>
+    <span>Slice 1 <b>built, unverified</b></span>
+    <span>Slice 2 <b>not started</b></span>
+    <span>Constraint <b>pull time, not disk</b></span>
+  </div>
+</header>
+
+<div class="callout"><span class="lbl">The thing being bought</span>
+<p><strong>Not disk.</strong> There is 189&nbsp;GB free and image size has never been this
+project&rsquo;s constraint. What is being bought is <strong>pull and build time on a fresh
+machine</strong> &mdash; the exact scenario the &ldquo;reproducible as Docker&rdquo; goal exists
+for. Docker counts a shared layer once per image in <code>docker images</code>, so the four derived
+images do not cost 46&nbsp;GB of disk; <code>docker system df</code> reports ~80&nbsp;GB total,
+dominated by the engine.</p></div>
+
+<h2 id="what"><span class="secnum">01</span> What the six images are today</h2>
+
+<div class="tw"><table>
+  <thead><tr><th>Image</th><th>Size</th><th>Base</th><th>Adds</th></tr></thead>
+  <tbody>
+    <tr><td><code>drone-sim/px4</code></td><td class="mono">11.0 GB</td><td><code>ubuntu:24.04</code></td><td>ROS 2, PX4 SITL, XRCE agent, px4_msgs</td></tr>
+    <tr><td><code>drone-sim/ros2</code></td><td class="mono">11.1 GB</td><td><code>drone-sim/px4</code></td><td>wrapper deps, ros-profile.sh</td></tr>
+    <tr><td><code>drone-sim/qgc</code></td><td class="mono">12.1 GB</td><td><code>drone-sim/px4</code></td><td>Xvfb, Qt xcb deps, QGC AppImage</td></tr>
+    <tr><td><code>drone-sim/video</code></td><td class="mono">11.1 GB</td><td><code>drone-sim/px4</code></td><td>ffmpeg</td></tr>
+    <tr><td><code>drone-sim/unreal</code></td><td class="mono">57.5 GB</td><td>Epic engine image</td><td>credential-gated; out of scope</td></tr>
+    <tr><td><code>drone-sim/airsim-client</code></td><td class="mono">0.4 GB</td><td><code>python:3.11-slim</code></td><td>already independent, already lean</td></tr>
+  </tbody>
+</table></div>
+
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="Inheritance today versus proposed. Today ros2, qgc and video all inherit from the px4 image. Proposed, a shared base carries ROS 2 and px4_msgs for px4 and ros2 only, while qgc and video branch directly off ubuntu because they use nothing from px4.">
+  <defs><marker id="a1" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 z" fill="var(--ink2)"/></marker>
+    <marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 z" fill="var(--stop)"/></marker></defs>
+
+  <text x="14" y="18" class="svg-ink" font-size="12" font-weight="700">TODAY</text>
+  <rect x="14" y="30" width="120" height="34" rx="3" fill="var(--panel2)" stroke="var(--rule)"/>
+  <text x="74" y="51" text-anchor="middle" class="svg-ink" font-size="11">ubuntu:24.04</text>
+  <line x1="74" y1="66" x2="74" y2="86" stroke="var(--ink2)" stroke-width="1.3" marker-end="url(#a1)"/>
+  <rect x="14" y="90" width="120" height="34" rx="3" fill="var(--panel)" stroke="var(--chrome)" stroke-width="1.5"/>
+  <text x="74" y="105" text-anchor="middle" class="svg-ink" font-size="11" font-weight="600">px4</text>
+  <text x="74" y="118" text-anchor="middle" class="svg-ink2" font-size="9.5">11.0 GB</text>
+
+  <line x1="134" y1="107" x2="176" y2="107" stroke="var(--ink2)" stroke-width="1.2" marker-end="url(#a1)"/>
+  <rect x="180" y="70" width="96" height="28" rx="3" fill="var(--panel2)" stroke="var(--rule)"/>
+  <text x="228" y="88" text-anchor="middle" class="svg-ink2" font-size="10">ros2 11.1</text>
+  <rect x="180" y="104" width="96" height="28" rx="3" fill="var(--panel2)" stroke="var(--stop)"/>
+  <text x="228" y="122" text-anchor="middle" class="svg-ink2" font-size="10">qgc 12.1</text>
+  <rect x="180" y="138" width="96" height="28" rx="3" fill="var(--panel2)" stroke="var(--stop)"/>
+  <text x="228" y="156" text-anchor="middle" class="svg-ink2" font-size="10">video 11.1</text>
+  <line x1="134" y1="107" x2="176" y2="84" stroke="var(--ink2)" stroke-width="1.2"/>
+  <line x1="134" y1="107" x2="176" y2="152" stroke="var(--stop)" stroke-width="1.2" marker-end="url(#a2)"/>
+  <text x="182" y="188" class="svg-ink2" font-size="10" font-style="italic">qgc and video use NOTHING</text>
+  <text x="182" y="203" class="svg-ink2" font-size="10" font-style="italic">from the PX4 base &mdash; they carry</text>
+  <text x="182" y="218" class="svg-ink2" font-size="10" font-style="italic">ROS, PX4 and NuttX for no reason</text>
+
+  <line x1="330" y1="20" x2="330" y2="230" stroke="var(--rule)" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <text x="360" y="18" class="svg-ink" font-size="12" font-weight="700">PROPOSED</text>
+  <rect x="360" y="30" width="120" height="34" rx="3" fill="var(--panel2)" stroke="var(--rule)"/>
+  <text x="420" y="51" text-anchor="middle" class="svg-ink" font-size="11">ubuntu:24.04</text>
+
+  <line x1="420" y1="66" x2="420" y2="86" stroke="var(--ink2)" stroke-width="1.3" marker-end="url(#a1)"/>
+  <rect x="360" y="90" width="120" height="34" rx="3" fill="var(--panel)" stroke="var(--chrome)" stroke-width="1.5"/>
+  <text x="420" y="105" text-anchor="middle" class="svg-ink" font-size="11" font-weight="600">base</text>
+  <text x="420" y="118" text-anchor="middle" class="svg-ink2" font-size="9.5">ROS 2 + px4_msgs</text>
+
+  <line x1="480" y1="100" x2="524" y2="86" stroke="var(--ink2)" stroke-width="1.2" marker-end="url(#a1)"/>
+  <line x1="480" y1="114" x2="524" y2="124" stroke="var(--ink2)" stroke-width="1.2" marker-end="url(#a1)"/>
+  <rect x="528" y="70" width="104" height="30" rx="3" fill="var(--panel2)" stroke="var(--ok)"/>
+  <text x="580" y="89" text-anchor="middle" class="svg-ink2" font-size="10">px4 ~5 GB</text>
+  <rect x="528" y="110" width="104" height="30" rx="3" fill="var(--panel2)" stroke="var(--ok)"/>
+  <text x="580" y="129" text-anchor="middle" class="svg-ink2" font-size="10">ros2</text>
+
+  <line x1="420" y1="64" x2="700" y2="64" stroke="var(--ok)" stroke-width="1.2"/>
+  <line x1="700" y1="64" x2="700" y2="86" stroke="var(--ok)" stroke-width="1.2" marker-end="url(#a1)"/>
+  <line x1="700" y1="64" x2="700" y2="150" stroke="var(--ok)" stroke-width="1.2" marker-end="url(#a1)"/>
+  <rect x="648" y="90" width="112" height="30" rx="3" fill="var(--panel2)" stroke="var(--ok)"/>
+  <text x="704" y="109" text-anchor="middle" class="svg-ink2" font-size="10">qgc ~1 GB</text>
+  <rect x="648" y="154" width="112" height="30" rx="3" fill="var(--panel2)" stroke="var(--ok)"/>
+  <text x="704" y="173" text-anchor="middle" class="svg-ink2" font-size="10">video ~0.2 GB</text>
+
+  <rect x="790" y="90" width="98" height="52" rx="3" fill="none" stroke="var(--ground)" stroke-dasharray="3 3"/>
+  <text x="839" y="110" text-anchor="middle" class="svg-ink2" font-size="10">firmware</text>
+  <text x="839" y="124" text-anchor="middle" class="svg-ink2" font-size="9">--target only</text>
+  <text x="839" y="136" text-anchor="middle" class="svg-ink2" font-size="9">not in any run</text>
+
+  <text x="360" y="215" class="svg-ink2" font-size="10" font-style="italic">sizes right of &ldquo;proposed&rdquo; are ARITHMETIC on measurements, not built results &mdash; except px4</text>
+</svg>
+<figcaption>Three of four derived images inherit a base they use nothing from. Only <code>px4</code> and <code>ros2</code> genuinely share ROS 2 and the branch-matched <code>px4_msgs</code>.</figcaption>
+</figure>
+
+<h2 id="where"><span class="secnum">02</span> Where the 11 GB actually sits</h2>
+
+<div class="tw"><table>
+  <thead><tr><th>Location</th><th>Size</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>/usr</code></td><td class="mono">7.3 GB</td><td>of which <code>/usr/lib/arm-none-eabi</code> alone is <strong>2.4 GB</strong></td></tr>
+    <tr><td><code>/opt/px4</code></td><td class="mono">2.9 GB</td><td><code>.git</code> 1.5 GB · <code>docs</code> 312 MB · <code>Tools</code> 383 MB · <code>platforms</code> 239 MB · <strong><code>build/</code> only 377 MB</strong></td></tr>
+    <tr><td><code>/opt/ros/jazzy</code></td><td class="mono">236 MB</td><td>small &mdash; see the correction below</td></tr>
+    <tr><td><code>/opt/xrce</code></td><td class="mono">106 MB</td><td>the uXRCE-DDS agent</td></tr>
+  </tbody>
+</table></div>
+
+<h3>Where those two things come from, exactly</h3>
+
+<div class="grid g2">
+  <div class="panel">
+  <p><strong>1 &middot; The NuttX / ARM toolchain &mdash; ~2.9 GB</strong></p>
+  <pre>docker/px4.Dockerfile:124
+RUN bash Tools/setup/ubuntu.sh --no-sim-tools</pre>
+  <p>PX4&rsquo;s own setup script installs the ARM cross-compiler unless <code>--no-nuttx</code> is
+  passed. <strong>It was deliberately not passed</strong>, and the reason is good: real Pixhawk 6C
+  firmware is flashed from this same tree, and <code>--no-nuttx</code> would have slimmed the image
+  while silently removing that capability.</p>
+  <p>Largest packages: <code>libstdc++-arm-none-eabi-newlib</code> <strong>2014 MB</strong>,
+  <code>gcc-arm-none-eabi</code> 493 MB, <code>libnewlib-arm-none-eabi</code> 417 MB.</p>
+  </div>
+
+  <div class="panel">
+  <p><strong>2 &middot; The PX4 source tree &mdash; ~2.5 GB</strong></p>
+  <pre>docker/px4.Dockerfile:119
+RUN git clone --recursive --branch ${PX4_TAG} \
+    https://github.com/PX4/PX4-Autopilot.git .</pre>
+  <p><code>--recursive</code> pulls every submodule, which is why <code>.git</code> alone is
+  1.5&nbsp;GB. The clone is <em>required</em> &mdash; the SITL binary has to be compiled from it.
+  What is not required is <strong>keeping it afterwards</strong>: the runtime reads only
+  <code>build/px4_sitl_default/</code>.</p>
+  </div>
+</div>
+
+<div class="callout stop"><span class="lbl">Correction &mdash; the entry was wrong twice, and both were caught by measuring</span>
+<p><strong>openjdk (286 MB) is NOT PX4&rsquo;s.</strong> <code>SIM-19</code> listed it as installed
+by <code>Tools/setup/ubuntu.sh</code>. It is present in the <em>base stage, before PX4 is cloned</em>
+&mdash; it arrives through ROS via <code>default-jre-headless &larr; default-jdk-headless</code>. A
+stage split cannot remove it, so it is <strong>not</strong> part of the win. Removing it means first
+answering what in the ROS toolchain needs a JRE.</p>
+<p><strong>And earlier: <code>ros-jazzy-desktop</code> was not the problem either.</strong> The
+entry originally called it &ldquo;almost certainly the wrong metapackage&rdquo; and the biggest win.
+<code>/opt/ros/jazzy</code> is 236&nbsp;MB, and the wrapper genuinely needs <code>cv_bridge</code>,
+<code>image_transport</code>, <code>pcl</code> and <code>pcl_conversions</code>, which
+<code>ros-base</code> does not carry. That lead was written from a guess and measurement killed it.</p></div>
+
+<h2 id="plan"><span class="secnum">03</span> The plan &mdash; two slices</h2>
+
+<figure>
+<svg viewBox="0 0 900 210" role="img" aria-label="The multi-stage split. A base stage carries ROS 2. A firmware stage clones the full PX4 tree and installs the NuttX toolchain, then builds SITL. The runtime stage returns to base and copies only the build output, leaving toolchain and source behind in the firmware stage.">
+  <defs><marker id="b1" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 z" fill="var(--ink2)"/></marker>
+    <marker id="b2" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 z" fill="var(--ok)"/></marker></defs>
+
+  <rect x="20" y="76" width="150" height="52" rx="3" fill="var(--panel2)" stroke="var(--rule)"/>
+  <text x="95" y="97" text-anchor="middle" class="svg-ink" font-size="11.5" font-weight="600">base</text>
+  <text x="95" y="114" text-anchor="middle" class="svg-ink2" font-size="10">ubuntu + ROS 2 Jazzy</text>
+
+  <line x1="174" y1="102" x2="216" y2="102" stroke="var(--ink2)" stroke-width="1.3" marker-end="url(#b1)"/>
+
+  <rect x="220" y="46" width="240" height="112" rx="3" fill="var(--panel)" stroke="var(--ground)" stroke-width="1.6"/>
+  <text x="340" y="68" text-anchor="middle" class="svg-ink" font-size="11.5" font-weight="600">firmware  (--target)</text>
+  <text x="340" y="88" text-anchor="middle" class="svg-ink2" font-size="10">git clone --recursive  (2.5 GB)</text>
+  <text x="340" y="104" text-anchor="middle" class="svg-ink2" font-size="10">ubuntu.sh &rarr; NuttX toolchain (2.9 GB)</text>
+  <text x="340" y="120" text-anchor="middle" class="svg-ink2" font-size="10">make px4_sitl_default</text>
+  <text x="340" y="142" text-anchor="middle" class="svg-ink2" font-size="10" font-style="italic">flashing capability kept, buildable on demand</text>
+
+  <line x1="464" y1="102" x2="516" y2="102" stroke="var(--ok)" stroke-width="1.8" marker-end="url(#b2)"/>
+  <text x="490" y="94" text-anchor="middle" class="svg-ink2" font-size="9">COPY</text>
+  <text x="490" y="120" text-anchor="middle" class="svg-ink2" font-size="9">build/ only</text>
+
+  <rect x="520" y="60" width="200" height="84" rx="3" fill="var(--panel)" stroke="var(--ok)" stroke-width="1.6"/>
+  <text x="620" y="82" text-anchor="middle" class="svg-ink" font-size="11.5" font-weight="600">runtime  (what ships)</text>
+  <text x="620" y="100" text-anchor="middle" class="svg-ink2" font-size="10">FROM base &mdash; not from firmware</text>
+  <text x="620" y="116" text-anchor="middle" class="svg-ink2" font-size="10">+ XRCE agent, px4_msgs</text>
+  <text x="620" y="132" text-anchor="middle" class="svg-ink" font-size="11" font-weight="700">377 MB of /opt/px4</text>
+
+  <text x="760" y="86" class="svg-ink" font-size="12" font-weight="700">11.0 GB</text>
+  <text x="795" y="86" class="svg-ink2" font-size="12">&rarr;</text>
+  <text x="828" y="86" class="svg-ink" font-size="14" font-weight="700" fill="var(--ok)">4.73</text>
+  <text x="868" y="86" class="svg-ink2" font-size="11">GB</text>
+  <text x="812" y="106" text-anchor="middle" class="svg-ink2" font-size="9.5">measured, built</text>
+
+  <text x="20" y="182" class="svg-ink2" font-size="10.5">Why a stage split and not a delete: <tspan font-weight="600">apt purge in a later layer reclaims nothing</tspan> &mdash; the bytes stay in the earlier layer.</text>
+  <text x="20" y="198" class="svg-ink2" font-size="10.5">Only starting a fresh stage and copying forward actually removes them.</text>
+</svg>
+<figcaption>Slice 1: the PX4 image split into a firmware stage that builds and a runtime stage that ships.</figcaption>
+</figure>
+
+<div class="grid g2">
+  <div class="callout ok"><span class="lbl">Slice 1 &mdash; strip the PX4 image · BUILT</span>
+  <p>No renaming, no restructuring of other images, zero reference churn. The toolchain and source
+  tree stay in a <code>--target firmware</code> stage; the runtime copies only
+  <code>build/</code>.</p>
+  <p><strong>11.0 GB &rarr; 4.73 GB, measured.</strong> Every derived image inherits the saving.</p>
+  <p>Runtime assertions in the Dockerfile check the SITL binary and <code>rcS</code> are present
+  and the toolchain and source are gone &mdash; so the strip cannot silently regress.</p></div>
+
+  <div class="callout warn"><span class="lbl">Slice 2 &mdash; the structural split · NOT STARTED</span>
+  <p><code>qgc</code> and <code>video</code> off the PX4 base entirely; a shared <code>base</code>
+  for <code>px4</code> and <code>ros2</code> only.</p>
+  <p>Bigger, and it needs the naming decision below. Known detail: <code>qgc</code> leaving the PX4
+  base must re-add <code>curl</code>, <code>ca-certificates</code> and
+  <code>/etc/drone-sim-versions</code>, which it currently inherits.</p></div>
+</div>
+
+<h2 id="done"><span class="secnum">04</span> Status &mdash; and what is not yet true</h2>
+
+<div class="grid g3">
+  <div class="stat ok"><div class="k">px4 image</div><div class="v">4.73 GB</div><div class="n">from 11.0 GB &mdash; built and measured</div></div>
+  <div class="stat ok"><div class="k">strip verified</div><div class="v">377 MB</div><div class="n">/opt/px4, toolchain and source absent</div></div>
+  <div class="stat stop"><div class="k">flight</div><div class="v">not run</div><div class="n">the image has never been brought up</div></div>
+  <div class="stat warn"><div class="k">derived images</div><div class="v">not rebuilt</div><div class="n">ros2 / qgc / video still on the old base</div></div>
+  <div class="stat warn"><div class="k">tag</div><div class="v">:sim19</div><div class="n">v1.16.0 untouched; working stack unaffected</div></div>
+  <div class="stat stop"><div class="k">slice 2</div><div class="v">not started</div><div class="n">blocked on the naming decision</div></div>
+</div>
+
+<div class="callout stop"><span class="lbl">A smaller image that does not fly is a regression</span>
+<p>The acceptance gate is unchanged and has <strong>not</strong> been run: the wrapper builds, the
+stack comes up through all three bring-up barriers, and the example mission flies. Until then
+&ldquo;4.73 GB&rdquo; is a size, not a result.</p></div>
+
+<h2 id="open"><span class="secnum">05</span> Open decisions</h2>
+
+<div class="tw"><table>
+  <thead><tr><th>#</th><th>Decision</th><th>Why it matters</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Do the image <strong>names</strong> change?</td><td><strong>22 files</strong> reference the current names &mdash; <code>sim_up.sh</code>, <code>attach.sh</code>, <code>convert_world.sh</code>, <code>build_airsim_wrapper.sh</code>, five render/capture scripts, <code>versions.lock</code>, CI and eight docs. Keeping them identical makes the blast radius nearly zero.</td></tr>
+    <tr><td>2</td><td>Must a <em>running</em> container be able to flash a Pixhawk?</td><td>Slice 1 assumes no, and keeps the capability <em>buildable</em> via <code>--target firmware</code>. If a running container must flash, the split has to change.</td></tr>
+    <tr><td>3</td><td>The <strong>Vulkan ICD host assumption</strong> in <code>unreal.Dockerfile</code></td><td>Image, run command, or detection step? Now evidenced: the symlink is needed <em>only</em> on Fedora-family hosts and is harmless elsewhere. See <code>docs/gpu-in-docker.md</code>.</td></tr>
+    <tr><td>4</td><td>Is <code>video</code> worth keeping at all?</td><td>11.1 GB to provide <code>ffmpeg</code>, used only by <code>encode_h264.sh</code> and the render scripts. As its own thin layer it is ~0.2 GB.</td></tr>
+  </tbody>
+</table></div>
+
+<footer>
+  <span>drone-sim · SIM-19</span>
+  <span>measured 2026-08-04 · slice 1 built 2026-08-06</span>
+  <span><a href="worlds.html">&larr; Bring your own world</a></span>
+</footer>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

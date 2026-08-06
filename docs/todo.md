@@ -2203,7 +2203,11 @@ flown end to end over ROS 2 with its MCAP kept.
 
 ## `SIM-19` — review the Dockerfiles properly
 
-**Status:** `todo` — **measured 2026-08-04, not yet implemented.** Filed by the owner right
+**Status:** `in progress` — **slice 1 done and verified 2026-08-06** (PX4 image 11.0 -> 4.73 GB,
+all four images rebuilt, stack flies). Slice 2 not started, blocked on the naming decision.
+An illustrated version of this entry is at [`sim19-docker-images.html`](sim19-docker-images.html).
+
+Originally filed by the owner right
 after `SIM-18` merged; the measurement pass below was run the same day and **corrected the
 first lead this entry originally carried.** Nothing is broken: all six images build and the
 stack flies on them. This is about what they contain.
@@ -2262,6 +2266,48 @@ MB, not gigabytes.
    reverse dependency outside its own family and nothing in this project invoking it.
 
 Together **~5.7 GB of 11.0 GB**, with nothing that runs losing anything.
+
+### Slice 1 — DONE 2026-08-06: strip the PX4 image
+
+Split `docker/px4.Dockerfile` into stages. `firmware` clones the full PX4 tree, installs the
+NuttX/ARM toolchain and builds SITL; `runtime` returns to `base` and copies **only**
+`/opt/px4/build`. A stage split rather than a delete, because **`apt purge` in a later layer
+reclaims nothing** — the bytes stay in the earlier layer.
+
+The flashing capability is kept, not dropped: `docker build --target firmware` still produces an
+image with the full tree and toolchain. It is simply not inside every container that flies.
+
+**Measured, all four images rebuilt:**
+
+| Image | Before | After |
+|---|---|---|
+| `drone-sim/px4` | 11.0 GB | **4.73 GB** |
+| `drone-sim/ros2` | 11.1 GB | **4.78 GB** |
+| `drone-sim/qgc` | 12.1 GB | **5.75 GB** |
+| `drone-sim/video` | 11.1 GB | **4.8 GB** |
+
+`/opt/px4` goes 2.9 GB -> **377 MB**; the ARM toolchain, `arm-none-eabi-gcc`, the source tree and
+`.git` are all asserted absent in the runtime stage so the strip cannot silently regress.
+
+**Acceptance met in full** — not just a size: the wrapper builds, the stack passes all three
+bring-up barriers, and `verify_nav_interface.py` passes telemetry / takeoff / waypoint / velocity /
+gps_waypoint.
+
+**Two corrections this slice produced.**
+
+1. **openjdk is NOT PX4's, and is NOT part of the win.** This entry listed 286 MB of openjdk as
+   installed by `Tools/setup/ubuntu.sh`. It is present in the **base stage, before PX4 is cloned** —
+   it arrives via ROS (`default-jre-headless` <- `default-jdk-headless`). A stage split cannot
+   remove it. That is the second time this entry's stated cause was wrong; the first was
+   `ros-jazzy-desktop`, also killed by measurement.
+2. **`build_airsim_wrapper.sh` was broken by patch `0005`, and this caught it.** That script applies
+   *every* patch in `patches/cosys-airsim/`, but `0005` is an **Unreal plugin** patch and the
+   wrapper build root has no `Unreal/` tree — so `patch` prompted on stdin and the build died. It
+   now skips Unreal-side patches (`convert_world.sh` applies those) and passes `--batch` so a
+   mismatch fails instead of hanging. **This was a live regression on `main`**, shipped in the
+   `SIM-21` work and found only by running the wrapper build.
+
+---
 
 ### The structural question — what should actually be separate
 
