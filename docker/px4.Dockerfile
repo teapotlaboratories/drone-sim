@@ -33,7 +33,7 @@
 #
 # No GPU required — PX4 SITL is CPU-bound and headless.
 
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS base
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -100,6 +100,22 @@ RUN dpkg -s ros-${ROS_DISTRO}-desktop | awk '/^Version:/{print "ros-desktop " $2
 # which ones matter from a failed 30-minute build is the expensive way to find out.
 # Deliberately NOT reinstated: gz-harmonic, gstreamer*, libopencv-dev, libunwind-dev,
 # cppzmq-dev, dmidecode, libimage-exiftool-perl — the Gazebo rendering/video stack.
+# =======================================================================================
+# STAGE: firmware -- the FULL PX4 tree plus the NuttX/ARM toolchain.
+#
+# This stage exists so real Pixhawk 6C firmware can still be built from the same tree the
+# simulator flies. It is NOT what runs: `docker build --target firmware` gets you a
+# flashing-capable image, while the default build copies only the SITL output out of it.
+#
+# MEASURED, and the whole reason for the split: the toolchain and source tree are ~5.4 GB
+# that no simulator container ever reads.
+#   /usr/lib/arm-none-eabi   2.4 GB      libstdc++-arm-none-eabi-newlib  2014 MB
+#   /opt/px4 source          2.5 GB      (2.9 GB total, of which build/ is only 377 MB)
+# (openjdk-21, 286 MB, is NOT in that list: it comes from ROS in the base stage, not from
+#  PX4 -- see the note by the runtime assertion below.)
+# =======================================================================================
+FROM base AS firmware
+
 WORKDIR /opt/px4
 RUN git clone --recursive --branch ${PX4_TAG} https://github.com/PX4/PX4-Autopilot.git . \
     && test "$(git rev-parse HEAD)" = "${PX4_SHA}" \
@@ -125,6 +141,38 @@ RUN ! dpkg -s gz-harmonic >/dev/null 2>&1 \
 RUN make px4_sitl_default \
     && test -x build/px4_sitl_default/bin/px4 \
     && echo "px4_sitl built"
+
+# =======================================================================================
+# STAGE: runtime -- what actually ships. Back to `base`, so the toolchain, the source tree
+# and openjdk are all left behind in `firmware` rather than merely deleted in a later layer
+# (a later `apt purge` reclaims NOTHING: the bytes still sit in the earlier layer).
+#
+# ONLY build/ is copied. Verified two ways: `ldd` on the px4 binary resolves to libc,
+# libstdc++, libgcc and libm alone -- all present in the base -- and the SITL runtime reads
+# only paths under build/px4_sitl_default (bin/, etc/, ROMFS/), which is what
+# `cd /opt/px4/build/px4_sitl_default && ./bin/px4 -s etc/init.d-posix/rcS` in sim_up.sh uses.
+# =======================================================================================
+FROM base AS runtime
+
+# Carry the provenance record forward -- the firmware stage appended the PX4 SHA to it, and
+# losing that would make the shipped image unable to state what it was built from.
+COPY --from=firmware /etc/drone-sim-versions /etc/drone-sim-versions
+COPY --from=firmware /opt/px4/build /opt/px4/build
+
+# The bytes are gone only if nothing here re-adds them. Assert rather than trust.
+RUN test -x /opt/px4/build/px4_sitl_default/bin/px4 \
+    && test -f /opt/px4/build/px4_sitl_default/etc/init.d-posix/rcS \
+    && ! test -d /opt/px4/src \
+    && ! test -d /usr/lib/arm-none-eabi \
+    && ! command -v arm-none-eabi-gcc >/dev/null 2>&1 \
+    && echo "runtime stage: SITL present, toolchain and source absent"
+
+# openjdk is deliberately NOT asserted absent, and SIM-19's entry was wrong about it.
+# MEASURED: openjdk-21-jre-headless is present in the BASE stage, before PX4 is cloned --
+# it arrives via ROS (default-jre-headless <- default-jdk-headless), not via
+# Tools/setup/ubuntu.sh. A stage split therefore cannot remove it, and removing it means
+# answering what in the ROS toolchain actually needs a JRE. Left in place, recorded rather
+# than quietly dropped from the estimate.
 
 # --- Micro-XRCE-DDS-Agent v2.4.3 -----------------------------------------------------
 # -DUAGENT_USE_SYSTEM_FASTDDS=ON uses Jazzy's Fast-DDS 2.14.6 (which is what v2.4.3

@@ -66,9 +66,22 @@ shopt -s nullglob
 patches=("$REPO/$PATCHDIR"/*.patch)
 [ ${#patches[@]} -gt 0 ] || die "no patches found in $PATCHDIR"
 for pf in "${patches[@]}"; do
+  # SKIP THE UNREAL-SIDE PATCHES. patches/cosys-airsim/ holds deviations for BOTH halves of
+  # Cosys-AirSim: the ROS 2 wrapper (this build) and the Unreal plugin (applied by
+  # scripts/convert_world.sh to a world's injected plugin copy). This build root contains
+  # cmake/, AirLib/, MavLinkCom/, external/ and ros2/ -- there is no Unreal/ tree here, so an
+  # Unreal patch cannot apply and `patch` prompts on stdin before failing.
+  #
+  # This is not hypothetical: adding 0005-worldpartition-streaming-source.patch broke this
+  # script outright, and it was caught by running the wrapper build rather than by review.
+  if grep -q 'Unreal/Plugins/AirSim' "$pf"; then
+    log "skipping $(basename "$pf") -- Unreal-side patch, applied by convert_world.sh"
+    continue
+  fi
   log "applying $(basename "$pf")"
   docker cp "$pf" "$SVC:/tmp/wrapper.patch" >/dev/null
-  docker exec "$SVC" bash -lc "cd $ROOT && patch -p1 --forward < /tmp/wrapper.patch" \
+  # --batch so a mismatched patch FAILS instead of blocking forever on "File to patch:".
+  docker exec "$SVC" bash -lc "cd $ROOT && patch -p1 --forward --batch < /tmp/wrapper.patch" \
     || die "$(basename "$pf") did not apply - upstream may have moved, or the hunk was
 hand-written with LF endings against these CRLF sources. Re-generate it from the real file."
 done
