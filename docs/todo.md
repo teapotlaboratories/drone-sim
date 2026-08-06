@@ -2449,6 +2449,97 @@ alongside a no-server control, or a pass proves nothing.
 
 ---
 
+## `SIM-21` — fly CitySample: World Partition streams nothing without a streaming source
+
+**Status:** `done` — **2026-08-05.** Diagnosed, patched and flown, **but the fix is only 2-in-3
+reliable**: a startup race remains (see below). Two follow-ups.
+
+Epic's **CitySample** (`Small_City_LVL`) now flies.
+
+### Two independent problems, both fixed
+
+**1 — It would not build.** CitySample is an **A2** project (ships `Source/`, no Linux binaries),
+so it had to compile against UE5.8 first. Two fixes, both in `Source/CitySampleEditor.Target.cs`
+(backups `.pre-airsim` alongside):
+
+- UE5.8's newer clang promotes `-Wunreachable-code-break` and `-Wunreachable-code-loop-increment`
+  to errors under `-Werror`; 14 files trip it across Epic's RuleProcessor/Traffic plugins **and**
+  Cosys-AirSim. Downgraded exactly those two rather than patching upstream source.
+- UBT then refused per-target compiler args because the target shares build products with
+  `UnrealEditor`. Fixed with `bOverrideBuildEnvironment = true`; the documented alternative,
+  `TargetBuildEnvironment.Unique`, forces a **full engine rebuild** for two warnings.
+
+Result: **396/396, exit 0.**
+
+**2 — It had no ground.** World Partition activates cells around a registered **streaming
+source**, normally the player pawn. AirSim spawns its vehicle without one, so no cell ever loaded
+and the vehicle fell forever. Fixed by `patches/cosys-airsim/0005-worldpartition-streaming-source.patch`,
+which adds a `UWorldPartitionStreamingSourceComponent` to `AFlyingPawn`. Full evidence in
+[`vendor/cosys-airsim.md`](vendor/cosys-airsim.md).
+
+### Before and after — resting `z`, NED, +z is DOWN
+
+| Spawn | Before | After |
+|---|---|---|
+| `0,0,0` | +332 m | — |
+| `0,0,-150` | +139.5 m | **-8.4e-05 m** |
+| `0,0,-150` + `wp.Runtime.EnableStreaming=0` | +1481 m | — |
+
+Releasing higher only bought more fall, so this was never a spawn-height problem. The cvar
+workaround does not work and was reverted.
+
+```
+EKF origin  ref_alt 123.322 m vs GPS 123.322 m = 0.000 m apart
+flight      telemetry / takeoff / waypoint / velocity / gps_waypoint -- ALL PASS
+              waypoint  commanded (10.0, -0.0)  reached (9.27, -0.69)  error 1.00 m
+              velocity  commanded +2.0 m/s      measured +1.89 m/s over 808 samples
+              gps       commanded +30 m north   moved +27.0 m, remaining 3.00 m
+```
+
+### Traps this cost time to learn
+
+- **`cell load lines` is a bad proxy.** UE does not log per-cell activation at default verbosity,
+  so the count stayed 0 even after the fix worked. Judge it by **resting `z`**, not by log greps.
+- **AirSim spawns a Blueprint subclass** (`BP_FlyingPawn_C`), not the C++ class. A rebuild that
+  never reached it looks identical from outside. A temporary runtime probe confirmed it did:
+  `AIRSIM_WP_PROBE class=BP_FlyingPawn_C comp=yes enabled=1 partition=1`.
+- **`GlobalDefaultGameMode` was `BP_CitySampleGameMode`** — the silent-never-loads trap. Set by
+  `inject_airsim.py --map /Game/Map/Small_City_LVL`.
+
+### The fix is necessary but NOT sufficient — a startup race remains
+
+Cell streaming takes seconds (`GenerateStreaming` measured 7-22 s) while the vehicle falls
+immediately. If it passes the ground plane before the cells beneath it activate, the run is lost
+exactly as before. Measured on identical builds, same spawn `0,0,-150`:
+
+| Run | Resting `z` | Result |
+|---|---|---|
+| 1 | -8.4e-05 m | flew, 5/5 nav checks |
+| 2 | **+1697 m** | fell through |
+| 3 | -1.0e-03 m | flew, 4/4 waypoints, worst 0.855 m, recorded to video |
+
+**2 of 3.** I first reported this as working off run 1 alone — the same one-sample mistake as
+`SIM-20`. A proper fix must hold the vehicle until streaming around it completes rather than
+racing it; candidates are `UWorldPartitionSubsystem::IsStreamingCompleted()` gating, or freezing
+physics until the first cells activate. Unsolved.
+
+Until then: **retry on failure, and judge a run by resting `z`**, never by whether the level
+appeared to load.
+
+### Follow-up — the patch does not reach users yet
+
+`inject_airsim.py` copies the **built** plugin from Blocks, so `0005` only propagates once Blocks'
+plugin is rebuilt with it applied. Verified here by patching the injected copy and rebuilding the
+project. Wiring the Unreal-plugin patches into a build step is genuinely unsolved: the existing
+`build_airsim_wrapper.sh` patch flow covers the **ROS 2 wrapper** only, not the UE plugin.
+
+Also untouched: `CarPawn` has the same gap. Left alone because nothing here drives a car.
+
+Worth knowing before going further: the render GPU is the **3080 at 10 GB**, so `Big_City_LVL`
+is likely out of reach even now; `Small_City_LVL` is the verified world.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:

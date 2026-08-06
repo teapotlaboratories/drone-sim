@@ -127,6 +127,75 @@ published / 311 Hz distinct.
 
 ---
 
+## 4. `0005-worldpartition-streaming-source.patch`
+
+**What it changes.** Adds a `UWorldPartitionStreamingSourceComponent` to `AFlyingPawn`
+(`Unreal/Plugins/AirSim/Source/Vehicles/Multirotor/FlyingPawn.{h,cpp}`) and enables it in
+`BeginPlay()`.
+
+**Why.** World Partition activates streaming cells around a registered **streaming source**,
+normally the player pawn. AirSim spawns its vehicle without one, so in a World Partition level
+**no cell ever loads** — the map opens, `GenerateStreaming` completes, and nothing activates.
+There is then no collision geometry anywhere and the vehicle **falls forever**.
+
+This is not the underground-spawn trap and not a spawn-height problem. Measured on Epic's
+CitySample (`Small_City_LVL`, UE5.8), resting `z` in **NED, where +z is DOWN**:
+
+| Spawn | Resting `z` | Result |
+|---|---|---|
+| `0,0,0` | +332 m | fell through |
+| `0,0,-150` | +139.5 m | fell through |
+| `0,0,-150` + `wp.Runtime.EnableStreaming=0` | +1481 m | fell through |
+
+Releasing higher only buys more fall. The cvar route does not work either — set via
+`[SystemSettings]` in `DefaultEngine.ini` it had no effect on cell loading.
+
+**After the patch**, same world, same spawn:
+
+```
+resting z   -8.4e-05 / -3.8e-04 / +1.6e-04 m      -- on the ground
+EKF origin  ref_alt 123.322 m vs GPS 123.322 m = 0.000 m apart
+flight      verify_nav_interface.py -- telemetry / takeoff / waypoint / velocity / gps ALL PASS
+              waypoint  commanded (10.0, -0.0)  reached (9.27, -0.69)  error 1.00 m
+              velocity  commanded +2.0 m/s      measured +1.89 m/s over 808 samples
+              gps       commanded +30 m north   moved +27.0 m, remaining 3.00 m
+```
+
+**Verified against the artifact that ran, not the one that was built.** AirSim spawns a
+*Blueprint subclass*, so a rebuild that never reached `BP_FlyingPawn` would look identical from
+outside. A temporary runtime probe confirmed it did:
+
+```
+AIRSIM_WP_PROBE class=BP_FlyingPawn_C comp=yes enabled=1 partition=1
+```
+
+The probe was removed before the patch was cut; only the fix remains.
+
+**NECESSARY BUT NOT SUFFICIENT — a startup race remains.** Cell streaming takes seconds
+(`GenerateStreaming` measured 7–22 s) while the vehicle falls immediately. If it passes the ground
+plane before the cells under it activate, the run is lost exactly as before. Measured on identical
+builds, same spawn `0,0,-150`:
+
+| Run | Resting `z` | Result |
+|---|---|---|
+| 1 | -8.4e-05 m | flew, 5/5 checks |
+| 2 | **+1697 m** | fell through |
+| 3 | -1.0e-03 m | flew, 4/4 waypoints, worst 0.855 m |
+
+**2 of 3.** Retry on failure, and judge by resting `z`. A real fix must hold the vehicle until
+streaming around it completes instead of racing it — that is unsolved.
+
+**Blast radius.** Harmless in non-World-Partition levels (Blocks, CityPark) — the component has
+no partition to drive. It is added to the multirotor pawn only; `CarPawn` has the same gap and is
+untouched, because nothing in this project drives a car.
+
+**Not yet wired into the build.** `inject_airsim.py` copies the **built** plugin from Blocks, so
+this patch only reaches a user world once Blocks' plugin is rebuilt with it applied. Until that
+happens the fix must be applied to the injected copy and the project rebuilt, which is how it was
+verified here. See `SIM-21`.
+
+---
+
 ## Deviations that are NOT source patches
 
 Recorded here because they are just as load-bearing, and are deliberately kept in the launch and
