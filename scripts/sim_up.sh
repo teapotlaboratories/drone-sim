@@ -65,9 +65,13 @@ case "$NET_MODE" in shared|host) ;; *) echo "NET_MODE must be 'shared' or 'host'
 DISCOVERY_SERVER=${DISCOVERY_SERVER:-}
 DS_ENV=()
 if [ -n "$DISCOVERY_SERVER" ]; then
+  # Require a non-empty host and an all-digits port. `*:*` alone accepted ":" and "a:b", which
+  # reach Fast-DDS as a silently-ignored address -- and a discovery setting that is ignored
+  # rather than rejected presents as an empty graph, which is the hardest failure here to read.
   case "$DISCOVERY_SERVER" in
+    *:*[!0-9]*|:*|*:) echo "DISCOVERY_SERVER must be <host>:<port>, e.g. 10.0.0.5:11811 (got '$DISCOVERY_SERVER')" >&2; exit 2 ;;
     *:*) ;;
-    *) echo "DISCOVERY_SERVER must be <ip>:<port>, e.g. 10.0.0.5:11811" >&2; exit 2 ;;
+    *) echo "DISCOVERY_SERVER must be <host>:<port>, e.g. 10.0.0.5:11811 (got '$DISCOVERY_SERVER')" >&2; exit 2 ;;
   esac
   # ROS_SUPER_CLIENT is NOT optional here, and leaving it out is what made this look
   # impossible the first time. A plain discovery CLIENT is only told about participants it
@@ -410,7 +414,25 @@ wait_for_fmu() {
       fi
       sleep 2
     done
-    exit 1' || die "no finite EKF origin appeared -- /fmu/out silent (check ipc/netns sharing, D-02) or the EKF never initialised"
+    exit 1' || {
+      # NAME THE DISCOVERY SERVER BEFORE THE EKF. An unreachable or mistyped server produces
+      # EXACTLY this symptom -- /fmu/out silent -- because the participants never get
+      # introduced, and the graph looks empty rather than broken. That is not hypothetical:
+      # it is the failure that made an earlier pass conclude the Discovery Server "takes /fmu
+      # offline" and revert a working feature. The EKF was never involved. So when the flag is
+      # set, say so first and give the one-line check, rather than sending the reader to the
+      # EKF for a discovery problem.
+      if [ -n "$DISCOVERY_SERVER" ]; then
+        die "no finite EKF origin appeared, and DISCOVERY_SERVER=$DISCOVERY_SERVER is set.
+  CHECK DISCOVERY FIRST -- an unreachable server looks EXACTLY like this, and the EKF is
+  probably fine. The server must be running and reachable BEFORE the stack starts:
+      fastdds discovery -i 0 -l 0.0.0.0 -p ${DISCOVERY_SERVER##*:}
+  Confirm the stack can see its own topics through it:
+      docker exec sim-ros2 bash -lc 'ros2 topic list | grep -c \"^/fmu\"'     # expect 51
+  A 0 there is discovery, not flight. If it reports 51, then this IS the EKF."
+      fi
+      die "no finite EKF origin appeared -- /fmu/out silent (check ipc/netns sharing, D-02) or the EKF never initialised"
+    }
 }
 
 verify_origin() {
@@ -422,6 +444,15 @@ verify_origin() {
 }
 
 # --------------------------------------------------------------------------------------
+# Record the discovery mode in the run log. Which mechanism introduced the participants is not
+# recoverable from the stack afterwards, and every result on this stack is judged by the run
+# that produced it -- so a bag with no record of its discovery mode cannot be fully read back.
+if [ -n "$DISCOVERY_SERVER" ]; then
+  log "discovery: SERVER $DISCOVERY_SERVER (multicast not used; it must already be running)"
+else
+  log "discovery: multicast (default)"
+fi
+
 teardown
 start_sim
 wait_for_settled_vehicle
