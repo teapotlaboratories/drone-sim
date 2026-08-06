@@ -172,6 +172,8 @@ SITL only.
 | PX4 waits, AirSim **has** logged, `ShaderCompileWorker` running | Genuinely still compiling shaders. Raise `SIM_LINK_TIMEOUT`; the `sim-ddc` volume makes the next run much faster. |
 | Build fails on some *other* `-Werror` warning | Add it beside the two in `*Editor.Target.cs`, same form. |
 | Build succeeds, no `.so` produced | Wrong target — you built the game target, not `*Editor`. |
+| Wrong target chosen on a project with several | The script prefers `<Name>Editor.Target.cs`. A bare `*Editor` glob sorts alphabetically and picks e.g. `FooCookedEditor` — a content-cooking target, not the one `-game` runs. |
+| `no such map: /Game/...` | The content path does not resolve to a `.umap`. The error lists the maps the project actually has. Caught before anything is modified. |
 | Drone falls through | World Partition (above). Retry, then check collision under the spawn. |
 | Vehicle spawns underground | Use `--spawn X,Y,-Z` to release from height and read the resting position back — that *is* a ground probe. `Z` is NED: **negative is up**. |
 
