@@ -497,6 +497,7 @@ docs/                    quickstart, the backlog, graph conventions, bench brief
 | [`docs/quickstart.md`](docs/quickstart.md) ([HTML](docs/quickstart.html)) | **Run it** — launch, world selection, sensor selection and tuning, the topic/type/rate table, and the ROS 2 command interface |
 | [`docs/todo.md`](docs/todo.md) | **The backlog** — every `SIM-NN` with its acceptance criterion and its evidence. The one cross-cutting area keeps its own file: [`docs/docker/todo.md`](docs/docker/todo.md) |
 | [`docs/roadmap.html`](docs/roadmap.html) | Where the simulator is and which capability comes next |
+| [`docs/gpu-in-docker.md`](docs/gpu-in-docker.md) | **How the GPU reaches the container** — CDI, the Vulkan ICD path trap, and six commands that prove hardware rendering rather than a software fallback |
 | [`docs/worlds.md`](docs/worlds.md) ([HTML](docs/worlds.html)) | **Bring your own world** — converting a third-party Unreal project: injection, the UE5.8 build fixes, World Partition, and how to tell a converted world actually flies |
 | [`docs/conventions.md`](docs/conventions.md) | The **frozen** ROS 2 graph — these names reach the aircraft unchanged |
 | [`versions.lock`](versions.lock) | Every pin, its status, and how it was verified |
