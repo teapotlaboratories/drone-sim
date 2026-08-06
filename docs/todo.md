@@ -2314,6 +2314,72 @@ gps_waypoint.
 
 ---
 
+### Dependency audit — 2026-08-06, and slice 2 re-scoped
+
+Run before building slice 2, because the entry's remaining leads were guesses. Two of them died.
+
+**`apt-get autoremove` finds ZERO orphans, and it was right.** Nothing in the image is unreferenced.
+That was the first command run and the correct answer; the rest of this audit was spent
+disbelieving it.
+
+**The weight is one required chain, not bloat:**
+
+```
+ros-jazzy-desktop -> ros-jazzy-pcl-conversions -> libpcl-dev -> { VTK, Boost-dev, LLVM x3 }
+```
+
+`/usr/lib` is 2.8 GB and its largest items are four LLVM runtimes (~485 MB), `libboost1.83-dev`
+(154 MB), `libvtk9.1t64` (105 MB) and openjdk twice (286 MB). All of it arrives through
+`libpcl-dev`, which `pcl_conversions` depends on — and the AirSim wrapper genuinely declares
+`pcl_conversions`.
+
+**DEAD LEAD (the third): swapping the metapackage does not help.** Measured by simulating both
+installs:
+
+| | Packages |
+|---|---|
+| `ros-base` + `cv_bridge` + `image_transport` + `pcl_conversions` + `tf2_*` | **1103** |
+| `ros-jazzy-desktop` | **1301** |
+
+198 packages of difference, and the `ros-base` variant **still pulls** `libpcl-dev`, `libvtk9`,
+`libboost1`, `libllvm15`, `libllvm17`, `libllvm20`. The weight is structural. This is the third
+lead in this entry killed by measurement, after `ros-jazzy-desktop` itself and openjdk.
+
+**`libllvm17t64` is NOT an orphan**, though it looks exactly like one: marked `auto`, and
+`apt-cache rdepends` reports no installed dependents. `apt-get -s remove libllvm17t64` shows the
+truth — it cascades **54 packages including `ros-jazzy-desktop` and `libpcl-dev`**. Use a simulated
+removal, not `rdepends`, which is incomplete here.
+
+### The one big win the audit DID find — measured, not estimated
+
+**The px4 image does not need ROS at all**, and has not since the uXRCE-DDS agent moved into
+`sim-ros2`. Nothing ever `docker exec`s into `sim-px4`; the container is start-and-forget, and
+`ldd` on the SITL binary resolves to `libc`, `libstdc++`, `libgcc` and `libm` alone.
+
+Built as a probe — `ubuntu:24.04` + `libstdc++6` + the copied `build/` tree:
+
+```
+px4 with ROS (today)     4.73 GB
+px4 without ROS          466 MB      <- 10x, and it BOOTS:
+                                        "simulator_mavlink: Waiting for simulator ... TCP 4560"
+```
+
+### Slice 2, re-scoped
+
+1. **`px4` drops ROS entirely — 4.73 GB -> 466 MB.** Prerequisites: move the XRCE agent build from
+   `px4.Dockerfile` into `ros2.Dockerfile` (the agent runs in `sim-ros2`, not `sim-px4`), and make
+   `docker/px4-entrypoint.sh` stop sourcing ROS unconditionally — it runs under `set -e`, so a
+   missing `/opt/ros/jazzy/setup.bash` would kill the container.
+2. **`qgc` and `video` off the PX4 base.** Both use nothing from it. `qgc` must re-add `curl`,
+   `ca-certificates` and `/etc/drone-sim-versions`, which it currently inherits.
+3. **No shared base image and no new name.** The `base` in this entry's original sketch was
+   predicated on `px4` and `ros2` sharing ROS. They do not.
+
+**Still true, and worth repeating:** what any of this buys is **pull time and disk, not build
+time**. The firmware stage still compiles the whole tree.
+
+---
+
 ### The structural question — what should actually be separate
 
 `qgc` and `video` inherit the PX4 base and use **nothing** from it. QGroundControl needs Xvfb,
