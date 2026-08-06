@@ -247,7 +247,14 @@ PY
          AdditionalCompilerArguments += \" -Wno-error=unreachable-code-break -Wno-error=unreachable-code-loop-increment\";"
   fi
 else
-  log "step 3/4  warning relaxation skipped$([ "$TIER" = A1 ] && echo " (A1 -- no project target to patch)")"
+  if [ "$TIER" = A1 ]; then
+    why=" (A1 -- no project target file exists to patch)"
+  elif [ -z "$TARGET_CS" ]; then
+    why=" (no *Editor.Target.cs in this project -- nothing to patch)"
+  else
+    why=" (--no-relax-warnings)"
+  fi
+  log "step 3/4  warning relaxation skipped$why"
 fi
 
 # --------------------------------------------------------------------------------------
@@ -275,6 +282,12 @@ else
   fi
   log "step 4/4  building $TARGET (Linux Development) -- this is the slow part"
 
+  # Timestamp marker for the artifact check below. Counting .so files cannot work on its own:
+  # injection copies a plugin that ALREADY contains one, so `so_count > 0` is true before any
+  # compilation and the check can never fail -- it gave confidence it had not earned.
+  marker=$(mktemp); : > "$marker"
+  sleep 1                      # 1 s filesystem timestamp granularity; without it a fast build
+                               # can produce artifacts that are not strictly -newer than marker
   cname="convert-build-$$"
   docker rm -f "$cname" >/dev/null 2>&1 || true
   # Same uid as the caller so the artifacts land owned by them, not root. sim-ddc is shared
@@ -295,17 +308,29 @@ else
     echo
     docker logs "$cname" 2>&1 | grep -E 'error:' | head -12 | sed 's/^/    /' || true
     docker rm -f "$cname" >/dev/null 2>&1 || true
-    die "build FAILED (exit $rc). The errors above are the real ones; UBT's own summary is not.
+    if [ -n "$TARGET_CS" ]; then
+      die "build FAILED (exit $rc). The errors above are the real ones; UBT's own summary is not.
        If they are -Werror warnings other than the two handled here, add them the same way in
-       $(basename "${TARGET_CS:-<target>.Target.cs}")."
+       $(basename "$TARGET_CS")."
+    fi
+    die "build FAILED (exit $rc). The errors above are the real ones; UBT's own summary is not.
+       This project has NO target file of its own, so there is nowhere to relax a warning: the
+       build used the engine's UnrealEditor target. If these are -Werror warnings inside the
+       AirSim plugin, they belong in a patch under patches/cosys-airsim/ rather than a build flag."
   fi
   docker rm -f "$cname" >/dev/null 2>&1 || true
 
-  # Assert the ARTIFACT, not the exit code: a build can succeed having produced nothing useful
-  # if the target was wrong.
-  so_count=$(find "$ROOT/Binaries" "$ROOT/Plugins" -name '*.so' 2>/dev/null | wc -l)
-  [ "$so_count" -gt 0 ] || die "build reported success but produced no .so under $ROOT -- wrong target?"
-  log "built $so_count shared object(s)"
+  # Assert the ARTIFACT, not the exit code: a build can report success having compiled nothing
+  # useful if the target was wrong. Only objects written by THIS build count.
+  fresh=$(find "$ROOT/Binaries" "$ROOT/Plugins" -name '*.so' -newer "$marker" 2>/dev/null | wc -l)
+  total=$(find "$ROOT/Binaries" "$ROOT/Plugins" -name '*.so' 2>/dev/null | wc -l)
+  rm -f "$marker"
+  if [ "$fresh" -eq 0 ]; then
+    die "build reported success but wrote NO shared object ($total already present, none touched).
+       Either the target compiled nothing for this project, or the wrong target was selected.
+       Target was: $TARGET"
+  fi
+  log "built $fresh shared object(s) ($total present in total)"
 fi
 
 echo
