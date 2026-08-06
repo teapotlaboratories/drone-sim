@@ -153,7 +153,10 @@ log "step 2/4  applying Unreal-side vendor patches to the injected plugin"
 applied=0; skipped=0
 for p in "$REPO"/patches/cosys-airsim/*.patch; do
   [ -e "$p" ] || continue
-  grep -q 'Unreal/Plugins/AirSim' "$p" || continue          # ROS 2 wrapper patch; not ours
+  # Match the DIFF HEADER, not the prose -- see the same fix in build_airsim_wrapper.sh. A
+  # content grep would route a ROS-side patch here just for mentioning the plugin in its
+  # description, and this loop is the one that decides whether 0005 reaches a world at all.
+  grep -qE '^\+\+\+ b/Unreal/' "$p" || continue           # ROS 2 wrapper patch; not ours
   name=$(basename "$p")
   # -p4 strips a/Unreal/Plugins/AirSim -> the plugin root (which contains Source/). --forward
   # makes re-runs idempotent, and --batch stops patch prompting on stdin if the level is ever

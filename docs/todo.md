@@ -2289,6 +2289,11 @@ image with the full tree and toolchain. It is simply not inside every container 
 `/opt/px4` goes 2.9 GB -> **377 MB**; the ARM toolchain, `arm-none-eabi-gcc`, the source tree and
 `.git` are all asserted absent in the runtime stage so the strip cannot silently regress.
 
+**What this buys is PULL time and disk, not BUILD time.** The `firmware` stage still clones
+`--recursive` and compiles the whole tree, so a cold `docker build` costs what it always did. Both
+this entry and the original framing said "pull and build time"; only half of that is true, and the
+build half is unchanged by any stage split -- it would need a different intervention entirely.
+
 **Acceptance met in full** — not just a size: the wrapper builds, the stack passes all three
 bring-up barriers, and `verify_nav_interface.py` passes telemetry / takeoff / waypoint / velocity /
 gps_waypoint.

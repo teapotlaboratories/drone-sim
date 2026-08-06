@@ -163,9 +163,10 @@ COPY --from=firmware /opt/px4/build /opt/px4/build
 RUN test -x /opt/px4/build/px4_sitl_default/bin/px4 \
     && test -f /opt/px4/build/px4_sitl_default/etc/init.d-posix/rcS \
     && ! test -d /opt/px4/src \
+    && ! test -d /opt/px4/.git \
     && ! test -d /usr/lib/arm-none-eabi \
     && ! command -v arm-none-eabi-gcc >/dev/null 2>&1 \
-    && echo "runtime stage: SITL present, toolchain and source absent"
+    && echo "runtime stage: SITL present, toolchain/source/.git absent"
 
 # openjdk is deliberately NOT asserted absent, and SIM-19's entry was wrong about it.
 # MEASURED: openjdk-21-jre-headless is present in the BASE stage, before PX4 is cloned --
