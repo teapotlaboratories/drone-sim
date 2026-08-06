@@ -89,10 +89,16 @@ VPN or a routed subnet almost never forwards it.
 # LAN
 NET_MODE=host ./scripts/sim_up.sh
 
-# VPN: run a discovery server anywhere both machines can reach, then point the stack at it
-fastdds discovery -i 0 -l 0.0.0.0 -p 11811 &
+# VPN: start a discovery server anywhere BOTH machines can reach, BEFORE the stack.
+# `fastdds` ships in drone-sim/ros2, so the host needs no ROS 2 install:
+docker run -d --name sim-ds --network host --entrypoint bash drone-sim/ros2:v1.16.0 \
+    -lc 'fastdds discovery -i 0 -l 0.0.0.0 -p 11811'
+
 NET_MODE=host DISCOVERY_SERVER=127.0.0.1:11811 ./scripts/sim_up.sh
 ```
+
+The server must be up **before** the stack. It is not managed by `sim_up.sh` — teardown leaves
+it alone, so it survives a re-run; stop it yourself with `docker rm -f sim-ds`.
 
 `DISCOVERY_SERVER` changes only **how peers find each other**. It does not imply a network mode —
 you still need `NET_MODE=host` for the stack to advertise a routable address instead of the
@@ -106,15 +112,21 @@ export ROS_SUPER_CLIENT=true
 export FASTRTPS_DEFAULT_PROFILES_FILE=/path/to/configs/dds/udp-only.xml
 ```
 
-Measured against a live stack from a container sharing **no** namespaces with it and using **no**
-multicast — the peer's view of the graph is identical to the stack's own, and both directions carry
-traffic:
+Measured from a **second host** on the overlay — no shared namespaces, no multicast on the path.
+Every run is paired with the same probe **without** the server, which is what makes it evidence:
 
 ```
-topics seen by the peer   53  (51 /fmu)   same as the stack sees
-stack → peer              1904 vehicle_local_position + 1904 sensor_combined in 20 s
-peer  → stack             5/5 commands published externally arrived inside the stack
+                     with discovery server      control: multicast only
+topics visible       total=53  fmu=51  (×3)     total=2  fmu=0  (×3)
+/fmu/out delivery    pos=1936  imu=1936         pos=0    imu=0
+                     ref_alt 123.282 m — matches the stack's verified EKF origin
 ```
+
+`fmu=51` is what the stack sees locally; the control's `total=2` is just the probe's own
+`/parameter_events` and `/rosout`. The server is what carried the graph.
+
+> Those are **discovery and delivery** figures, not throughput. The link was a relayed overlay
+> path (~27 ms RTT, MTU 1280) — bandwidth measured across it describes the relay, not your network.
 
 > **`ROS_SUPER_CLIENT=true` is not optional, and omitting it looks like total failure.** A plain
 > discovery *client* is only told about participants it has already matched, but `ros2 topic echo`
