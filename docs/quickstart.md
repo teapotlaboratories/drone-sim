@@ -48,6 +48,10 @@ prints `stack up and origin verified -- safe to fly` when it is ready — typica
 | `--spawn X,Y,Z[,YAW]` | where to put the vehicle, in metres **NED** |
 | `--vehicle NAME` | required only if your settings define several vehicles |
 | `--allow-below-origin` | permit a positive `Z` (i.e. genuinely below the origin) |
+> **Converting a world is a separate step.** Anything that ships `Source/` must be compiled
+> against UE5.8, and World Partition levels need a vendor patch or the vehicle falls through the
+> map forever. Run `./scripts/convert_world.sh <your.uproject> --map /Game/Maps/X` first —
+> [`docs/worlds.md`](worlds.md) explains what it does and how to verify it worked.
 
 Each has an environment equivalent: `WORLD`, `SETTINGS_FILE`, `SPAWN`, `SPAWN_VEHICLE`,
 `SPAWN_ALLOW_BELOW`.
