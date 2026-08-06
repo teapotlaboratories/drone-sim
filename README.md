@@ -244,6 +244,10 @@ because Fast-DDS delivers over shared memory (see *Network and ports* below).
 | `--spawn X,Y,Z[,YAW]` | where to put the vehicle, in metres **NED** |
 | `--vehicle NAME` | required only if your settings define several vehicles |
 | `--allow-below-origin` | permit a positive `Z` (i.e. genuinely below the origin) |
+> **A world usually needs converting first.** A project that ships its own `Source/` must be
+> compiled against UE5.8, and a World Partition level needs `patches/cosys-airsim/0005` or the
+> drone falls through it forever. `./scripts/convert_world.sh <your.uproject> --map /Game/Maps/X`
+> does both — see [`docs/worlds.md`](docs/worlds.md).
 
 Each has an environment equivalent: `WORLD`, `SETTINGS_FILE`, `SPAWN`, `SPAWN_VEHICLE`,
 `SPAWN_ALLOW_BELOW`. **`Z` is NED — negative is UP**; `Z=10` puts the drone 10 m *underground*,
@@ -493,6 +497,7 @@ docs/                    quickstart, the backlog, graph conventions, bench brief
 | [`docs/quickstart.md`](docs/quickstart.md) ([HTML](docs/quickstart.html)) | **Run it** — launch, world selection, sensor selection and tuning, the topic/type/rate table, and the ROS 2 command interface |
 | [`docs/todo.md`](docs/todo.md) | **The backlog** — every `SIM-NN` with its acceptance criterion and its evidence. The one cross-cutting area keeps its own file: [`docs/docker/todo.md`](docs/docker/todo.md) |
 | [`docs/roadmap.html`](docs/roadmap.html) | Where the simulator is and which capability comes next |
+| [`docs/worlds.md`](docs/worlds.md) | **Bring your own world** — converting a third-party Unreal project: injection, the UE5.8 build fixes, World Partition, and how to tell a converted world actually flies |
 | [`docs/conventions.md`](docs/conventions.md) | The **frozen** ROS 2 graph — these names reach the aircraft unchanged |
 | [`versions.lock`](versions.lock) | Every pin, its status, and how it was verified |
 | [`docs/bench.md`](docs/bench.md) | The machine and container this runs on, and the GPU split |
