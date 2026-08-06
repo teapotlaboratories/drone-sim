@@ -99,6 +99,35 @@ TIER=A1
 log "tier    : $TIER$([ "$TIER" = A2 ] && echo "  (ships Source/ -- a compile is required)" || echo "  (content/Blueprint only -- no compile)")"
 [ "$RELAX_WARNINGS" = auto ] && { [ "$TIER" = A2 ] && RELAX_WARNINGS=1 || RELAX_WARNINGS=0; }
 
+# Validate the map BEFORE step 1. Injection rewrites config and copies a plugin; failing
+# after that would leave a half-converted project behind for a typo.
+if [ -z "$MAP" ]; then
+  warn "no --map given. The project keeps its own default map, which is usually NOT what you
+       want: if that map has no AirSim-compatible ground, the vehicle has nothing to land on."
+else
+  # VALIDATE THE MAP EXISTS. A wrong content path is written into DefaultEngine.ini without
+  # complaint and then fails exactly like every other silent failure here: the level never
+  # loads, AirSim never starts, PX4 waits forever on 4560. Caught by getting it wrong -- a
+  # plausible-looking /Game/Maps/Demonstration was accepted for a project whose map is actually
+  # /Game/CityPark/Maps/Showcase.
+  case "$MAP" in
+    /Game/*)
+      umap="$ROOT/Content/${MAP#/Game/}.umap"
+      if [ ! -f "$umap" ]; then
+        printf '%s[convert] FATAL:%s no such map: %s\n' "$R" "$X" "$MAP" >&2
+        printf '       expected it at: %s\n' "$umap" >&2
+        printf '       maps this project actually has:\n' >&2
+        find "$ROOT/Content" -name '*.umap' 2>/dev/null | head -10 | while read -r m; do
+          rel="${m#"$ROOT/Content/"}"; printf '         /Game/%s\n' "${rel%.umap}" >&2
+        done
+        exit 1
+      fi
+      log "map     : $MAP  (verified on disk)" ;;
+    *) warn "--map $MAP is not under /Game/, so it cannot be checked on disk. If the level
+       never loads, an unresolvable map path is the first thing to suspect." ;;
+  esac
+fi
+
 # --------------------------------------------------------------------------------------
 # 1. Inject AirSim -- plugin, game mode, default map.
 # --------------------------------------------------------------------------------------
@@ -108,11 +137,6 @@ inject_args=("$UPROJECT")
 [ -n "$FORCE" ] && inject_args+=("$FORCE")
 python3 "$REPO/scripts/inject_airsim.py" "${inject_args[@]}" \
   || die "injection failed -- nothing was built, the project is unchanged apart from any backup"
-
-if [ -z "$MAP" ]; then
-  warn "no --map given. The project keeps its own default map, which is usually NOT what you
-       want: if that map has no AirSim-compatible ground, the vehicle has nothing to land on."
-fi
 
 # --------------------------------------------------------------------------------------
 # 2. Apply the Unreal-side vendor patches to the INJECTED copy.
@@ -137,15 +161,26 @@ for p in "$REPO"/patches/cosys-airsim/*.patch; do
   if patch -p4 -d "$PLUGIN" --forward --batch --dry-run < "$p" >/dev/null 2>&1; then
     patch -p4 -d "$PLUGIN" --forward --batch --silent < "$p" >/dev/null
     log "  applied  $name"; applied=$((applied + 1))
+  elif patch -p4 -R -d "$PLUGIN" --batch --dry-run < "$p" >/dev/null 2>&1; then
+    # Reverse-applies cleanly => it is ALREADY in the tree. Benign, and the common case on a
+    # re-run.
+    log "  already  $name"; skipped=$((skipped + 1))
   else
-    log "  already  $name (or does not apply here)"; skipped=$((skipped + 1))
+    # Neither applies nor reverse-applies: the patch no longer matches this plugin. Do NOT
+    # continue quietly. Treating this as "already applied" was a real defect -- 0005 is what
+    # stops the vehicle falling through a World Partition world, so silently skipping it
+    # produces exactly the failure the patch exists to prevent, with nothing to point at.
+    die "$name does NOT apply to $PLUGIN and is not already present.
+       The plugin has drifted from what the patch was cut against. Do not fly a World Partition
+       world without 0005 -- the vehicle will fall through it forever. Re-cut the patch, or
+       re-inject with --force to get a clean plugin copy first."
   fi
 done
 [ "$applied" -gt 0 ] || [ "$skipped" -gt 0 ] || warn "no Unreal-side patches found under patches/cosys-airsim/"
 
 # A patched plugin has SOURCE that must be compiled, so it forces a build even for a project
 # that would otherwise be A1. Say so plainly rather than letting the user wonder.
-if [ "$applied" -gt 0 ] && [ "$TIER" = A1 ] && [ "$DO_BUILD" -eq 0 ]; then
+if [ "$applied" -gt 0 ] && [ "$DO_BUILD" -eq 0 ]; then
   warn "patches were applied but --no-build was given: the plugin source now differs from its
        compiled binary, and the change will NOT take effect until the project is built."
 fi
@@ -153,10 +188,22 @@ fi
 # --------------------------------------------------------------------------------------
 # 3. Relax the two warnings UE5.8 promotes to errors.
 # --------------------------------------------------------------------------------------
+# ONLY an *Editor.Target.cs counts. There used to be a fallback to any *.Target.cs here, which
+# silently selected the GAME target -- contradicting the rule two steps below and producing a
+# build that compiles, passes the artifact check, and then fails at runtime as "PX4 waits
+# forever on 4560" with no error line.
 TARGET_CS=""
 if [ "$TIER" = A2 ]; then
-  TARGET_CS=$(ls "$ROOT/Source/"*Editor.Target.cs 2>/dev/null | head -1 || true)
-  [ -n "$TARGET_CS" ] || TARGET_CS=$(ls "$ROOT/Source/"*.Target.cs 2>/dev/null | head -1 || true)
+  # Prefer the target NAMED for the project. A plain *Editor glob sorts alphabetically, and on
+  # CitySample that silently selected CitySampleCookedEditor.Target.cs -- a content-cooking
+  # target, not the editor target `UnrealEditor <project> -game` runs. It happened to build, which
+  # is exactly why it needed catching by name rather than by outcome.
+  TARGET_CS=""
+  [ -f "$ROOT/Source/${NAME}Editor.Target.cs" ] && TARGET_CS="$ROOT/Source/${NAME}Editor.Target.cs"
+  [ -n "$TARGET_CS" ] || TARGET_CS=$(ls "$ROOT/Source/"*Editor.Target.cs 2>/dev/null | head -1 || true)
+  [ -n "$TARGET_CS" ] || warn "this project ships Source/ but no *Editor.Target.cs. Falling back to
+       the engine's own UnrealEditor target, which compiles the project's plugins but NOT its
+       game modules -- if the world needs those, add an editor target to the project."
 fi
 
 if [ "$RELAX_WARNINGS" = 1 ] && [ -n "$TARGET_CS" ]; then
@@ -214,11 +261,17 @@ else
   docker image inspect "$ENGINE_IMAGE" >/dev/null 2>&1 \
     || die "engine image $ENGINE_IMAGE is not present. It is credential-gated -- see README."
 
-  # The editor target is what `UnrealEditor <project> -game` needs. A project target ("Foo")
-  # is NOT enough: sim_up.sh runs the editor binary in game mode.
-  TARGET="${NAME}Editor"
-  if [ "$TIER" = A2 ] && [ -n "$TARGET_CS" ]; then
+  # The editor target is what `UnrealEditor <project> -game` needs; a game target is not enough.
+  #
+  # A CONTENT-ONLY (A1) project has no target of its own, so "<Name>Editor" does not exist and
+  # UBT fails with `Result: Failed (RulesError)`, exit 8 -- verified against CityPark. The stock
+  # UnrealEditor target with -project is the correct choice there: it compiles the project's
+  # plugins (which is the whole reason an A1 project needs a build at all after patching) and
+  # needs no target file. Verified: exit 0, Succeeded.
+  if [ -n "$TARGET_CS" ]; then
     TARGET=$(basename "$TARGET_CS" .Target.cs)
+  else
+    TARGET=UnrealEditor
   fi
   log "step 4/4  building $TARGET (Linux Development) -- this is the slow part"
 
