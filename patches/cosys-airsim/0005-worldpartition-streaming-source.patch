@@ -1,0 +1,103 @@
+Register the vehicle pawn as a World Partition streaming source.
+
+World Partition activates streaming cells around a registered STREAMING SOURCE, which is
+normally the player pawn. AirSim spawns its vehicle without one, so in a World Partition level
+no cell ever loads: the map opens, GenerateStreaming completes, and not a single cell activates.
+There is then no collision geometry anywhere in the level and the vehicle falls forever.
+
+This is not the underground-spawn trap and not a spawn-height problem -- releasing higher only
+buys more fall. Measured on Epic's CitySample (Small_City_LVL, UE5.8), resting z in NED where
++z is DOWN:
+
+    spawn 0,0,0                                    z = +332 m     fell through
+    spawn 0,0,-150                                 z = +139.5 m   fell through
+    spawn 0,0,-150 with wp.Runtime.EnableStreaming=0  z = +1481 m fell through
+
+The cvar route does not work either -- setting it via [SystemSettings] in DefaultEngine.ini had
+no effect on cell loading.
+
+After this patch, same world and same spawn:
+
+    resting z = -8.4e-05 / -3.8e-04 / +1.6e-04 m   -- ON THE GROUND
+    EKF origin sane: ref_alt 123.322 m vs GPS 123.322 m = 0.000 m apart
+    verify_nav_interface.py: telemetry / takeoff / waypoint / velocity / gps_waypoint ALL PASS
+      waypoint  commanded (10.0, -0.0) reached (9.27, -0.69)  error 1.00 m
+      velocity  commanded +2.0 m/s     measured +1.89 m/s over 808 samples
+      gps       commanded +30 m north  moved +27.0 m, remaining 3.00 m
+
+Verified that the component reaches the pawn AirSim actually spawns -- a Blueprint subclass, not
+the C++ class -- with a temporary runtime probe, since a rebuild that never reaches BP_FlyingPawn
+would look identical from outside:
+
+    AIRSIM_WP_PROBE class=BP_FlyingPawn_C comp=yes enabled=1 partition=1
+
+Harmless in non-World-Partition levels (Blocks, CityPark): the component simply has no partition
+to drive.
+
+NECESSARY BUT NOT SUFFICIENT -- there is a startup RACE this patch does not close. Cell streaming
+takes seconds (GenerateStreaming alone measured 7-22 s), while the vehicle begins falling
+immediately. If it falls past the ground plane before the cells under it activate, it never
+lands and the run is lost exactly as before. Measured 2026-08-05 on identical builds and the
+same spawn (0,0,-150):
+
+    run 1   z = -8.4e-05 m   flew, 5/5 checks
+    run 2   z = +1697 m      fell through
+    run 3   z = -1.0e-03 m   flew, 4/4 waypoints, worst error 0.855 m
+
+So 2 of 3. Retry on failure, and judge a run by resting z, not by whether the level loaded. A
+proper fix has to hold the vehicle until streaming around it completes rather than racing it.
+
+--- a/Unreal/Plugins/AirSim/Source/Vehicles/Multirotor/FlyingPawn.h	2026-07-31 23:49:55.019030482 +0000
++++ b/Unreal/Plugins/AirSim/Source/Vehicles/Multirotor/FlyingPawn.h	2026-08-06 00:20:29.926921690 +0000
+@@ -7,6 +7,7 @@
+ #include "common/common_utils/Signal.hpp"
+ #include "common/common_utils/UniqueValueMap.hpp"
+ #include "MultirotorPawnEvents.h"
++#include "Components/WorldPartitionStreamingSourceComponent.h"
+ 
+ #include "FlyingPawn.generated.h"
+ 
+@@ -53,6 +54,15 @@
+     UPROPERTY()
+     TArray<URotatingMovementComponent*> rotating_movements_;
+ 
++    // World Partition activates streaming cells around a registered STREAMING SOURCE -- normally
++    // the player pawn. AirSim spawns its vehicle without one, so in a World Partition level no
++    // cell ever loads: the map opens, GenerateStreaming runs, and not a single cell activates.
++    // There is then no collision anywhere and the vehicle falls forever. Measured on Epic's
++    // CitySample (Small_City_LVL): 0 cell-load lines, resting z = +332 m / +139 m / +1481 m NED
++    // for release heights 0 / 150 / 150 m. Releasing higher only buys more fall.
++    UPROPERTY()
++    UWorldPartitionStreamingSourceComponent* streaming_source_;
++
+     MultirotorPawnEvents pawn_events_;
+     int init_id_;
+ };
+--- a/Unreal/Plugins/AirSim/Source/Vehicles/Multirotor/FlyingPawn.cpp	2026-07-31 23:49:55.018882521 +0000
++++ b/Unreal/Plugins/AirSim/Source/Vehicles/Multirotor/FlyingPawn.cpp	2026-08-06 00:36:10.383435437 +0000
+@@ -6,6 +6,10 @@
+ 
+ AFlyingPawn::AFlyingPawn()
+ {
++    // Harmless in non-World-Partition levels (Blocks, CityPark): the component simply has no
++    // partition to drive. In a World Partition level it is what makes the world exist at all.
++    streaming_source_ = CreateDefaultSubobject<UWorldPartitionStreamingSourceComponent>(TEXT("WorldPartitionStreamingSource"));
++
+     init_id_ = pawn_events_.getActuatorSignal().connect_member(this, &AFlyingPawn::initializeRotors);
+     pawn_events_.getActuatorSignal().connect_member(this, &AFlyingPawn::setRotorSpeed);
+ }
+@@ -13,6 +17,14 @@
+ void AFlyingPawn::BeginPlay()
+ {
+     Super::BeginPlay();
++
++    // Enable explicitly rather than trusting the default: the component is constructed with
++    // bStreamingSourceEnabled from its own CDO, and a Blueprint subclass (BP_FlyingPawn is one)
++    // can carry a stale archetype value. Enabling here makes the behaviour independent of that.
++    if (streaming_source_)
++    {
++        streaming_source_->EnableStreamingSource();
++    }
+ }
+ 
+ void AFlyingPawn::initializeForBeginPlay()
