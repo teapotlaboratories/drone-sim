@@ -16,7 +16,11 @@
 # frames come from the simulator's own capture and from recorded MCAP bags, so the render
 # path is offline and needs an encoder, not a window manager.
 
-FROM drone-sim/px4:v1.16.0
+FROM ubuntu:24.04
+
+# NOT `FROM drone-sim/px4`. ffmpeg needs nothing from the autopilot image; inheriting it cost
+# ~11 GB for a codec (SIM-19).
+RUN : > /etc/drone-sim-versions
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive

@@ -28,7 +28,18 @@
 # than a script the user has to remember. A checksum mismatch fails the BUILD, which is the
 # earliest and loudest place to catch a swapped binary that decides whether the aircraft
 # can arm.
-FROM drone-sim/px4:v1.16.0
+FROM ubuntu:24.04
+
+# NOT `FROM drone-sim/px4`. This image uses nothing from it -- no PX4, no ROS, no px4_msgs, no
+# NuttX. It inherited them only because the PX4 image happened to be the house base, which cost
+# it ~11 GB of unrelated content (SIM-19).
+#
+# Re-added below because they came free with the old base and are genuinely needed here: curl
+# and ca-certificates for the AppImage download, and the provenance file every image appends to.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && : > /etc/drone-sim-versions
 
 # Keep these in step with the qgroundcontrol entry in versions.lock.
 ARG QGC_VERSION=5.0.8

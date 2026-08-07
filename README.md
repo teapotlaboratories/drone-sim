@@ -91,9 +91,20 @@ docker build -f docker/ros2.Dockerfile   -t drone-sim/ros2:v1.16.0 .
 docker build -f docker/unreal.Dockerfile -t drone-sim/unreal:ue5.8 .
 ```
 
-The PX4 image pulls PX4 v1.16.0 plus submodules, the uXRCE-DDS agent and branch-matched
-`px4_msgs`, then **verifies every pin against its recorded SHA** and fails the build on a
-mismatch; the pins land in `/etc/drone-sim-versions` inside the image. Expect 20–40 minutes.
+**Order does not matter.** Every image now builds from `ubuntu:24.04` (or, for the renderer, the
+Epic engine image) and none derives from another, so these can run in any order or in parallel.
+They used to chain off the PX4 image, which cost `qgc` and `video` ~11 GB of PX4, ROS and NuttX
+they never used (`SIM-19`).
+
+The PX4 image pulls PX4 v1.16.0 plus submodules and **verifies every pin against its recorded
+SHA**, failing the build on a mismatch; the pins land in `/etc/drone-sim-versions` inside the
+image. Expect 20–40 minutes.
+
+> **It builds the firmware toolchain and then throws it away.** A `firmware` stage clones the
+> full PX4 tree and installs the NuttX/ARM cross-compiler — so `docker build --target firmware`
+> still gives you an image that can flash a real Pixhawk 6C — while the image that ships copies
+> only `build/px4_sitl_default` out of it. That is the difference between **11.0 GB and 466 MB**,
+> and a stage split rather than a delete because `apt purge` in a later layer reclaims nothing.
 
 > **It no longer installs Gazebo.** `Tools/setup/ubuntu.sh --no-sim-tools` plus an explicit
 > reinstall of the build dependencies that are *not* Gazebo (`bc`, `libeigen3-dev`,
