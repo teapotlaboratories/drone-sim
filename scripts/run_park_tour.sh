@@ -62,6 +62,7 @@ RUN="$REPO/out/park-tour-$STAMP"
 mkdir -p "$RUN"
 log(){ printf '\033[36m[park-tour]\033[0m %s\n' "$*"; }
 die(){ printf '\033[31m[park-tour] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
+warn(){ printf '\033[33m[park-tour] WARNING:\033[0m %s\n' "$*" >&2; }
 
 log "run directory: $RUN"
 
@@ -101,13 +102,11 @@ sleep 25
 # Until this existed, nothing in the harness could tell a collision from bad tracking -- a 48 m
 # miss looks identical either way in the leg scoring.
 log "starting the collision witness"
-docker cp "$REPO/scripts/watch_collisions.py"  "sim-ros2:/tmp/watch_collisions.py" >/dev/null
-docker cp "$REPO/scripts/airsim_rpc_client.py" "sim-ros2:/tmp/airsim_rpc_client.py" >/dev/null
-# Clear any previous run's file first: `docker exec -d` succeeds whenever the container exists,
-# even when the command cannot run at all, so a stale file would be read as this run's verdict.
-docker exec sim-ros2 rm -f /tmp/collisions.json >/dev/null 2>&1 || true
-docker exec -d sim-ros2 bash -lc \
-  "cd /tmp && python3 /tmp/watch_collisions.py --out /tmp/collisions.json > /tmp/collisions.log 2>&1"
+# One implementation, shared with run_gate.py. This used to be three bash lines that did the
+# same docker cp / exec -d / rm dance, and the two copies drifted: this one scored a missing
+# witness as CLEAN while the gate correctly failed it.
+python3 "$REPO/scripts/collision_witness.py" start >/dev/null || \
+  warn "collision witness did not start -- this run cannot be scored clean"
 
 log "starting the bag"
 docker exec -d sim-ros2 bash -lc "
@@ -136,9 +135,12 @@ docker exec sim-ros2 bash -lc "
 MISSION_RC=${PIPESTATUS[0]}
 
 log "stopping the collision witness"
-docker exec sim-ros2 bash -lc 'pkill -INT -f watch_collisions.py || true' >/dev/null 2>&1 || true
-sleep 1
-docker cp "sim-ros2:/tmp/collisions.json" "$RUN/collisions.json" >/dev/null 2>&1 || true
+# Exit code carries the verdict: 0 clean, 1 collided, 2 unknown. Scoring lives in the module,
+# so "unknown is not clean" is stated once rather than re-derived in shell.
+COLL_OUT=$(python3 "$REPO/scripts/collision_witness.py" stop --save "$RUN/collisions.json" 2>&1)
+COLL_RC=$?
+COLLIDED=$(printf '%s' "$COLL_OUT" | cut -f1)
+COLL_DETAIL=$(printf '%s' "$COLL_OUT" | cut -f2-)
 
 log "stopping the bag"
 docker exec sim-ros2 bash -lc 'pkill -INT -f "ros2 bag record" || true'
@@ -169,19 +171,9 @@ fi
 # recorded a sustained scrape against TemplateCube_Rounded_7. A harness that records a crash
 # beside a PASS does not merely miss the failure, it launders it -- so the verdict is overridden
 # here and MISSION_RC is forced non-zero.
-# ABSENT OR UNREADABLE IS NOT ZERO. Defaulting a missing witness to "no collisions" makes an
-# unobserved run indistinguishable from a clean one -- the same defect this change exists to
-# remove, one level up. -1 means unknown and fails, exactly as run_gate.py scores it.
-COLLIDED=-1
-if [ -f "$RUN/collisions.json" ]; then
-  COLLIDED=$(python3 -c "
-import json
-try:
-    print(int(json.load(open('$RUN/collisions.json')).get('collision_count', -1)))
-except Exception:
-    print(-1)" 2>/dev/null || echo -1)
-fi
-case "$COLLIDED" in ''|*[!0-9-]*) COLLIDED=-1 ;; esac
+# COLLIDED and COLL_DETAIL were set above by scripts/collision_witness.py, which owns the
+# scoring. This used to re-parse collisions.json here in bash -- a second implementation of
+# the same rule, which is exactly how the two copies came to disagree in the first place.
 
 if [ -f "$RUN/summary.json" ]; then
   python3 - "$RUN/summary.json" "${COLLIDED:-0}" <<'PY'
