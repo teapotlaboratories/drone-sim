@@ -395,7 +395,7 @@ order is a separate question, and it has changed twice.
 | 9 | `SIM-15` the navigation command interface | ✅ **done 2026-08-03** — all five capabilities confirmed by movement |
 | 10 | `SIM-16` an example mission, recorded | ✅ **done 2026-08-03** — waypoint and smooth-orbit modes, MCAP + video + ground track |
 | 11 | **`SIM-11` the user's own world + dynamic actors** | 🟡 **in progress — the current work.** Photorealism ✅; **actors not started** |
-| 12 | `SIM-07` the flight gate | 🟡 **wired to `sim_up.sh`, never run to a success rate.** Wants a real world and actors to be worth gating |
+| 12 | `SIM-07` the flight gate | ✅ **run and MET 2026-08-07 — 10/10, zero VOID.** Wants a real world and actors to be worth gating |
 | 13 | `SIM-14` automatic spawn derivation | 📋 backlog — unblocked; `SIM-13` handed it a working ground probe |
 | 14 | `SIM-12` capture aliasing | ⏸️ deferred — `ForceUpdate` fixed the Lumen part; the residual metric is untrustworthy |
 | 15 | `SIM-05` Isaac ROS perception on this imagery | ⏸️ deprioritised 2026-08-02 — not abandoned; the imagery is ready whenever it resumes |
@@ -1254,10 +1254,14 @@ which frame convention the poses actually arrive in.
 
 ## SIM-07 — The flight gate
 
-**Status:** 🟡 **wired, never run to a success rate.** `scripts/run_gate.py` is the
-simulator's gate and `scripts/run_scenario.py` brings the stack up through
-`scripts/sim_up.sh`. What does not exist is a full seeded run against this stack, so **the
-simulator still has no acceptance criterion of its own.**
+**Status:** ✅ **done 2026-08-07 — 10/10, 100%, zero VOID.** See the `SIM-07` entry above for
+the run, the two defects that had to be fixed to get there, and what the number does and does
+not cover. This section is the original PLAN and is kept for its design rationale; it is no
+longer the status.
+
+> The line below said "wired, never run to a success rate" until 2026-08-07. It was true for
+> longer than it should have been, and this file carried **two** `SIM-07` headings, so updating
+> one left the other lying. Worth remembering when adding an entry: grep the ID first.
 
 **What.** The same 4-waypoint square the Gazebo baseline used, run across N seeded runs,
 scored the same way, with an MCAP per run.
@@ -2617,8 +2621,11 @@ Still open:
 6. **Does Cesium-in-UE5 give georeferenced terrain *with* physics?** The FSD/PhysX exclusion
    is Omniverse-specific — verify rather than inherit the answer. Distinct from question 1:
    that one is "does it build at all". (`SIM-08`)
-7. **What does a flight gate cost in wall-clock,** and does a UE5 stack restart make a 10-seed
-   gate impractical? (`SIM-07`)
+7. ~~**What does a flight gate cost in wall-clock,** and does a UE5 stack restart make a 10-seed
+   gate impractical?~~ ✅ **ANSWERED 2026-08-07 — no, it is entirely practical.** A 10-seed gate
+   with a full stack restart per seed took **1944 s (32 min)**, at **193–195 s per seed** with
+   remarkably little spread. The restart dominates but does not disqualify: this is a
+   coffee-break gate, not an overnight one. (`SIM-07`)
 
 ---
 

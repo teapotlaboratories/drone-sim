@@ -440,9 +440,9 @@ server is unambiguously what carried the graph.
 | Sensors in the ROS 2 graph | ✅ | RGB, depth, GPU-LiDAR, IMU, GPS, magnetometer, odometry — all pass **value-based** checks |
 | Photorealistic imagery | ✅ | matches Unreal's own render to **1.15 of 255** across six scenes, on a **stock** plugin |
 | Bring your own world + deliberate spawn | ✅ | `--world` / `--spawn`, with a ground probe for unknown terrain |
-| Deterministic bring-up | 🟡 | origin verified and repaired, or the run is refused — but verified **once**, not N cold starts in a row |
+| Deterministic bring-up | ✅ | origin verified and repaired, or the run is refused — and now **10 cold starts in a row with zero VOID**, which is what that caveat was waiting for |
 | Recorded example mission | ✅ | `scripts/run_park_tour.sh` — MCAP, `summary.json`, video, ground track |
-| Flight gate | 🟡 | `scripts/run_gate.py` — success rate over N seeded runs, VOID excluded from the rate but blocking the criterion |
+| Flight gate | ✅ | **10/10, 100%, zero VOID** over independent seeded cold starts — 0.775–0.805 m worst error, 193–195 s per seed. VOID is excluded from the rate *and* blocks the criterion |
 | Dynamic actors in the world | 📋 | the RPC surface (`simSpawnObject`, `simSetObjectPose`) is known live in this build; nothing spawned yet — and it needs **no** project C++ and no plugin change |
 | Wind / environment control | 📋 | needs Cosys-AirSim's own wind API |
 
