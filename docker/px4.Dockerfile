@@ -33,7 +33,7 @@
 #
 # No GPU required — PX4 SITL is CPU-bound and headless.
 
-FROM ubuntu:24.04 AS base
+FROM ubuntu:24.04 AS sysdeps
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -62,44 +62,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- ROS 2 Jazzy via the ros2-apt-source .deb ----------------------------------------
 # The old apt-key method was retired 2025-06-01 and will fail.
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
-    && add-apt-repository -y universe \
-    && ROS_APT_SOURCE_VERSION="$(curl -fsSL https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest \
-         | grep -F '"tag_name"' | awk -F\" '{print $4}')" \
-    && echo "ros-apt-source ${ROS_APT_SOURCE_VERSION}" \
-    && curl -fsSL -o /tmp/ros2-apt-source.deb \
-         "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb" \
-    && apt-get install -y /tmp/ros2-apt-source.deb \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ros-${ROS_DISTRO}-desktop ros-dev-tools \
-    && rm -f /tmp/ros2-apt-source.deb \
-    && rm -rf /var/lib/apt/lists/* \
-    && test -f /opt/ros/${ROS_DISTRO}/setup.bash
-
-# Record what apt actually resolved, so the image can be compared against the native run.
-RUN dpkg -s ros-${ROS_DISTRO}-desktop | awk '/^Version:/{print "ros-desktop " $2}' > /etc/drone-sim-versions \
-    && source /opt/ros/${ROS_DISTRO}/setup.bash \
-    && python3 -c "import rclpy" \
-    && echo "rclpy import OK on $(python3 --version)"
-
-# --- PX4 v1.16.0 ----------------------------------------------------------------------
-# Tools/setup/ubuntu.sh installs the NuttX toolchain and, by default, Gazebo Harmonic.
-#
-# NuttX is kept deliberately: real Pixhawk 6C firmware is flashed from this same tree, and
-# --no-nuttx would slim the image while silently removing that capability.
-#
-# --no-sim-tools drops Gazebo. The renderer is Unreal, reached over the Simulator MAVLink
-# API, so nothing here ever loads a gz world. PX4's gz consumers are all
-# `if(gz-transport_FOUND)`-guarded while AirSim's transport (simulator_mavlink) is selected
-# unconditionally, so px4_sitl_default configures and links without them.
-#
-# --no-sim-tools ALSO drops a handful of packages that are not Gazebo — bc, libeigen3-dev,
-# protobuf-compiler, pkg-config, libxml2-utils. They are reinstated explicitly below rather
-# than left to chance: they are cheap, several are genuine build inputs, and discovering
-# which ones matter from a failed 30-minute build is the expensive way to find out.
-# Deliberately NOT reinstated: gz-harmonic, gstreamer*, libopencv-dev, libunwind-dev,
-# cppzmq-dev, dmidecode, libimage-exiftool-perl — the Gazebo rendering/video stack.
 # =======================================================================================
 # STAGE: firmware -- the FULL PX4 tree plus the NuttX/ARM toolchain.
 #
@@ -114,7 +76,7 @@ RUN dpkg -s ros-${ROS_DISTRO}-desktop | awk '/^Version:/{print "ros-desktop " $2
 # (openjdk-21, 286 MB, is NOT in that list: it comes from ROS in the base stage, not from
 #  PX4 -- see the note by the runtime assertion below.)
 # =======================================================================================
-FROM base AS firmware
+FROM sysdeps AS firmware
 
 WORKDIR /opt/px4
 RUN git clone --recursive --branch ${PX4_TAG} https://github.com/PX4/PX4-Autopilot.git . \
@@ -152,7 +114,20 @@ RUN make px4_sitl_default \
 # only paths under build/px4_sitl_default (bin/, etc/, ROMFS/), which is what
 # `cd /opt/px4/build/px4_sitl_default && ./bin/px4 -s etc/init.d-posix/rcS` in sim_up.sh uses.
 # =======================================================================================
-FROM base AS runtime
+FROM ubuntu:24.04 AS runtime
+
+# NOT `FROM sysdeps`. The runtime needs no compiler, no ROS and no PX4 source -- `ldd` on the
+# SITL binary resolves to libc, libstdc++, libgcc and libm alone, and nothing ever execs into
+# this container: sim_up.sh starts it and reads its stdout. Measured: 4.73 GB -> 466 MB.
+#
+# ROS left with the agent. The uXRCE-DDS agent used to be built here and linked Jazzy's
+# Fast-DDS, which is the only reason this image ever carried ROS. PR 35 moved the agent into
+# sim-ros2 (it is companion-computer plumbing, not an autopilot concern), and that made the
+# dependency vestigial -- it just took until SIM-19's audit to notice.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
 
 # Carry the provenance record forward -- the firmware stage appended the PX4 SHA to it, and
 # losing that would make the shipped image unable to state what it was built from.
@@ -175,51 +150,15 @@ RUN test -x /opt/px4/build/px4_sitl_default/bin/px4 \
 # answering what in the ROS toolchain actually needs a JRE. Left in place, recorded rather
 # than quietly dropped from the estimate.
 
-# --- Micro-XRCE-DDS-Agent v2.4.3 -----------------------------------------------------
-# -DUAGENT_USE_SYSTEM_FASTDDS=ON uses Jazzy's Fast-DDS 2.14.6 (which is what v2.4.3
-# targets) instead of superbuilding a private copy. Consequence: the binary links
-# /opt/ros/jazzy/lib/libfastrtps.so.2.14, so ROS 2 MUST be sourced to run the agent —
-# the entrypoint does this.
-WORKDIR /opt/xrce
-RUN git clone --branch ${XRCE_TAG} https://github.com/eProsima/Micro-XRCE-DDS-Agent.git . \
-    && test "$(git rev-parse HEAD)" = "${XRCE_SHA}" \
-    && source /opt/ros/${ROS_DISTRO}/setup.bash \
-    && cmake -B build -DUAGENT_USE_SYSTEM_FASTDDS=ON -DCMAKE_PREFIX_PATH=/opt/ros/${ROS_DISTRO} \
-    && cmake --build build -j"$(nproc)" \
-    && cmake --install build \
-    && ldconfig /usr/local/lib/ \
-    && test -x /usr/local/bin/MicroXRCEAgent \
-    && echo "xrce-agent ${XRCE_TAG} ${XRCE_SHA}" >> /etc/drone-sim-versions
-
-# Assert the binary actually links — a build that "succeeds" and leaves an unresolved
-# library is a real failure mode we hit natively and only caught with ldd.
-RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
-    && test "$(ldd /usr/local/bin/MicroXRCEAgent | grep -c 'not found')" = "0" \
-    && echo "agent linkage OK"
-
-# --- px4_msgs + px4_ros_com, BOTH branch-matched to the firmware ---------------------
-WORKDIR /ros2_ws
-RUN mkdir -p src \
-    && git clone --branch ${PX4_MSGS_BRANCH} https://github.com/PX4/px4_msgs.git src/px4_msgs \
-    && git -C src/px4_msgs checkout ${PX4_MSGS_SHA} \
-    && git clone --branch ${PX4_ROS_COM_BRANCH} https://github.com/PX4/px4_ros_com.git src/px4_ros_com \
-    && git -C src/px4_ros_com checkout ${PX4_ROS_COM_SHA} \
-    && echo "px4_msgs ${PX4_MSGS_BRANCH} ${PX4_MSGS_SHA}" >> /etc/drone-sim-versions \
-    && echo "px4_ros_com ${PX4_ROS_COM_BRANCH} ${PX4_ROS_COM_SHA}" >> /etc/drone-sim-versions
-
-RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
-    && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release \
-    && test -f install/setup.bash \
-    && rm -rf build log
-
 # --- runtime -------------------------------------------------------------------------
 ENV HEADLESS=1 \
-    PX4_DIR=/opt/px4 \
-    ROS_DISTRO=${ROS_DISTRO}
+    PX4_DIR=/opt/px4
 
 # 18570 GCS datalink (PX4's actual GCS port) · 14550 conventional GCS listen port
 # 14540 offboard · 4560 renderer<->PX4 (Simulator MAVLink API) · 8888 uXRCE-DDS
-EXPOSE 18570/udp 14550/udp 14540/udp 4560/tcp 8888/udp
+# 8888/udp is NOT here any more: the uXRCE-DDS agent listens in sim-ros2, not in this
+# container. PX4's client dials it over the shared network namespace.
+EXPOSE 18570/udp 14550/udp 14540/udp 4560/tcp
 
 COPY docker/px4-entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

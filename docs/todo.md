@@ -2203,7 +2203,39 @@ flown end to end over ROS 2 with its MCAP kept.
 
 ## `SIM-19` — review the Dockerfiles properly
 
-**Status:** `in progress` — **slice 1 done and verified 2026-08-06** (PX4 image 11.0 -> 4.73 GB,
+**Status:** `done` — **slices 1 and 2 both done and verified 2026-08-06/07**, the second with
+collision detection on (`SIM-22`), which the first round did not have.
+
+**Slice 2 result — every image off `ubuntu:24.04`, none deriving from another:**
+
+| Image | Original | Slice 1 | **Slice 2** |
+|---|---|---|---|
+| `px4` | 11.0 GB | 4.73 GB | **466 MB** |
+| `ros2` | 11.1 GB | 4.78 GB | **4.39 GB** |
+| `qgc` | 12.1 GB | 5.75 GB | **1.43 GB** |
+| `video` | 11.1 GB | 4.80 GB | **530 MB** |
+
+`px4` is **23x** smaller than it started. It carries no ROS at all, which became possible only
+once `PR 35` moved the uXRCE-DDS agent into `sim-ros2`; the audit found the dependency had been
+vestigial ever since. `ros2` absorbed ROS, the agent and `px4_msgs` — the inheritance inverted
+rather than a shared base being added, because after the agent moved the two share nothing.
+
+`px4-entrypoint.sh` had to stop sourcing ROS unconditionally: it runs under `set -e`, so a
+missing `setup.bash` would have killed the container outright.
+
+**Both slices re-verified at 20 m with the collision witness**, since their original acceptance
+evidence predates `SIM-22` and every earlier park-tour PASS at 8 m is suspect:
+
+```
+slice 1   verdict PASS  worst 1.350 m  0 collisions  exit 0
+slice 2   verdict PASS  worst 1.331 m  0 collisions  exit 0
+          + three bring-up barriers, nav interface 5/5, wrapper build
+```
+
+---
+
+**Superseded status line, kept for the record:** `in progress` — slice 1 done and verified
+2026-08-06 (PX4 image 11.0 -> 4.73 GB,
 all four images rebuilt, stack flies). Slice 2 not started, blocked on the naming decision.
 An illustrated version of this entry is at [`sim19-docker-images.html`](sim19-docker-images.html).
 

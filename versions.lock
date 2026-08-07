@@ -1172,7 +1172,6 @@ images:
     dockerfile: docker/px4.Dockerfile
     entrypoint: docker/px4-entrypoint.sh
     base: ubuntu:24.04
-    local_image_id: sha256:f2b915c68b7b8a29ef43ebc0f4349ab56c97c574c413400a2d9707aee318be19
     size_approx: 11.0 GB   # 11.6 GB before Gazebo was stripped
     role: >-
       PX4 SITL, ROS 2 Jazzy, the uXRCE-DDS agent and px4_msgs. Runs the sim-px4 and sim-xrce
@@ -1204,8 +1203,7 @@ images:
     tag: drone-sim/qgc:v1.16.0
     dockerfile: docker/qgc.Dockerfile
     entrypoint: docker/qgc-entrypoint.sh
-    base: drone-sim/px4:v1.16.0
-    local_image_id: sha256:c615b2e6159e14753d8f952519f4c241031aef7292a8992b876e1b706b3475d4
+    base: ubuntu:24.04
     role: >-
       QGroundControl headless on Xvfb — the ONLY component permitted to speak MAVLink over
       IP, and the datalink PX4 requires before it will arm. Also owns the shared X display
@@ -1221,7 +1219,7 @@ images:
   ros2:
     tag: drone-sim/ros2:v1.16.0
     dockerfile: docker/ros2.Dockerfile
-    base: drone-sim/px4:v1.16.0
+    base: ubuntu:24.04
     adds: ros-jazzy-geographic-msgs, ros-jazzy-mavros-msgs, python3-msgpack, patch,
       docker/ros-profile.sh at /etc/profile.d/10-ros.sh
     role: >-
@@ -1236,8 +1234,7 @@ images:
   video:
     tag: drone-sim/video:v1.16.0
     dockerfile: docker/video.Dockerfile
-    base: drone-sim/px4:v1.16.0
-    local_image_id: sha256:ca4f4aa5198ebdfc8c17537240af0a262526531399ca09408e2cd6a9983029f2
+    base: ubuntu:24.04
     role: >-
       Re-encoding renders to phone-playable H.264 (scripts/encode_h264.sh). Not needed by CI
       or by flight. It no longer carries Xvfb/xterm/xdotool/openbox — those served the
@@ -1249,7 +1246,6 @@ images:
     tag: drone-sim/airsim-client:1
     dockerfile: docker/airsim-client.Dockerfile
     base: python:3.11-slim
-    local_image_id: sha256:ea41cfc19e06a9e41d643bb3db2c15ae74e6c12df04d8bad06386b984c828366
     size_approx: 0.6 GB
     role: >-
       AirSim RPC client for measurement — talks to a running simulator and pulls images.
