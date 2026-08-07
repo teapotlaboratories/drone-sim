@@ -93,7 +93,7 @@ def start_collision_witness() -> bool:
         return False
 
 
-def stop_collision_witness() -> tuple[int, str]:
+def stop_collision_witness(save_to: Path | None = None) -> tuple[int, str]:
     """Stop it and report (collision_count, detail). (-1, reason) if it could not be read.
 
     A witness that cannot be read is NOT reported as zero collisions. Unknown must never be the
@@ -110,6 +110,12 @@ def stop_collision_witness() -> tuple[int, str]:
         if p.returncode != 0:
             return -1, "collisions.json unreadable"
         d = json.loads(p.stdout)
+        # Persist the DETAIL, not just the count. The report used to keep only a number and
+        # the object names, which is enough to fail a run and not enough to act on it: the
+        # first question after "it hit something" is "how high was the something", and the
+        # impact points are the only place that answers it.
+        if save_to is not None:
+            save_to.write_text(json.dumps(d, indent=2))
         n = int(d.get("collision_count", 0))
         if not n:
             return 0, ""
@@ -283,7 +289,14 @@ def main() -> int:
     ap.add_argument("--reuse", action="store_true",
                     help="reuse one stack for every run (faster, weaker — see the module "
                          "docstring; the spawn pose is then never applied)")
-    ap.add_argument("--outdir", type=Path, default=REPO / "out")
+    # REQUIRED, and deliberately without a default. It controls where the gate REPORT is
+    # written and NOTHING else -- the per-seed MCAP bags and result JSON always land in
+    # <repo>/out, because that is the directory sim_up.sh bind-mounts to /out inside the
+    # containers. A default here would imply the two travel together. They do not.
+    ap.add_argument("--outdir", type=Path, required=True,
+                    help="where to write <scenario>-gate.json. Per-seed bags and results are "
+                         "NOT affected: they always go to <repo>/out, the path mounted into "
+                         "the containers.")
     ap.add_argument("--world", default="", help=".uproject to load (default: bundled Blocks)")
     ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
     ap.add_argument("--no-origin-check", action="store_true",
@@ -295,6 +308,9 @@ def main() -> int:
     scenario = rs.load_scenario(a.scenario)
     name = scenario.get("name", "scenario")
     seeds = list(range(a.start_seed, a.start_seed + a.seeds))
+    # Resolve the world BEFORE anything is brought up: a wrong path should fail in a second,
+    # not after the first stack restart.
+    world = rs.resolve_world(scenario, a.world)
     a.outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"gate     : {name}  ·  {len(seeds)} seeds  ·  "
@@ -307,14 +323,14 @@ def main() -> int:
         # which is the whole reason --reuse is not a gate run.
         print("bringing up a single stack for all runs (spawn pose never applied)...")
         rs.restart_stack({"spawn_x": 0.0, "spawn_y": 0.0, "spawn_yaw": 0.0},
-                         a.world, a.settings)
+                         world, a.settings)
 
     runs, started = [], time.time()
     for i, seed in enumerate(seeds, 1):
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
         if not a.reuse:
-            rs.restart_stack(variant, a.world, a.settings)
+            rs.restart_stack(variant, world, a.settings)
         # Assert the stack is measurable BEFORE flying it. A stale EKF origin makes the
         # vehicle report an altitude tens of metres wrong; the run would look like a control
         # failure and would be indistinguishable from one in the report (SIM-10).
@@ -326,12 +342,13 @@ def main() -> int:
         else:
             witness = start_collision_witness()
             try:
-                result = rs.run_flight(scenario, seed, a.outdir)
+                result = rs.run_flight(scenario, seed)
             except Exception as exc:                  # a crashed run is a failed run,
                 result = {"outcome": "failure",       # never an aborted gate
                           "failure_reason": f"runner raised: {exc}"}
             if witness:
-                ncol, cdetail = stop_collision_witness()
+                ncol, cdetail = stop_collision_witness(
+                    a.outdir / f"{name}-seed{seed}-collisions.json")
             else:
                 ncol, cdetail = -1, "collision witness failed to start"
             ok, why = check_run(result, scenario, ncol, cdetail)

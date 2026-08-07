@@ -92,7 +92,100 @@ original work" split this project is built on.
 appear in **both** RGB and GPU-LiDAR, and re-measure sensor rates with actors present — RGB
 already sits at 17.1 Hz against a 20 Hz cap.
 
-### `SIM-07`, the flight gate, is wired but has never been run to a success rate
+### `SIM-07` — the flight gate, RUN and MET: 10/10 over independent seeded cold starts
+
+**Status:** `done` — **2026-08-07.** First full gate run in the project's history.
+
+```
+success rate : 10/10  (100%)   zero VOID
+wall clock   : 1944s
+waypoint error: 0.775 - 0.805 m against a 1.0 m accept radius
+per-seed time : 193 - 195 s
+PASS -- flight gate criterion met
+```
+
+**The simulator has an acceptance criterion of its own for the first time.** Ten independent
+cold starts, spawn pose applied per seed, each leaving a bag, a video and a collision record.
+
+### It took two defects to get here, and neither was visible before
+
+**1. The gate could never complete a single seed.** Jittered spawns are frequently negative in
+X, and `sim_up.sh` relayed the value to `apply_spawn.py` as two arguments:
+
+```
+apply_spawn.py: error: argument --spawn: expected one argument
+[sim] FATAL: spawn rejected; not starting
+```
+
+argparse read `-3.656,3.474,0,94.956` as a flag. Fixed by relaying `--spawn=VALUE`.
+
+**This is why the entry sat "wired but never run" for so long.** `--reuse` always spawns at
+`0,0,0` -- no minus sign -- so every test anyone ever ran took the one path where the bug
+cannot fire. The bug lived exactly in the code path nobody exercised.
+
+**2. The scenario's own premise was false.** `square-10m` says "an empty world, no obstacles by
+design", and at 10 m altitude in Blocks that was not true. The mission is a square RELATIVE TO
+THE SPAWN, so jitter walks it across the map. Measured, first real run:
+
+```
+10 m   9/10   seed 2 FAIL -- 2 collisions (TemplateCube_Rounded_101, _102), worst 0.820 m
+20 m  10/10   seed 2 PASS -- 0 collisions,                                  worst 0.799 m
+```
+
+**Seed 2 is the argument for `SIM-22` in one line.** At 10 m it scored **0.820 m** -- inside
+tolerance, and indistinguishable from every passing run on waypoint error alone. It failed only
+because the collision witness saw the impacts. Without that witness this gate reports 100%
+either way, and one of those two 100%s is a lie.
+
+Altitude raised to 20 m, which is what the park tour flies a wider circuit at with zero
+collisions.
+
+### What a gate run now produces, per seed
+
+```
+out/<scenario>-gate.json                  the report: pass/reason/collisions/errors + SR
+out/<scenario>-seed<N>/                   MCAP bag
+out/<scenario>-seed<N>.json               raw controller result
+out/<scenario>-seed<N>.mp4                video, ~37 MB
+out/<scenario>-seed<N>-collisions.json    impact points, objects, durations
+```
+
+Video is on by default (`SIM_NO_VIDEO=1` opts out) and records over the AirSim **RPC**, not ROS 2
+topics -- `airsim_node` is not running during a gate run, so subscribing to camera topics would
+have recorded nothing at all, silently.
+
+Collision detail is persisted per seed because the count alone is not actionable: the first
+question after "it hit something" is "how high was the something", and only the impact points
+answer it.
+
+### Unchanged limitations, stated so the number is not over-read
+
+**A seed still controls the SPAWN POSE ONLY.** No wind, no mass variation -- that needs
+`simSetWind`, still unwired (`SIM-08`). **Do not describe this as covering varied conditions.**
+It is the same mission from ten different starting points.
+
+**It proves the controller and the harness, not perception.** `airsim_node` does not run; there
+are no camera or LiDAR topics in the loop, and the controller flies fixed waypoints blind. Give
+it a waypoint inside a building and it will fly at the building -- which is exactly what seed 2
+did at 10 m.
+
+### Three facts worth carrying into any session on this stack
+
+- **Lockstep is confirmed dead code** in Cosys-AirSim -- `initialize()` sets the flag and
+  `openAllConnections()` clears it twice. `"LockStep": true` is silently ineffective and
+  **every timing number here is free-running**. Never quote an RTF from this simulator as
+  deterministic.
+- **A stale PX4 EKF origin makes the vehicle report tens of metres of altitude while
+  grounded**, and it looks exactly like a control bug. `sim_up.sh` verifies and repairs it;
+  `run_gate.py` **VOIDs** such runs rather than failing them. Zero VOID in this run.
+- **Frames are NWU, not ENU**, despite upstream's docs saying otherwise. The conversion lives
+  in `control/frames.py` and, unlike `enu_to_ned`, the NWU pair is **not** an involution.
+
+### Follow-up
+
+The intermittent 92 s leg timeout seen in `SIM-22`'s park-tour runs did **not** appear here --
+ten seeds, uniform 193-195 s, no timeouts. Either it is specific to the park tour's longer
+circuit or it is rarer than 1-in-10. Still open.
 
 `scripts/run_gate.py` is the simulator's gate: `scripts/run_scenario.py` drives
 `scripts/sim_up.sh`, and the gate keeps its scoring semantics unchanged — **VOID is distinct

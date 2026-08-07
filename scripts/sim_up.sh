@@ -147,7 +147,12 @@ if [ -n "$SPAWN" ]; then
   #   remount-ro /var/lib/docker/fuse-overlayfs/.../settings.json: operation not permitted
   # The repo is a host bind mount, so a file beside the source mounts exactly like the source.
   # Gitignored as sim/ue5/.settings.run.json.
-  args=(--settings "$SETTINGS" --out "$SETTINGS" --spawn "$SPAWN")
+  # --spawn=VALUE, not --spawn VALUE. A jittered spawn is frequently NEGATIVE in X, and
+  # argparse treats a following "-3.656,..." as an option rather than a value:
+  #   apply_spawn.py: error: argument --spawn: expected one argument
+  # This is why the flight gate had never completed a single seed -- the --reuse path always
+  # spawns at 0,0,0, so every test took the one route where the bug cannot fire (SIM-07).
+  args=(--settings "$SETTINGS" --out "$SETTINGS" "--spawn=$SPAWN")
   [ -n "$SPAWN_VEHICLE" ]     && args+=(--vehicle "$SPAWN_VEHICLE")
   [ -n "$SPAWN_ALLOW_BELOW" ] && args+=(--allow-below-origin)
   # A bad spawn must ABORT here. Falling through to the committed settings would start the

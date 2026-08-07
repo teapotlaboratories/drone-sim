@@ -68,7 +68,7 @@ if [ "$RUN_GATE" = "1" ]; then
   echo
   echo "tier 2 — the flight gate (this is the part CI cannot run):"
   echo "  $SEEDS seeded runs against $SCENARIO, roughly $((SEEDS * 3)) minutes"
-  if python3 -u ./scripts/run_gate.py "$SCENARIO" --seeds "$SEEDS"; then
+  if python3 -u ./scripts/run_gate.py "$SCENARIO" --seeds "$SEEDS" --outdir out; then
     echo "  flight gate                        PASS"
   else
     echo "  flight gate                        FAIL"

@@ -4,8 +4,8 @@ A scenario is one YAML file describing a mission, what to record, and what count
 reaching a waypoint. It is the input to two things and nothing else:
 
 ```bash
-./scripts/run_scenario.py scenarios/square-10m.yaml --seed 3   # one run, one JSON result + MCAP
-./scripts/run_gate.py     scenarios/square-10m.yaml            # 10 seeded runs, SR must be 100%
+./scripts/run_scenario.py scenarios/square-10m.yaml --seed 3 --outdir out   # one run, one JSON result + MCAP
+./scripts/run_gate.py     scenarios/square-10m.yaml --outdir out   # 10 seeded runs, SR must be 100%
 ```
 
 Both drive [`../scripts/sim_up.sh`](../scripts/sim_up.sh) — the simulator's only supported
