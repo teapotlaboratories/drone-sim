@@ -41,6 +41,7 @@ import subprocess
 import importlib.util
 import math
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -299,6 +300,8 @@ def main() -> int:
                          "the containers.")
     ap.add_argument("--world", default="", help=".uproject to load (default: bundled Blocks)")
     ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
+    ap.add_argument("--no-video", action="store_true",
+                    help="skip the per-seed video (~37 MB each). Recording is ON by default.")
     ap.add_argument("--no-origin-check", action="store_true",
                     help="skip the pre-run EKF-origin assertion (SIM-10). Only for stacks "
                          "where /fmu/out/vehicle_gps_position is unavailable -- without it a "
@@ -311,6 +314,11 @@ def main() -> int:
     # Resolve the world BEFORE anything is brought up: a wrong path should fail in a second,
     # not after the first stack restart.
     world = rs.resolve_world(scenario, a.world)
+    # run_flight has no argparse of its own, so the flag is relayed through the environment it
+    # already reads. Set here rather than in the caller's shell so --no-video works the same
+    # way whether the gate was invoked by hand or by run_local_ci.sh.
+    if a.no_video:
+        os.environ["SIM_NO_VIDEO"] = "1"
     a.outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"gate     : {name}  ·  {len(seeds)} seeds  ·  "
@@ -355,6 +363,7 @@ def main() -> int:
         runs.append({
             "seed": seed, "passed": ok, "reason": why,
             "collisions": ncol if not void_reason else None,
+            "video_written": result.get("video_written"),
             "void": bool(void_reason),
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
