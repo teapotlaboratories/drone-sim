@@ -16,18 +16,26 @@ description: >-
 # Unused by the current runner. `scripts/sim_up.sh --world PATH.uproject` selects the Unreal
 # world, and `scripts/run_scenario.py` passes `--world` through from its own flag rather than
 # reading it here. Kept as a placeholder for when the scenario owns the world again.
-world: default
+# The world this scenario's premise depends on. It is READ now -- it used to be inert, so
+# "an empty world, no obstacles by design" was an intention nothing enforced.
+world: vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject
 
 mission:
-  takeoff_altitude_m: 10.0
+  # 20 m, not 10 m. At 10 m this scenario's own premise -- "an empty world, no obstacles by
+  # design" -- was false: the mission is a square RELATIVE TO THE SPAWN, so spawn jitter walks
+  # it across the map, and seed 2 of the first real gate run put it through two Blocks cubes.
+  # It scored 0.820 m of waypoint error, INSIDE tolerance, and failed only because the
+  # collision witness saw the impacts. 20 m is what the park tour flies a wider circuit at
+  # with zero collisions.
+  takeoff_altitude_m: 20.0
   # ENU, relative to HOME (where the EKF initialised), NOT world coordinates. See
   # docs/conventions.md §3. A square starting East, returning to the start corner
   # so the landing point is the takeoff point.
   waypoints_enu:
-    - [10.0,  0.0, 10.0]
-    - [10.0, 10.0, 10.0]
-    - [ 0.0, 10.0, 10.0]
-    - [ 0.0,  0.0, 10.0]
+    - [10.0,  0.0, 20.0]
+    - [10.0, 10.0, 20.0]
+    - [ 0.0, 10.0, 20.0]
+    - [ 0.0,  0.0, 20.0]
 
 # What each run records to MCAP. Declared here rather than hard-coded in the runner,
 # because what is worth recording is a property of the SCENARIO: a scenario with obstacles

@@ -112,6 +112,31 @@ def stack_is_up() -> bool:
     return r.returncode == 0 and r.stdout.strip() == "true"
 
 
+def resolve_world(scenario: dict, cli_world: str) -> str:
+    """The world to fly, from the CLI or the scenario. NO DEFAULT -- one must say.
+
+    The scenario's `world:` field used to be inert: it was declared, and nothing ever read it,
+    so `world: default` in square-10m.yaml documented an intention the harness could not honour.
+    That matters because the scenario's premise is load-bearing -- square-10m says "an empty
+    world, no obstacles by design", and its results mean nothing if it is flown somewhere else.
+    A run could silently contradict its own scenario and the report would not mention it.
+
+    There is also no bundled default any more. Falling back to Blocks whenever nobody said
+    otherwise is how a gate run ends up describing a world it was never pointed at.
+    """
+    world = (cli_world or "").strip() or str(scenario.get("world", "") or "").strip()
+    if not world:
+        sys.exit("no world: give --world PATH.uproject, or set `world:` in the scenario. "
+                 "There is deliberately no default -- a run must state the world it flew.")
+    if world == "default":
+        sys.exit("`world: default` is no longer accepted -- it was never resolved to anything "
+                 "and read as a fallback that did not exist. Give a real .uproject path, e.g. "
+                 "vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject")
+    if not Path(world).is_file():
+        sys.exit(f"world not found: {world}")
+    return world
+
+
 def restart_stack(variant: dict, world: str = "", settings: str = "") -> None:
     """Cold-start the whole simulator at the seed's spawn pose.
 
@@ -130,7 +155,9 @@ def restart_stack(variant: dict, world: str = "", settings: str = "") -> None:
     # wrong, waypoint error.
     spawn = (f"{variant['spawn_x']},{variant['spawn_y']},0,"
              f"{round(math.degrees(variant['spawn_yaw']), 3)}")
-    cmd = [str(SIM_UP), "--spawn", spawn]
+    # --spawn=VALUE for the same reason sim_up.sh relays it that way: a negative X is common
+    # and a bare "-3.656,..." reads as a flag to anything using argparse downstream.
+    cmd = [str(SIM_UP), f"--spawn={spawn}"]
     if world:
         cmd += ["--world", world]
     if settings:
@@ -140,7 +167,16 @@ def restart_stack(variant: dict, world: str = "", settings: str = "") -> None:
         raise RuntimeError(f"sim_up.sh failed (exit {r.returncode}) — stack not flyable")
 
 
-def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
+def run_flight(scenario: dict, seed: int) -> dict:
+    """Fly one seeded mission and return its result.
+
+    ARTIFACTS ALWAYS GO TO <repo>/out, and that is not configurable. `sim_up.sh` bind-mounts
+    that directory to /out inside the containers, so the bag and the result file are written
+    by the container to a path the host cannot choose per run. This function used to accept an
+    `outdir` argument and ignore it entirely -- a parameter that promised something the body
+    never honoured. Removed rather than wired through: see run_gate.py --outdir, which
+    controls the report and says so.
+    """
     mission = scenario.get("mission", {})
     tol = scenario.get("tolerances", {})
     flat: list[float] = []
@@ -179,6 +215,21 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
     # earlier. The gate calls this for every seed, so that is a mechanism for laundering a
     # failure into a pass. `rm` as argv, with no shell involved at all.
     sh(dexec("rm", "-rf", bag, result_in_container), timeout=60)
+
+    # VIDEO, on by default. Started before the flight and stopped after, so the recording
+    # brackets it rather than clipping the takeoff -- the same reason the bag does.
+    #
+    # It records over the AirSim RPC, not from ROS 2 topics, because `airsim_node` is not
+    # running during a gate run: sim_up.sh does not start it. Subscribing to camera topics
+    # would have recorded nothing at all, silently.
+    video_in_container = f"/out/{tag}.mp4"
+    if os.environ.get("SIM_NO_VIDEO", "") not in ("1", "true", "yes"):
+        sh(dexec("rm", "-f", video_in_container), timeout=60)
+        for f in ("watch_video.py", "airsim_rpc_client.py"):
+            sh(["docker", "cp", str(REPO / "scripts" / f), f"{ROS2}:/tmp/{f}"], timeout=60)
+        sh(["docker", "exec", "-d", ROS2, "bash", "-lc",
+            f"cd /tmp && python3 /tmp/watch_video.py --out {video_in_container} "
+            f"> /tmp/watch_video.log 2>&1"], timeout=60)
     host_result_path = REPO / "out" / f"{tag}.json"
     host_result_path.unlink(missing_ok=True)
 
@@ -209,6 +260,13 @@ def run_flight(scenario: dict, seed: int, outdir: Path) -> dict:
             recorder.kill()
     time.sleep(2)
 
+    # Stop the recorder before reading the result, so the file is finalised whichever way the
+    # flight ended. SIGINT rather than SIGKILL: the writer must release the mp4 or the file is
+    # unplayable, and a video that cannot be opened is worse than no video -- it looks like
+    # evidence.
+    sh(dexec("bash", "-lc", "pkill -INT -f watch_video.py || true"), timeout=60)
+    time.sleep(1.5)
+
     host_result = REPO / "out" / f"{tag}.json"
     if host_result.exists():
         return json.loads(host_result.read_text())
@@ -225,8 +283,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Run one seeded scenario against the simulator.")
     ap.add_argument("scenario", type=Path)
     ap.add_argument("--seed", type=int, required=True)
-    ap.add_argument("--outdir", type=Path, default=REPO / "out")
-    ap.add_argument("--world", default="", help=".uproject to load (default: bundled Blocks)")
+    # REQUIRED, no default -- same reasoning as run_gate.py. It selects where this run's
+    # summary JSON is written and nothing else; the MCAP bag and the controller's result file
+    # always land in <repo>/out, the directory sim_up.sh mounts to /out in the containers.
+    ap.add_argument("--outdir", type=Path, required=True,
+                    help="where to write <scenario>-seed<N>-run.json. The bag and the "
+                         "controller result always go to <repo>/out regardless.")
+    ap.add_argument("--world", default="",
+                    help=".uproject to load. Overrides the scenario's `world:`. One of the two "
+                         "MUST be set -- there is no default.")
     ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
     ap.add_argument("--no-restart", action="store_true",
                     help="reuse the running stack; the spawn pose from the seed is then "
@@ -235,6 +300,7 @@ def main() -> int:
 
     scenario = load_scenario(a.scenario)
     variant = derive_variant(scenario, a.seed)
+    world = resolve_world(scenario, a.world)
     a.outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"scenario : {scenario.get('name')}  seed {a.seed}")
@@ -249,9 +315,9 @@ def main() -> int:
         print("stack    : reusing (spawn pose NOT applied)")
     else:
         print("stack    : cold-starting via sim_up.sh")
-        restart_stack(variant, a.world, a.settings)
+        restart_stack(variant, world, a.settings)
 
-    result = run_flight(scenario, a.seed, a.outdir)
+    result = run_flight(scenario, a.seed)
     result.update({
         "scenario": scenario.get("name"),
         "seed": a.seed,

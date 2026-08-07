@@ -49,7 +49,7 @@ documented credential step** reaches a flying stack:
 
 1. the six images build from the repo (`docker/*.Dockerfile`);
 2. `./scripts/sim_up.sh` prints `stack up and origin verified -- safe to fly`;
-3. `./scripts/run_gate.py scenarios/square-10m.yaml` passes.
+3. `./scripts/run_gate.py scenarios/square-10m.yaml --outdir out` passes.
 
 **Not met.** Two named gaps: the credential gate (`D-04`), and the fact that nothing here
 has ever been built or run on a machine other than this one — which is a distrobox, not the
