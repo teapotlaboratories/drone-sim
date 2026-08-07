@@ -132,9 +132,17 @@ def resolve_world(scenario: dict, cli_world: str) -> str:
         sys.exit("`world: default` is no longer accepted -- it was never resolved to anything "
                  "and read as a fallback that did not exist. Give a real .uproject path, e.g. "
                  "vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject")
-    if not Path(world).is_file():
-        sys.exit(f"world not found: {world}")
-    return world
+    # Anchor a RELATIVE path to the repo, not to the caller's cwd. The scenario ships one --
+    # `vendor/Cosys-AirSim/.../Blocks.uproject` -- and resolving it against cwd made the gate
+    # work only when run from the repo root: from anywhere else it reported "world not found"
+    # naming a file that plainly exists. Every other path in these scripts anchors to REPO.
+    p = Path(world)
+    if not p.is_absolute():
+        p = (REPO / p).resolve()
+    if not p.is_file():
+        sys.exit(f"world not found: {world}"
+                 + (f" (resolved to {p})" if str(p) != world else ""))
+    return str(p)
 
 
 def restart_stack(variant: dict, world: str = "", settings: str = "") -> None:
@@ -267,9 +275,23 @@ def run_flight(scenario: dict, seed: int) -> dict:
     sh(dexec("bash", "-lc", "pkill -INT -f watch_video.py || true"), timeout=60)
     time.sleep(1.5)
 
+    # DID A VIDEO ACTUALLY APPEAR? `docker exec -d` reports success whenever the container
+    # exists, even when the command cannot run -- the same trap the collision witness already
+    # guards against. A missing video must not FAIL the run (it is evidence, not a verdict),
+    # but nine videos for ten seeds must not pass unremarked either.
+    video_written = False
+    if os.environ.get("SIM_NO_VIDEO", "") not in ("1", "true", "yes"):
+        r = sh(dexec("test", "-s", video_in_container), timeout=30)
+        video_written = (r.returncode == 0)
+        if not video_written:
+            print(f"  video: NONE written for {tag} — see /tmp/watch_video.log in {ROS2}",
+                  flush=True)
+
     host_result = REPO / "out" / f"{tag}.json"
     if host_result.exists():
-        return json.loads(host_result.read_text())
+        res = json.loads(host_result.read_text())
+        res["video_written"] = video_written
+        return res
     # Fall back to the log line, so a missing file does not erase the evidence.
     m = re.search(r"result: (\{.*\})", proc.stdout or "")
     if m:
@@ -289,6 +311,8 @@ def main() -> int:
     ap.add_argument("--outdir", type=Path, required=True,
                     help="where to write <scenario>-seed<N>-run.json. The bag and the "
                          "controller result always go to <repo>/out regardless.")
+    ap.add_argument("--no-video", action="store_true",
+                    help="skip the video (~37 MB). Recording is ON by default.")
     ap.add_argument("--world", default="",
                     help=".uproject to load. Overrides the scenario's `world:`. One of the two "
                          "MUST be set -- there is no default.")
@@ -300,6 +324,8 @@ def main() -> int:
 
     scenario = load_scenario(a.scenario)
     variant = derive_variant(scenario, a.seed)
+    if a.no_video:
+        os.environ["SIM_NO_VIDEO"] = "1"
     world = resolve_world(scenario, a.world)
     a.outdir.mkdir(parents=True, exist_ok=True)
 
