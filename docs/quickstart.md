@@ -17,21 +17,82 @@ Every number in this document was **measured on 2026-08-03**, not taken from ups
 
 ---
 
+## 0. From a freshly installed machine
+
+Nothing below assumes anything is already built. Expect **~65 GB of images** and, on a cold
+machine, **an hour or two** — most of it the engine image and the PX4 build.
+
+**On the host you need:** Docker with GPU access, an NVIDIA GPU and driver, `git`, `python3`,
+`vcs` (`python3-vcstool`) and PyYAML (`pip install --user pyyaml`, needed by the scenario
+runner). Everything else lives in containers — the project rule is to install into the
+container, never the host.
+
+> **One step cannot be automated away, and it is stated here rather than discovered later.** The
+> Unreal engine base image `ghcr.io/epicgames/unreal-engine` is **credential-gated**: it needs
+> EpicGames GitHub organisation membership **plus** a PAT with `read:packages`. Without that you
+> cannot build the renderer. Everything else builds from a clone.
+
+### 0.1 Authenticate and build the images
+
+```bash
+gh auth token | docker login ghcr.io -u <github-user> --password-stdin
+
+docker build -f docker/px4.Dockerfile    -t drone-sim/px4:v1.16.0 .
+docker build -f docker/qgc.Dockerfile    -t drone-sim/qgc:v1.16.0 .
+docker build -f docker/ros2.Dockerfile   -t drone-sim/ros2:v1.16.0 .
+docker build -f docker/unreal.Dockerfile -t drone-sim/unreal:ue5.8 .
+```
+
+**Order does not matter** — every image builds from `ubuntu:24.04`, or the Epic image for the
+renderer, and none derives from another. Run them in parallel if you like.
+
+| Image | Size | What it is |
+|---|---|---|
+| `drone-sim/unreal:ue5.8` | 57.5 GB | the renderer — credential-gated |
+| `drone-sim/ros2:v1.16.0` | 4.39 GB | companion computer: ROS 2, uXRCE-DDS agent, `px4_msgs` |
+| `drone-sim/qgc:v1.16.0` | 1.43 GB | ground station |
+| `drone-sim/px4:v1.16.0` | 466 MB | the autopilot — SITL build output only |
+
+The PX4 image verifies every pin against its recorded SHA and fails the build on a mismatch.
+It also builds the NuttX/ARM toolchain and then **throws it away**: `docker build --target
+firmware` still produces an image that can flash a real Pixhawk 6C, while the image that ships
+copies only `build/px4_sitl_default` out of it.
+
+### 0.2 Fetch the pinned upstreams and build the plugin once
+
+```bash
+vcs import vendor < .repos          # ~1.3 GB — Cosys-AirSim at a pinned SHA, not a branch
+
+docker run --rm -v "$PWD/vendor/Cosys-AirSim:/src" drone-sim/unreal:ue5.8 \
+  bash -lc './build.sh --ue-root /home/ue4/UnrealEngine'
+```
+
+> **`--ue-root` is mandatory, not advisory.** The engine image ships **no system clang** — the
+> compiler is the engine's bundled toolchain, so a build without it has no compatible compiler
+> at all rather than a graceful fallback.
+
+### 0.3 Check it worked before flying anything
+
+```bash
+docker images | grep drone-sim          # four images
+ls vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject
+```
+
+If the renderer later fails on Vulkan rather than on anything above, read
+[`gpu-in-docker.md`](gpu-in-docker.md) — GPU access here is CDI, and on a Fedora-family host
+there is a Vulkan ICD path fix that is load-bearing.
+
+---
+
 ## 1. Start the simulator
 
 ```bash
 ./scripts/sim_up.sh
 ```
 
-That brings up five containers (renderer, XRCE agent, PX4 SITL, QGC, ROS 2), waits for the
+That brings up four containers (renderer, PX4 SITL, ROS 2, QGC), waits for the
 vehicle to settle, and then **verifies the EKF origin** before declaring the stack usable. It
 prints `stack up and origin verified -- safe to fly` when it is ready — typically ~80 s.
-
-> **First run only: the images have to exist.** Building them is described in the repository
-> README. One step cannot be automated away — the Unreal engine base image
-> (`ghcr.io/epicgames/unreal-engine`) is **credential-gated**: it needs EpicGames organisation
-> membership and a PAT with `read:packages`. "Reproducible from this repo alone" carries that
-> one documented credential step, and pretending otherwise would just move the surprise later.
 
 > **Why it verifies rather than just waits.** PX4 sets its EKF local origin **once**. If it
 > initialises before the simulated vehicle has settled, every altitude PX4 reports is silently

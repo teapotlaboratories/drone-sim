@@ -162,12 +162,12 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">drone-sim · Quickstart</span>
-  <nav><a href="#start">Start</a><a href="#configure">Configure</a><a href="#sensors">Sensors</a><a href="#commands">Commands</a><a href="#verify">Verify</a><a href="#limits">Limits</a></nav>
+  <nav><a href="#fresh">Fresh machine</a><a href="#start">Start</a><a href="#reach">Off-machine</a><a href="#world">Your world</a><a href="#configure">Configure</a><a href="#sensors">Sensors</a><a href="#commands">Commands</a><a href="#verify">Verify</a><a href="#limits">Limits</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
 <header class="mast">
-  <span class="eyebrow">UE5.8 + Cosys-AirSim · quickstart · SITL only · measured 2026-08-03</span>
+  <span class="eyebrow">UE5.8 + Cosys-AirSim · quickstart · SITL only · measured 2026-08-07</span>
   <h1>Run It,<br>Read It, Fly It</h1>
   <p class="sub">The simulator is <strong>Unreal Engine 5.8 + Cosys-AirSim + PX4 v1.16 SITL + ROS 2 Jazzy</strong>. Start it, choose your world and sensors, subscribe to what it publishes, and command the drone &mdash; entirely over ROS 2, with the same graph you would fly on real hardware. Every number on this page was measured on a running stack, not taken from upstream documentation.</p>
   <div class="mastmeta"><span>Sensor topics <b>17</b></span><span>PX4 telemetry <b>24</b></span><span>Command kinds <b>3</b></span><span>Waypoint error <b>0.98 m</b></span><span>Control interface <b>ROS 2 only</b></span></div>
@@ -183,19 +183,89 @@ not the commands.</strong></p></div>
 
 <div class="toc"><span class="lbl">On this page</span>
 <ol>
-  <li><a href="#start">Start the simulator</a></li>
-  <li><a href="#configure">Choose the world, sensors and tuning</a></li>
+  <li><a href="#fresh">From a freshly installed machine</a></li>
+<li><a href="#start">Start the simulator</a></li>
+  <li><a href="#reach">Running your autonomy on another machine</a></li>
+<li><a href="#world">Bringing your own world</a></li>
+<li><a href="#configure">Choose the world, sensors and tuning</a></li>
   <li><a href="#sensors">Sensors you receive</a></li>
   <li><a href="#commands">Commanding the drone</a></li>
   <li><a href="#verify">Verify it works</a></li>
   <li><a href="#limits">Known limits</a></li>
 </ol></div>
 
+
+<h2 id="fresh"><span class="secnum">00</span> From a freshly installed machine</h2>
+
+<p>Nothing below assumes anything is already built. Expect <strong>~65 GB of images</strong> and,
+on a cold machine, <strong>an hour or two</strong> &mdash; most of it the engine image and the PX4
+build.</p>
+
+<p><strong>On the host you need:</strong> Docker with GPU access, an NVIDIA GPU and driver,
+<code>git</code>, <code>python3</code>, <code>vcs</code> (<code>python3-vcstool</code>) and PyYAML
+(<code>pip install --user pyyaml</code>, needed by the scenario runner). Everything else lives in
+containers &mdash; the project rule is to install into the container, never the host.</p>
+
+<div class="callout stop"><span class="lbl">One step cannot be automated away</span>
+<p>The Unreal engine base image <code>ghcr.io/epicgames/unreal-engine</code> is
+<strong>credential-gated</strong>: it needs EpicGames GitHub organisation membership
+<strong>plus</strong> a PAT with <code>read:packages</code>. Without it you cannot build the
+renderer. Everything else builds from a clone. Stated here rather than discovered later.</p></div>
+
+<h3>Authenticate and build the images</h3>
+
+<pre>gh auth token | docker login ghcr.io -u &lt;github-user&gt; --password-stdin
+
+docker build -f docker/px4.Dockerfile    -t drone-sim/px4:v1.16.0 .
+docker build -f docker/qgc.Dockerfile    -t drone-sim/qgc:v1.16.0 .
+docker build -f docker/ros2.Dockerfile   -t drone-sim/ros2:v1.16.0 .
+docker build -f docker/unreal.Dockerfile -t drone-sim/unreal:ue5.8 .</pre>
+
+<p><strong>Order does not matter</strong> &mdash; every image builds from <code>ubuntu:24.04</code>,
+or the Epic image for the renderer, and none derives from another. Run them in parallel if you
+like.</p>
+
+<div class="tw"><table>
+  <thead><tr><th>Image</th><th>Size</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>drone-sim/unreal:ue5.8</code></td><td class="mono">57.5 GB</td><td>the renderer &mdash; credential-gated</td></tr>
+    <tr><td><code>drone-sim/ros2:v1.16.0</code></td><td class="mono">4.39 GB</td><td>companion computer: ROS 2, uXRCE-DDS agent, <code>px4_msgs</code></td></tr>
+    <tr><td><code>drone-sim/qgc:v1.16.0</code></td><td class="mono">1.43 GB</td><td>ground station</td></tr>
+    <tr><td><code>drone-sim/px4:v1.16.0</code></td><td class="mono">466 MB</td><td>the autopilot &mdash; SITL build output only</td></tr>
+  </tbody>
+</table></div>
+
+<p>The PX4 image verifies every pin against its recorded SHA and fails the build on a mismatch. It
+also builds the NuttX/ARM toolchain and then <strong>throws it away</strong>:
+<code>docker build --target firmware</code> still produces an image that can flash a real Pixhawk
+6C, while the image that ships copies only <code>build/px4_sitl_default</code> out of it.</p>
+
+<h3>Fetch the pinned upstreams and build the plugin once</h3>
+
+<pre>vcs import vendor &lt; .repos          # ~1.3 GB — Cosys-AirSim at a pinned SHA, not a branch
+
+docker run --rm -v "$PWD/vendor/Cosys-AirSim:/src" drone-sim/unreal:ue5.8 \
+  bash -lc './build.sh --ue-root /home/ue4/UnrealEngine'</pre>
+
+<div class="callout warn"><span class="lbl">--ue-root is mandatory, not advisory</span>
+<p>The engine image ships <strong>no system clang</strong> &mdash; the compiler is the engine's
+bundled toolchain, so a build without it has no compatible compiler at all rather than a graceful
+fallback.</p></div>
+
+<h3>Check it worked before flying anything</h3>
+
+<pre>docker images | grep drone-sim          # four images
+ls vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject</pre>
+
+<p>If the renderer later fails on Vulkan rather than on anything above, read
+<a href="gpu-in-docker.md">gpu-in-docker.md</a> &mdash; GPU access here is CDI, and on a
+Fedora-family host there is a Vulkan ICD path fix that is load-bearing.</p>
+
 <h2 id="start"><span class="secnum">01</span> Start the simulator</h2>
 <pre>./scripts/sim_up.sh</pre>
-<p>Five containers come up &mdash; renderer, XRCE agent, PX4 SITL, QGC, ROS 2 &mdash; the vehicle is
+<p>Four containers come up &mdash; renderer, PX4 SITL, ROS 2, QGC &mdash; the vehicle is
 allowed to settle, and the EKF origin is <strong>verified</strong> before the stack is declared
-usable. It prints <code>stack up and origin verified -- safe to fly</code>, typically in ~80&nbsp;s.</p>
+usable. The uXRCE-DDS agent is <em>inside</em> <code>sim-ros2</code>, not a container of its own: on the aircraft it is a process on the companion computer beside every other ROS 2 node, so giving it a machine modelled a boundary that does not exist. It prints <code>stack up and origin verified -- safe to fly</code>, typically in ~80&nbsp;s.</p>
 
 <div class="callout"><span class="lbl">First run only &mdash; the images have to exist</span>
 <p>Building them is described in the repository README. One step cannot be automated away: the
@@ -237,7 +307,68 @@ code at all.</p></div>
 falls to whatever is beneath it. If you do not know the ground height at your <code>(X, Y)</code>,
 release high and read the resting position back &mdash; that <em>is</em> a ground probe.</p></div>
 
-<h2 id="configure"><span class="secnum">02</span> Choose the world, sensors and tuning</h2>
+
+<h2 id="reach"><span class="secnum">02</span> Running your autonomy on another machine</h2>
+
+<p>By default the stack <strong>publishes nothing</strong> and is reachable only from the machine
+it runs on. If your code runs here too, use <code>scripts/attach.sh</code> and stop reading. If
+your autonomy computer is a different machine, which switch you need is decided by
+<strong>one question: does the path carry UDP multicast?</strong></p>
+
+<div class="tw"><table>
+  <thead><tr><th>Path between the machines</th><th>Switch</th><th>What the peer gets</th></tr></thead>
+  <tbody>
+    <tr><td>Same machine</td><td><em>(default)</em> <code>NET_MODE=shared</code></td><td>private namespace, nothing published</td></tr>
+    <tr><td>LAN that forwards multicast</td><td><code>NET_MODE=host</code></td><td>the whole graph, no DDS config</td></tr>
+    <tr><td>VPN / routed &mdash; <strong>no multicast</strong></td><td><code>+ DISCOVERY_SERVER=&lt;ip&gt;:&lt;port&gt;</code></td><td>the whole graph over plain unicast</td></tr>
+  </tbody>
+</table></div>
+
+<pre># LAN
+NET_MODE=host ./scripts/sim_up.sh
+
+# VPN: start a discovery server both machines can reach, BEFORE the stack
+docker run -d --name sim-ds --network host --entrypoint bash drone-sim/ros2:v1.16.0 \
+    -lc 'fastdds discovery -i 0 -l 0.0.0.0 -p 11811'
+NET_MODE=host DISCOVERY_SERVER=127.0.0.1:11811 ./scripts/sim_up.sh</pre>
+
+<p>Verified from a <strong>second host</strong> on the overlay &mdash; no shared namespaces, no
+multicast &mdash; with each run paired against the same probe <em>without</em> the server, which is
+what makes it evidence:</p>
+
+<pre>                     with discovery server      control: multicast only
+topics visible       total=53  fmu=51  (x3)     total=2  fmu=0  (x3)
+/fmu/out delivery    pos=1936  imu=1936         pos=0    imu=0</pre>
+
+<div class="callout warn"><span class="lbl">Three things that look broken and are not</span>
+<p><code>ROS_SUPER_CLIENT=true</code> is <strong>not optional</strong> on the subscriber. A plain
+discovery client is only told about participants it has already matched, but
+<code>ros2 topic echo</code> must resolve the message <em>type</em> from the graph before it can
+subscribe &mdash; so it fails with <code>Could not determine the type for the passed topic</code>
+while a healthy publisher sits right there.</p>
+<p><code>ros2 node list</code> returns <strong>0</strong> for <code>/fmu/*</code> in every mode,
+multicast included: the agent creates raw DDS participants with no ROS 2 node metadata.</p>
+<p>The server is a <strong>rendezvous, not a relay</strong> &mdash; data still flows peer to peer,
+so it removes the multicast requirement, not the routing one.</p></div>
+
+<h2 id="world"><span class="secnum">03</span> Bringing your own world</h2>
+
+<p>A third-party Unreal project usually needs converting first, and the failures are silent:</p>
+
+<pre>./scripts/convert_world.sh /path/to/Your.uproject --map /Game/Maps/YourMap
+./scripts/sim_up.sh        --world /path/to/Your.uproject --spawn 0,0,-50</pre>
+
+<div class="callout stop"><span class="lbl">The two that cost the most time</span>
+<p><strong>The game mode.</strong> If <code>GlobalDefaultGameMode</code> is not
+<code>AirSimGameMode</code>, AirSim never instantiates, nothing listens on 4560, and PX4 waits
+forever with <strong>no error line</strong>. Raising <code>SIM_LINK_TIMEOUT</code> never helps.</p>
+<p><strong>World Partition.</strong> It activates streaming cells around a registered streaming
+source, and AirSim's pawn was not one &mdash; so no cell loaded, there was no collision geometry
+anywhere, and the vehicle fell forever. <code>patches/cosys-airsim/0005</code> fixes it, though a
+startup race remains: roughly <strong>2 runs in 3</strong> succeed, so retry on failure.</p>
+<p>Full detail: <a href="worlds.html">worlds.html</a>.</p></div>
+
+<h2 id="configure"><span class="secnum">04</span> Choose the world, sensors and tuning</h2>
 <p>Copy the shipped settings file, edit it, pass it with <code>--settings</code>. The committed
 <code>sim/ue5/settings.json</code> is <strong>never modified</strong> by a run &mdash; your file is
 copied to a run-time artifact, so your configuration and the reviewed default cannot drift into
@@ -290,7 +421,7 @@ throughput.</p></div>
 <tr><th>any</th><td class="mono">Enabled</td><td><code>false</code> removes the topic from the graph</td></tr>
 </tbody></table></div>
 
-<h2 id="sensors"><span class="secnum">03</span> Sensors you receive</h2>
+<h2 id="sensors"><span class="secnum">05</span> Sensors you receive</h2>
 <p>Published by <code>airsim_node</code>. Start it once the stack is up:</p>
 <pre>docker exec -d sim-ros2 bash -lc '
   source /opt/ros/jazzy/setup.bash
@@ -364,7 +495,7 @@ correct.</p></div>
 a ceiling and check timestamps before feeding a preintegrating VIO. <code>ros2 topic hz</code> will
 report a healthy-looking rate and tell you none of this.</p></div>
 
-<h2 id="commands"><span class="secnum">04</span> Commanding the drone</h2>
+<h2 id="commands"><span class="secnum">06</span> Commanding the drone</h2>
 <p>Three command kinds, all confirmed by measurement (<code>scripts/verify_nav_interface.py</code>,
 2026-08-03) &mdash; each proven by the <strong>vehicle moving</strong>, never by a publisher existing.</p>
 
@@ -453,7 +584,7 @@ VEHICLE_CMD_COMPONENT_ARM_DISARM  <span class="c"># param1=1 arm, 0 disarm</span
 VEHICLE_CMD_NAV_LAND</pre>
 <p>Stream setpoints <strong>before</strong> requesting OFFBOARD, or the mode change is rejected.</p>
 
-<h2 id="verify"><span class="secnum">05</span> Verify it works</h2>
+<h2 id="verify"><span class="secnum">07</span> Verify it works</h2>
 <p>Both scripts live in the repo, not in the image, so copy them in first &mdash; and run them
 through a <strong>login</strong> shell, because <code>docker exec</code> bypasses the entrypoint and a
 non-login shell has no ROS environment at all (<code>import rclpy</code> fails before anything is
@@ -474,7 +605,7 @@ working one both &ldquo;publish an image&rdquo;, and only one has pixel variance
 <code>simGetObjectPose("PX4")</code> for world coordinates &mdash; reading the wrong one makes a
 working spawn look like it was ignored.</p></div>
 
-<h2 id="limits"><span class="secnum">06</span> Known limits</h2>
+<h2 id="limits"><span class="secnum">08</span> Known limits</h2>
 <ul>
 <li><strong>Lockstep is dead code</strong> in Cosys-AirSim &mdash; <code>"LockStep": true</code> is
 silently ineffective, so <strong>every timing number here is free-running</strong>. Never quote an
