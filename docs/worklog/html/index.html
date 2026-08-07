@@ -104,7 +104,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>17</b></span>
+    <span>Entries <b>18</b></span>
     <span>Newest <b>2026-08-04</b></span>
   </div>
 </header>
@@ -202,6 +202,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
       <span class="pill p-stop">port 41451 taken</span>
       <span class="pill p-warn">.repos drift fixed</span>
       <span class="pill p-chrome">2 new tier-1 checks</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-08-01-fern-runpod-lane-a.html">
+    <span class="k">2026-08-01 · D-08</span>
+    <h3>Fern/Runpod Full-Stack Image &amp; GHCR Publisher</h3>
+    <p>Adds an optional multi-contributor cloud path. A 300-second Fern acceptance run on a fresh GPU Pod now passes (24/24 topics, moving telemetry, zero sensor timeouts, aggregate RTF 1.00, 15.0 MB MCAP retained, self-stop) and the ANSI-safe PX4 gate reports zero actionable errors. The wait/download/destroy PR gate and main-channel publish remain open.</p>
+    <div class="tags">
+      <span class="pill p-ok">50 tests pass</span>
+      <span class="pill p-ok">300s acceptance pass</span>
+      <span class="pill p-ok">live self-stop verified</span>
+      <span class="pill p-warn">open PR</span>
+      <span class="pill p-ok">lifecycle probe passed</span>
+      <span class="pill p-warn">ANSI-gate rebuild pending</span>
     </div>
   </a>
 

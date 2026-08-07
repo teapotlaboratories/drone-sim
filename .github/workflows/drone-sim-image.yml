@@ -1,0 +1,121 @@
+name: Drone Sim stack image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: drone-sim-stack-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out Drone Sim
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish Drone Sim stack image
+        id: image
+        shell: bash
+        env:
+          REVISION: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          image="${REGISTRY}/${IMAGE_NAME,,}"
+          base_ref="${image}:base-${REVISION}"
+          immutable_ref="${image}:stack-${REVISION}"
+
+          tags=(--tag "${immutable_ref}")
+          if [[ "${BRANCH}" == "main" ]]; then
+            channel_ref="${image}:stack-main"
+          else
+            safe_branch="${BRANCH//\//-}"
+            channel_ref="${image}:stack-test-${safe_branch}"
+          fi
+          tags+=(--tag "${channel_ref}")
+
+          docker buildx build \
+            --file docker/lane-a.Dockerfile \
+            --tag "${base_ref}" \
+            --cache-from "type=gha,scope=drone-sim-base-v1" \
+            --cache-to "type=gha,mode=max,scope=drone-sim-base-v1" \
+            --push \
+            .
+
+          docker buildx build \
+            --file docker/runpod/lane-a.Dockerfile \
+            --build-arg "BASE_IMAGE=${base_ref}" \
+            --build-arg "VCS_REF=${REVISION}" \
+            --build-arg "IMAGE_VERSION=stack" \
+            --build-arg "IMAGE_REFERENCE=${immutable_ref}" \
+            "${tags[@]}" \
+            --cache-from "type=gha,scope=drone-sim-stack-v1" \
+            --cache-to "type=gha,mode=max,scope=drone-sim-stack-v1" \
+            --metadata-file stack-metadata.json \
+            --push \
+            .
+
+          digest="$(jq -er '."containerimage.digest"' stack-metadata.json)"
+          digest_ref="${image}@${digest}"
+
+          jq -n \
+            --arg image "${immutable_ref}" \
+            --arg digest_reference "${digest_ref}" \
+            --arg revision "${REVISION}" \
+            --arg channel "${channel_ref}" \
+            '{schema_version: 1, image: $image, digest_reference: $digest_reference, revision: $revision, channel: $channel}' \
+            > image-manifest.json
+
+          {
+            echo "reference=${immutable_ref}"
+            echo "digest_reference=${digest_ref}"
+            echo "channel_reference=${channel_ref}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload stack image manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: drone-sim-stack-${{ github.sha }}
+          path: image-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          {
+            echo "## Drone Sim stack image"
+            echo
+            echo "Published immutable image:"
+            echo
+            echo '```text'
+            echo '${{ steps.image.outputs.digest_reference }}'
+            echo '```'
+            echo
+            echo "Channel tag: \`${{ steps.image.outputs.channel_reference }}\`"
+            echo
+            echo "Source branch: \`${GITHUB_REF_NAME}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

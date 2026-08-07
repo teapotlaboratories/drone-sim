@@ -755,3 +755,203 @@ now, grows with every run; decide a destination before it is a problem.
 **Done when:** a fresh machine running **native Docker** reaches a flying stack from
 documented steps alone, and no image carries a `carbonite`-specific workaround without it
 being labelled as one.
+
+---
+
+## D-09 — Optional Fern/Runpod full-stack image and GHCR publisher
+
+**Status:** 🟡 **full-stack GHCR build verified on `feat/image-builder` (2026-08-01)** ·
+**Issues:** #5, #8–#14 · **Related:** `D-05`, `D-07`, `P1-07`
+
+**What.** Add a contributor-portable Lane A path: an immutable single-container batch
+runtime for Fern/Runpod, a durable `/workspace/runs/<run-id>/` evidence contract, capacity
+preflight, loopback-only services, and a main-branch workflow that publishes a GHCR digest
+Fern can select with `--image`.
+
+**Why.** The original contributor workstation remains a valid contributor-specific path,
+but a multiple-contributor repository cannot require access to it. Fern is an additional
+GPU-backed option with explicit billing, persistence, network, and lifecycle boundaries.
+Lane A itself remains capable of CPU-only execution.
+
+**Verified before merge.**
+
+- 47 off-target tests cover artifacts, secret exclusion, preflight, occupied ports,
+  loopback-only runtime configuration, and shared sim-time launch;
+- shell, Python, YAML, package, workflow, and Dockerfile checks pass;
+- workflow run `30709124212` built and pushed the complete flattened stack from commit
+  `7ded074` in 22m42s;
+- the publisher trigger is restricted to `main`, with manual dispatch retained for
+  pre-merge validation.
+
+**Still required for the end-to-end gate.**
+
+- Fern deploys the canonical digest to a fresh GPU Pod after a reviewed dry run;
+- the five-minute smoke writes terminal status, metrics, logs, preflight, versions, and a
+  replayable MCAP under `/workspace/runs/<run-id>/`;
+- the final provider state confirms that billing stopped;
+- the guarded PR gate implements wait, download, destroy, cancellation cleanup, and cost
+  controls.
+
+**Boundary.** Feature-branch image evidence is not post-merge main-channel evidence. This
+publisher does not claim to complete the deferred automated flight gate in `D-07` or
+issues #13 and #14.
+
+### D-08a — Harden Runpod terminal cleanup after the first live Pod
+
+**Status:** 🟡 **live self-stop verified; artifact result inspection pending
+(2026-08-02)**
+
+**What.** Make the flattened runner compatible with both current
+`runpodctl pod stop <id>` and the legacy `runpodctl stop pod <id>` that Runpod injects
+into Pods, run `tini` as a child subreaper when the provider wraps the image entrypoint,
+and stop attempting the REST lifecycle call with the restricted Pod-scoped API key.
+
+**Why.** Live Pod `5hpckmhamepd5g` pulled the immutable image and reached terminal cleanup,
+but its injected CLI rejected the current noun-first syntax and the REST fallback returned
+`403`. The runner idled safely and external Fern cleanup worked, but the Pod could not stop
+itself. Runpod also wrapped Tini away from PID 1, producing a subreaper warning.
+
+**Acceptance.** Off-target tests assert subreaper mode, legacy/current CLI detection, no
+REST use of `RUNPOD_API_KEY`, and the restart-loop guard. A fresh Fern Pod must reach a
+terminal artifact state and either self-stop or be stopped externally with the result and
+cleanup path recorded honestly.
+
+### D-08b — Make successful Runpod cleanup logs unambiguous
+
+**Status:** 🟡 **60-second live lifecycle verified; 300-second acceptance run pending (2026-08-02)**
+
+**What.** Silence the expected second GNU Screen cleanup after the smoke harness has
+already closed `px4sitl`, and filter only `runpodctl`'s missing-local-config warning while
+preserving its stop output and exit status.
+
+**Why.** Live Pod `8nw3t2zr6444ft` stopped itself successfully, but its terminal log mixed
+two harmless compatibility messages with the successful lifecycle result. That makes a
+healthy self-stop look like a failed simulation or failed provider action.
+
+**Acceptance.** Off-target tests cover quiet idempotent Screen cleanup and prove that both
+supported `runpodctl` syntaxes retain the provider's success output, suppress only the
+known local-config warning, and propagate command failures.
+
+**Verification.** Forty-eight off-target tests pass, including both CLI orders, success
+output filtering, provider failure propagation, and quiet idempotent Screen cleanup. A
+fresh image must prove the terminal provider log contains only the actionable stop result.
+
+### D-08c — Remove the runtime API/preflight port self-conflict
+
+**Status:** 🟡 **60-second live lifecycle verified; 300-second acceptance run pending (2026-08-02)**
+
+**What.** Run the loopback port preflight before starting the repository-owned runtime API
+on TCP `8080`, then start the API only after every preflight check passes.
+
+**Why.** Retained evidence from Fern Pod `1e86xizphmyrtp` recorded exit code `2` within
+0.28 seconds. Every check passed except TCP `8080`, which was occupied by the runner's own
+runtime API because it started before the availability check. No QGC or smoke log existed.
+
+**Acceptance.** An off-target contract test enforces preflight-before-runtime-API ordering.
+A rebuilt immutable image must pass preflight on a fresh Fern GPU Pod and proceed to the
+next runtime gate; the resulting `/workspace` evidence remains the authority.
+
+**Verification.** Forty-eight off-target tests pass. The runner contract now requires the
+preflight invocation to precede runtime API startup, which must itself precede the running
+status transition.
+
+### D-08d — Bake the QGC runtime and stop on infrastructure failure
+
+**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+
+**What.** Extract the checksum-verified QGroundControl AppImage at build time to the path
+owned by `qgc-entrypoint.sh`, make preflight validate that same executable, and route ERR
+trap failures through the terminal Runpod self-stop/idle finalizer.
+
+**Why.** After D-08c passed preflight, Fern Pod `x1ulxxt7vet93w` created 24 failed runs at
+roughly 17-second intervals. Each `qgc.log` reported missing
+`/opt/qgc/squashfs-root/AppRun`. The flattened image had downloaded `/qgc.AppImage` but
+never extracted it. The subsequent QGC liveness check triggered the ERR trap, whose direct
+`exit` bypassed self-stop and allowed Runpod to restart the container.
+
+**Acceptance.** The image build must verify the extracted `AppRun`; preflight and the QGC
+entrypoint must agree on that path. Off-target tests must assert infrastructure failures
+reach the shared finalizer and cannot exit before self-stop. A fresh Fern Pod must pass QGC
+startup, avoid restart multiplication, and leave authoritative terminal evidence.
+
+**Verification.** Forty-eight off-target tests pass. The image contract now extracts and
+verifies `AppRun`, preflight validates the same executable used by the QGC entrypoint, and
+the runner's ERR trap reaches the shared finalizer without a direct exit before self-stop.
+
+### D-08e — Bound Gazebo sampling termination
+
+**Status:** 🟡 **off-target verified; rebuilt image/Pod verification pending (2026-08-02)**
+
+**What.** Give the duration-bounded `gz topic` sampler a short TERM grace period followed
+by KILL so it cannot hold the smoke harness before metrics and terminal finalization.
+
+**Why.** Fresh Fern Pod `z1va6emzqg0t12` passed preflight, booted PX4 in roughly 22
+seconds, discovered 24 `/fmu/out` topics, recorded moving telemetry and a 30.6 MB MCAP,
+and wrote roughly 499 KB of Gazebo stats. The log then stopped at the subscriber/recorder
+shutdown boundary; `status.json` stayed `running` and `metrics.json` was absent. Both the
+subscriber timeout and the immediately following recorder wait lacked hard termination
+bounds. D-08e closes the subscriber side of that boundary.
+
+**Acceptance.** The sampler must retain the requested duration, send KILL after a bounded
+grace period, preserve `stats.raw`, and always proceed to result/metrics generation. A
+fresh Fern Pod must reach terminal status and self-stop or leave an actionable cleanup
+failure without restarting.
+
+**Verification.** Twelve focused runtime tests pass, shell syntax is valid, a local
+TERM-ignoring process is forcibly terminated by the same kill-after contract, and the
+full repository Tier 1 gate passes. A fresh immutable Fern run remains pending.
+
+### D-08f — Bound MCAP recorder shutdown
+
+**Status:** 🟡 **60-second live lifecycle verified; 300-second acceptance run pending (2026-08-02)**
+
+**What.** Bound `ros2 bag record` shutdown after the full sample: request a graceful INT
+flush, escalate to TERM, then KILL only if the recorder still refuses to exit.
+
+**Why.** D-08e image Pod `nmijzwcbots6jw` again completed the expected Gazebo sample
+(roughly 498 KB of `stats.raw`) and retained a 25.5 MB MCAP, but never reached results or
+`metrics.json`. The sampler now has a hard kill deadline. The immediately following
+`stop_recorder` function sends INT and waits without a deadline; the recorder log contains
+no completed-shutdown record, making that wait the remaining silent blocker before parsing.
+
+**Acceptance.** Recorder shutdown must allow a bounded graceful flush, escalate safely,
+reap the child, preserve the MCAP, and always return control to result parsing. Off-target
+tests must enforce the finite INT/TERM/KILL sequence. A fresh Fern run must create metrics,
+terminal status, and a provider cleanup result without restart multiplication.
+
+**Verification.** Fourteen focused runtime tests and shell syntax pass. Workflow
+`30758323454` published commit `0b97785` as digest `sha256:da3c0e9b…6fa41`. A
+60-second Fern probe reached terminal `succeeded` status, wrote metrics and a 4.5 MB MCAP,
+then self-stopped. The recorder completed after the bounded TERM escalation. The required
+fresh 300-second acceptance run remains pending.
+
+### D-08g — Make the PX4 error gate ANSI-safe and QGC-aware
+
+**Status:** ✅ **accepted on a fresh GPU Pod (2026-08-02)**
+
+**What.** Strip terminal control bytes before evaluating PX4 logs, count every error, and
+classify only the exact QGC-startup `vehicle_command_ack lost` signature separately from
+actionable PX4 errors. Persist both total and classified counts in metrics.
+
+**Why.** D-08f probe Pod `7ddp5ya9ooqrb0` reached `succeeded`, created metrics and a valid
+4.5 MB MCAP, and self-stopped. Metrics incorrectly claimed zero PX4 errors while the raw
+log contained four `ERROR [mavlink] vehicle_command_ack lost` lines. ANSI color sequences
+between `ERROR` and `[mavlink]` defeated the grep expression. The exact four-line startup
+fan-out occurred before `Ready for takeoff`; telemetry, QGC, ROS, RTF, and sensor gates
+remained healthy.
+
+**Acceptance.** The normalized log must expose all raw PX4 errors. Metrics must report
+total, exact QGC ACK-loss, and actionable error counts; the gate may exclude only that
+fully anchored compatibility signature and must fail on every other error. Off-target tests
+must cover colored input and reject near-matching errors. A fresh 300-second Fern run must
+finish, self-stop, and retain transparent passing metrics plus replayable MCAP evidence.
+
+**Verification.** Fourteen focused runtime tests pass. They prove ANSI normalization, exact
+QGC ACK-loss classification, transparent total/classified/actionable counts, and fail-closed
+near-match behavior. Python compilation and shell syntax pass. The immutable acceptance run
+then passed: workflow `30761343309` built commit `be2fc689` and Fern Pod `hy19vgho00t7mb`
+on one RTX 2000 Ada at $0.24/hour completed a 300-second sitl smoke, exported
+`metrics.json` with `passed: true`, `px4_error_count 0` and `px4_qgc_ack_loss_count 4`,
+recorded aggregate RTF 1.00, retained a 15.0 MB MCAP, reached `succeeded` status, and
+self-stopped. Evidence and full detail are in the worklog `2026-08-01-fern-runpod-lane-a`
+under "Live acceptance gate".
