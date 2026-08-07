@@ -22,7 +22,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-WORLD=""; SPAWN=""; SETTINGS=""; LEGS=4; RADIUS=25.0; ALTITUDE=8.0; TOLERANCE=2.0; ARRIVE_SPEED=0.7; KEEP_UP=""
+WORLD=""; SPAWN=""; SETTINGS=""; LEGS=4; RADIUS=25.0; ALTITUDE=20.0; TOLERANCE=2.0; ARRIVE_SPEED=0.7; KEEP_UP=""
 MODE="waypoints"; SPEED=4.0; LAPS=1.0; YAW_MODE="inward"; MAX_ACCEL=2.0; RAMP_S=6.0
 RECORD_REGEX='/fmu/out/.*|/airsim_node/.*|/tf.*|/clock'
 while [ $# -gt 0 ]; do
@@ -96,6 +96,16 @@ sleep 25
 # --- record, fly, stop ------------------------------------------------------------------
 # Recorded by regex rather than -a: -a also picks up rosout and parameter-event chatter, which
 # on a 17 Hz imagery stream buries the flight in noise and inflates the bag for no benefit.
+# Start the collision witness BEFORE the bag, so it brackets the flight the same way. It is a
+# separate process on purpose: the mission node reporting on its own crash is not a witness.
+# Until this existed, nothing in the harness could tell a collision from bad tracking -- a 48 m
+# miss looks identical either way in the leg scoring.
+log "starting the collision witness"
+docker cp "$REPO/scripts/watch_collisions.py"  "sim-ros2:/tmp/watch_collisions.py" >/dev/null
+docker cp "$REPO/scripts/airsim_rpc_client.py" "sim-ros2:/tmp/airsim_rpc_client.py" >/dev/null
+docker exec -d sim-ros2 bash -lc \
+  "cd /tmp && python3 /tmp/watch_collisions.py --out /tmp/collisions.json > /tmp/collisions.log 2>&1"
+
 log "starting the bag"
 docker exec -d sim-ros2 bash -lc "
   source /opt/ros/jazzy/setup.bash
@@ -122,6 +132,11 @@ docker exec sim-ros2 bash -lc "
     -p summary:=/out/park-tour-$STAMP/summary.json" 2>&1 | tee "$RUN/mission.log"
 MISSION_RC=${PIPESTATUS[0]}
 
+log "stopping the collision witness"
+docker exec sim-ros2 bash -lc 'pkill -INT -f watch_collisions.py || true' >/dev/null 2>&1 || true
+sleep 1
+docker cp "sim-ros2:/tmp/collisions.json" "$RUN/collisions.json" >/dev/null 2>&1 || true
+
 log "stopping the bag"
 docker exec sim-ros2 bash -lc 'pkill -INT -f "ros2 bag record" || true'
 sleep 5
@@ -144,20 +159,42 @@ else
   log "WARNING: no .mcap was written — the run has no replayable evidence"
 fi
 
+# A COLLISION FAILS THE RUN, regardless of what the leg scoring says.
+#
+# Leg scoring measures distance-to-waypoint and arrival speed. Neither notices an impact: a run
+# that flew into a building at 8 m altitude scored PASS on all five legs while the witness
+# recorded a sustained scrape against TemplateCube_Rounded_7. A harness that records a crash
+# beside a PASS does not merely miss the failure, it launders it -- so the verdict is overridden
+# here and MISSION_RC is forced non-zero.
+COLLIDED=0
+if [ -f "$RUN/collisions.json" ]; then
+  COLLIDED=$(python3 -c "
+import json,sys
+try: print(json.load(open('$RUN/collisions.json')).get('collision_count',0))
+except Exception: print(0)" 2>/dev/null || echo 0)
+fi
+
 if [ -f "$RUN/summary.json" ]; then
-  python3 - "$RUN/summary.json" <<'PY'
+  python3 - "$RUN/summary.json" "${COLLIDED:-0}" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
+# A collision overrides the leg scoring outright. Printing "PASS" on a line above "COLLISION"
+# is how a harness launders a crash -- the verdict has to carry it.
+collided = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+if collided:
+    d["ok"] = False
 if "error" in d:
     print(f"  verdict: FAILED — {d['error']}")
 elif d.get("mode") == "circle":
-    print(f"  verdict: {'PASS' if d.get('ok') else 'FAIL'}   "
+    print(f"  verdict: {'PASS' if d.get('ok') else 'FAIL'}"
+          f"{' (COLLISION)' if collided else ''}   "
           f"radius error max {d.get('radius_error_max_m')} m / mean {d.get('radius_error_mean_m')} m   "
           f"alt error max {d.get('alt_error_max_m')} m")
     print(f"    mean speed {d.get('speed_mean_ms')} m/s over {d.get('samples')} samples, "
           f"landed={d.get('landed')}")
 else:
-    print(f"  verdict: {'PASS' if d.get('ok') else 'FAIL'}   "
+    print(f"  verdict: {'PASS' if d.get('ok') else 'FAIL'}"
+          f"{' (COLLISION)' if collided else ''}   "
           f"worst {d.get('worst_error_m')} m   mean {d.get('mean_error_m')} m   "
           f"landed={d.get('landed')}")
     for l in d.get("legs", []):
@@ -166,6 +203,22 @@ else:
 PY
 else
   log "WARNING: no summary.json — the mission node did not complete"
+fi
+
+if [ "${COLLIDED:-0}" -gt 0 ]; then
+  python3 -c "
+import json
+d = json.load(open('$RUN/collisions.json'))
+print(f\"  COLLISION: {d['collision_count']} contact(s) -- run is a FAIL whatever the legs say\")
+for e in d['collisions'][:5]:
+    print(f\"    t+{e['t']}s  {e['object_name']}  {e.get('duration_s',0)}s in contact  at {e['impact_point']}\")
+" 2>/dev/null || log "COLLISION detected (collisions.json unreadable)"
+  MISSION_RC=1
+else
+  log "no collisions ($(python3 -c "
+import json
+try: print(json.load(open('$RUN/collisions.json'))['ground_contacts'])
+except Exception: print(0)" 2>/dev/null) ground contacts, expected at takeoff and landing)"
 fi
 
 # sim-xrce is listed although nothing creates it any more -- the agent lives in sim-ros2.
