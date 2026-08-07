@@ -43,14 +43,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # --- pins (all verified 2026-07-28) --------------------------------------------------
 ARG PX4_TAG=v1.16.0
+# The XRCE agent, px4_msgs and px4_ros_com pins are NOT here. They moved to
+# docker/ros2.Dockerfile with the code that uses them. Declaring them in both files would give a
+# pin two sources of truth, and nothing cross-checks Dockerfile ARGs against versions.lock -- a
+# bump to one copy would diverge in silence.
 ARG PX4_SHA=6ea3539157ca358c70a515878b77077af7d4611d
-ARG XRCE_TAG=v2.4.3
-ARG XRCE_SHA=73622810d984349b80bbac0ef55fc0b694d62222
-ARG PX4_MSGS_BRANCH=release/1.16
-ARG PX4_MSGS_SHA=392e831c1f659429ca83902e66820d7094591410
-ARG PX4_ROS_COM_BRANCH=release/1.16
-ARG PX4_ROS_COM_SHA=86e9aeb20e55a4673fa8a9f1c29ea06a6c5ad1af
-ARG ROS_DISTRO=jazzy
 
 # --- base tooling --------------------------------------------------------------------
 # `sudo` is required because PX4's Tools/setup/ubuntu.sh calls it unconditionally; as root
@@ -116,6 +113,12 @@ RUN make px4_sitl_default \
 # =======================================================================================
 FROM ubuntu:24.04 AS runtime
 
+# SHELL does NOT survive a FROM. This stage starts from ubuntu rather than `sysdeps`, so without
+# this it runs on /bin/sh with no pipefail -- silently weaker than the directive at the top of
+# the file promises. Nothing here pipes today; the point is that the next thing added cannot
+# quietly lose a failure.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # NOT `FROM sysdeps`. The runtime needs no compiler, no ROS and no PX4 source -- `ldd` on the
 # SITL binary resolves to libc, libstdc++, libgcc and libm alone, and nothing ever execs into
 # this container: sim_up.sh starts it and reads its stdout. Measured: 4.73 GB -> 466 MB.
@@ -141,7 +144,10 @@ RUN test -x /opt/px4/build/px4_sitl_default/bin/px4 \
     && ! test -d /opt/px4/.git \
     && ! test -d /usr/lib/arm-none-eabi \
     && ! command -v arm-none-eabi-gcc >/dev/null 2>&1 \
-    && echo "runtime stage: SITL present, toolchain/source/.git absent"
+    && echo "runtime stage: SITL present, toolchain/source/.git absent" \
+    && echo "px4-image sitl-only (no ROS, no XRCE agent, no px4_msgs; NuttX toolchain and PX4 \
+source live in the 'firmware' build stage -- docker build --target firmware)" \
+       >> /etc/drone-sim-versions
 
 # openjdk is deliberately NOT asserted absent, and SIM-19's entry was wrong about it.
 # MEASURED: openjdk-21-jre-headless is present in the BASE stage, before PX4 is cloned --

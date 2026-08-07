@@ -2747,6 +2747,33 @@ Default altitude raised **8 m -> 20 m**. At 20 m the legs are also visibly clean
 20 m  verdict: PASS               0 collisions  exit 0   (3 ground contacts, takeoff + landing)
 ```
 
+### An intermittent leg TIMEOUT, separate from collisions — found 2026-08-07
+
+Raising the altitude removed the collisions and did **not** remove the intermittent failure. With
+the witness reporting **zero** collisions, a 20 m run still failed:
+
+```
+leg 1: ok    1.25 m  13.7s      leg 1: ok  1.25 m  13.7s
+leg 2: ok    1.01 m  14.9s      leg 2: ok  1.01 m  14.9s
+leg 3: ok    1.09 m  14.8s      leg 3: ok  1.09 m  14.8s
+leg 4: ok    1.00 m  14.7s      leg 4: ok  1.00 m  14.7s
+leg 5: MISS 25.16 m  92.0s      leg 5: ok  1.34 m  14.4s
+verdict FAIL, landed=False      verdict PASS
+```
+
+Two things stand out. **92.0 s is exactly the leg timeout**, so the vehicle did not drift — it
+stopped making progress and ran out the clock, then never landed. And **legs 1-4 are near
+identical between runs** (times within 0.1 s, errors within 0.01 m), so the divergence is
+specific to the final leg rather than accumulated noise.
+
+The same 92.0 s signature appeared in the 8 m runs, where it coincided with collisions. It is now
+clear these are **two separate failure modes**, and altitude only fixed one. Attributing the
+flakiness wholly to geometry was premature.
+
+Belongs to `SIM-07`: the gate cannot report an honest success rate while a leg can time out for
+an unexplained reason. Start from the MCAP of a failing run — the bag brackets the flight, so the
+setpoint stream and `/fmu/out` during that 92 s are already recorded.
+
 ### Follow-ups
 
 - **`run_gate.py` does not use this yet.** The gate scores VOID/PASS/FAIL over N seeds and is
