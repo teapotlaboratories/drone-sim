@@ -61,13 +61,72 @@ rs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(rs)
 
 
-def check_run(result: dict, scenario: dict) -> tuple[bool, str]:
+SVC = "sim-ros2"
+
+
+def start_collision_witness() -> bool:
+    """Begin witnessing collisions for one run. False if it could not start.
+
+    The gate re-derives pass/fail from numbers rather than trusting `outcome`, and until this
+    existed it had no number for "did it hit anything". A seed that flew into a building scored
+    PASS on waypoint error alone and inflated the success rate -- the exact defect this gate was
+    written to avoid, in a dimension it could not see (SIM-22).
+    """
+    here = Path(__file__).resolve().parent
+    try:
+        for f in ("watch_collisions.py", "airsim_rpc_client.py"):
+            subprocess.run(["docker", "cp", str(here / f), f"{SVC}:/tmp/{f}"],
+                           check=True, capture_output=True, timeout=30)
+        subprocess.run(["docker", "exec", "-d", SVC, "bash", "-lc",
+                        "cd /tmp && python3 /tmp/watch_collisions.py "
+                        "--out /tmp/gate_collisions.json > /tmp/gate_collisions.log 2>&1"],
+                       check=True, capture_output=True, timeout=30)
+        return True
+    except Exception:
+        return False
+
+
+def stop_collision_witness() -> tuple[int, str]:
+    """Stop it and report (collision_count, detail). (-1, reason) if it could not be read.
+
+    A witness that cannot be read is NOT reported as zero collisions. Unknown must never be the
+    value that looks clean -- the same rule this gate already applies to non-finite waypoint
+    errors.
+    """
+    try:
+        subprocess.run(["docker", "exec", SVC, "bash", "-lc",
+                        "pkill -INT -f watch_collisions.py || true"],
+                       capture_output=True, timeout=30)
+        time.sleep(1.0)
+        p = subprocess.run(["docker", "exec", SVC, "cat", "/tmp/gate_collisions.json"],
+                           capture_output=True, text=True, timeout=30)
+        if p.returncode != 0:
+            return -1, "collisions.json unreadable"
+        d = json.loads(p.stdout)
+        n = int(d.get("collision_count", 0))
+        if not n:
+            return 0, ""
+        names = sorted({e.get("object_name", "?") for e in d.get("collisions", [])})
+        return n, f"{n} collision(s) with {', '.join(names[:3])}"
+    except Exception as exc:
+        return -1, f"collision witness unreadable: {exc}"
+
+
+def check_run(result: dict, scenario: dict, collisions: int = 0,
+              collision_detail: str = "") -> tuple[bool, str]:
     """Decide pass/fail for ONE run, explicitly rather than trusting `outcome`.
 
     A gate that only reads `outcome` inherits whatever the controller decided to call
     success. These re-derive it from the numbers, so a controller bug that mislabels a
     flyaway as success still fails the gate.
     """
+    # Collisions FIRST. Every number below describes where the vehicle ended up, and after an
+    # impact those numbers describe a crash that happened to land near the waypoint.
+    if collisions > 0:
+        return False, collision_detail or f"{collisions} collision(s)"
+    if collisions < 0:
+        return False, collision_detail or "collision state unknown"
+
     if result.get("outcome") != "success":
         return False, result.get("failure_reason") or "outcome not success"
 
@@ -255,15 +314,22 @@ def main() -> int:
         if void_reason:
             result = {"outcome": "void", "failure_reason": void_reason}
             ok, why = False, void_reason
+            ncol, cdetail = 0, ""      # never flew; no collision claim to make
         else:
+            witness = start_collision_witness()
             try:
                 result = rs.run_flight(scenario, seed, a.outdir)
             except Exception as exc:                  # a crashed run is a failed run,
                 result = {"outcome": "failure",       # never an aborted gate
                           "failure_reason": f"runner raised: {exc}"}
-            ok, why = check_run(result, scenario)
+            if witness:
+                ncol, cdetail = stop_collision_witness()
+            else:
+                ncol, cdetail = -1, "collision witness failed to start"
+            ok, why = check_run(result, scenario, ncol, cdetail)
         runs.append({
             "seed": seed, "passed": ok, "reason": why,
+            "collisions": ncol if not void_reason else None,
             "void": bool(void_reason),
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),

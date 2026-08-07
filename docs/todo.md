@@ -2657,6 +2657,75 @@ is likely out of reach even now; `Small_City_LVL` is the verified world.
 
 ---
 
+## `SIM-22` — the harness could not detect a collision
+
+**Status:** `done` — **2026-08-06.** Raised by the owner, who suspected the intermittent park-tour
+failures were impacts the scoring could not see. They were.
+
+### What was wrong
+
+**Nothing in the harness detected collisions.** Leg scoring measures distance-to-waypoint and
+arrival speed; neither notices an impact, because after one the vehicle merely looks *badly
+tracked*. The two are indistinguishable in the summary — a 48 m miss over 92 s is equally
+consistent with a crash and with poor control.
+
+Measured at the default 8 m altitude in Blocks, with a witness attached for the first time:
+
+```
+verdict: PASS   worst 1.906 m   mean 1.489 m   landed=True
+collisions: 8-9 sustained contacts vs TemplateCube_Rounded_7 and _49
+```
+
+The vehicle flew into two buildings and the run scored **PASS on every leg**. So every prior
+park-tour PASS at 8 m is suspect — including the runs used as acceptance evidence for `SIM-19`
+slices 1 and 2, which now need re-earning at a safe altitude.
+
+It also gives the FAIL/PASS/PASS flakiness seen during `SIM-19` a likely physical cause. It was
+attributed to free-running non-determinism (lockstep is dead, so nothing is repeatable). It was
+probably geometry.
+
+### What was built
+
+`scripts/watch_collisions.py` — an **independent** witness polling `simGetCollisionInfo` at 20 Hz.
+Separate from the mission node on purpose: a node reporting on its own crash is not a witness. It
+writes `collisions.json` continuously, so a run killed mid-flight still leaves evidence.
+
+`run_park_tour.sh` brackets the flight with it, folds `collisions.json` into the run directory,
+and **a collision now fails the verdict and forces a non-zero exit** regardless of leg scoring.
+
+Default altitude raised **8 m -> 20 m**. At 20 m the legs are also visibly cleaner: uniform
+14-15 s and 1.0-1.35 m, against a ragged 9-92 s and 0.98-1.91 m at 8 m.
+
+### Two traps worth keeping
+
+1. **`has_collided` alone is useless.** It reports *current* contact, and a parked drone is in
+   contact with the floor: `has_collided=True, object_name=Ground` before it has even armed.
+   Ground is separated by `object_name`, and the name list is world-specific — an unrecognised
+   name is reported as a collision rather than ignored, because a visible false positive beats a
+   silent false negative.
+2. **`time_stamp` is the wrong de-duplication key.** It looks right and is not: it keeps
+   advancing while the vehicle *drags* along a surface, so keying on it logged one scrape as
+   **56** collisions. Keying on contact continuity — an event ends when a poll sees no collision
+   or a different object — gives 8-9, with durations.
+
+### Verified both directions
+
+```
+8 m   verdict: FAIL (COLLISION)   8 contacts    exit 1
+20 m  verdict: PASS               0 collisions  exit 0   (3 ground contacts, takeoff + landing)
+```
+
+### Follow-ups
+
+- **`run_gate.py` does not use this yet.** The gate scores VOID/PASS/FAIL over N seeds and is
+  still blind to impacts; a colliding seed will inflate its success rate.
+- `ros2_ws/src/evaluation/README.md` lists "collision count / CR" as a planned metric — the data
+  now exists to populate it.
+- **Re-verify `SIM-19` slices 1 and 2** at 20 m with the witness on, since their acceptance
+  evidence predates it.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:
