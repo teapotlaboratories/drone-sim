@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>drone-sim architecture — the four containers and how data moves</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/history/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">drone-sim · architecture</span>
+  <nav><a href="#containers">Containers</a><a href="#inside">Inside</a><a href="#flow">Data flow</a><a href="#ns">Namespaces</a><a href="#reach">Off-machine</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+
+<header class="mast">
+  <span class="eyebrow">four containers · one ROS 2 graph · measured 2026-08-07</span>
+  <h1>What Runs,<br>And What Moves</h1>
+  <p class="sub">Four containers, each standing in for a machine that exists when this flies for
+  real. Three transports cross between them and only <strong>one of them is the control
+  interface</strong> &mdash; the other two are a physics link and a ground-station datalink that
+  people mistake for control every time.</p>
+  <div class="mastmeta">
+    <span>Containers <b>4</b></span>
+    <span>Images <b>63.8 GB</b></span>
+    <span>Topics <b>53 · 51 /fmu</b></span>
+    <span>Control <b>ROS 2 only</b></span>
+  </div>
+</header>
+
+<h2 id="containers"><span class="secnum">01</span> The four containers</h2>
+
+<p>One per machine that will exist on the real aircraft &mdash; except the renderer, which has no
+hardware counterpart because it <em>is</em> the world.</p>
+
+<div class="tw"><table>
+  <thead><tr><th>Container</th><th>Image</th><th>Size</th><th>Stands in for</th></tr></thead>
+  <tbody>
+    <tr><td><code>sim-unreal</code></td><td><code>drone-sim/unreal:ue5.8</code></td><td class="mono">57.5 GB</td><td>the world itself &mdash; no counterpart on the aircraft</td></tr>
+    <tr><td><code>sim-px4</code></td><td><code>drone-sim/px4:v1.16.0</code></td><td class="mono">466 MB</td><td>the <strong>Pixhawk 6C</strong> flight controller</td></tr>
+    <tr><td><code>sim-ros2</code></td><td><code>drone-sim/ros2:v1.16.0</code></td><td class="mono">4.39 GB</td><td>the <strong>companion computer</strong> (a Jetson)</td></tr>
+    <tr><td><code>sim-qgc</code></td><td><code>drone-sim/qgc:v1.16.0</code></td><td class="mono">1.43 GB</td><td>the <strong>ground station</strong></td></tr>
+  </tbody>
+</table></div>
+
+<div class="callout"><span class="lbl">Why QGC is not optional tooling</span>
+<p>PX4 refuses to arm without a ground-station datalink, and <code>NAV_DLL_ACT</code> is left
+enforced deliberately &mdash; a real Pixhawk refuses too, so relaxing it in simulation would hide a
+real-flight failure. Stop this container and arming is denied. Verified in both directions.</p></div>
+
+<h2 id="inside"><span class="secnum">02</span> What each one contains</h2>
+
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="What each container holds. sim-unreal runs Unreal Engine 5.8 with the Cosys-AirSim plugin on GPU 0. sim-px4 holds only the PX4 SITL build output, 466 megabytes, with no ROS. sim-ros2 holds ROS 2 Jazzy, the uXRCE-DDS agent, px4_msgs and the AirSim ROS 2 wrapper. sim-qgc holds Xvfb and the QGroundControl AppImage.">
+  <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 z" fill="var(--ink2)"/></marker></defs>
+
+  <rect x="14" y="34" width="205" height="270" rx="4" fill="var(--panel)" stroke="var(--space)" stroke-width="1.6"/>
+  <text x="116" y="58" text-anchor="middle" class="svg-ink" font-size="13" font-weight="700">sim-unreal</text>
+  <text x="116" y="74" text-anchor="middle" class="svg-ink2" font-size="10">57.5 GB &middot; GPU 0 (RTX 3080)</text>
+  <line x1="30" y1="84" x2="203" y2="84" stroke="var(--rule)"/>
+  <text x="30" y="104" class="svg-ink2" font-size="10.5">Unreal Engine 5.8</text>
+  <text x="30" y="122" class="svg-ink2" font-size="10.5">Cosys-AirSim plugin</text>
+  <text x="30" y="140" class="svg-ink2" font-size="10.5">the world (.uproject)</text>
+  <text x="30" y="158" class="svg-ink2" font-size="10.5">sensor + camera models</text>
+  <text x="30" y="176" class="svg-ink2" font-size="10.5">rigid-body physics</text>
+  <text x="30" y="204" class="svg-ink" font-size="10.5" font-weight="600">donates the namespaces</text>
+  <text x="30" y="220" class="svg-ink2" font-size="10">netns + /dev/shm, 2 GB</text>
+  <text x="30" y="248" class="svg-ink2" font-size="10" font-style="italic">hardware Vulkan, verified:</text>
+  <text x="30" y="264" class="svg-ink2" font-size="10" font-style="italic">DISCRETE_GPU, 72-78% util</text>
+  <text x="30" y="288" class="svg-ink2" font-size="10">RPC 41451 &middot; MAVLink 4560</text>
+
+  <rect x="235" y="34" width="196" height="270" rx="4" fill="var(--panel)" stroke="var(--chrome)" stroke-width="1.6"/>
+  <text x="333" y="58" text-anchor="middle" class="svg-ink" font-size="13" font-weight="700">sim-px4</text>
+  <text x="333" y="74" text-anchor="middle" class="svg-ink2" font-size="10">466 MB &middot; the autopilot</text>
+  <line x1="251" y1="84" x2="415" y2="84" stroke="var(--rule)"/>
+  <text x="251" y="104" class="svg-ink2" font-size="10.5">PX4 v1.16.0 SITL</text>
+  <text x="251" y="122" class="svg-ink2" font-size="10.5">EKF2 estimator</text>
+  <text x="251" y="140" class="svg-ink2" font-size="10.5">uxrce_dds_client</text>
+  <text x="251" y="158" class="svg-ink2" font-size="10.5">mavlink (GCS + sim)</text>
+  <text x="251" y="186" class="svg-ink" font-size="10.5" font-weight="600">build output ONLY</text>
+  <text x="251" y="202" class="svg-ink2" font-size="10">no ROS, no source tree,</text>
+  <text x="251" y="217" class="svg-ink2" font-size="10">no NuttX toolchain</text>
+  <text x="251" y="245" class="svg-ink2" font-size="10" font-style="italic">the same firmware tree a</text>
+  <text x="251" y="260" class="svg-ink2" font-size="10" font-style="italic">real Pixhawk is flashed from</text>
+  <text x="251" y="288" class="svg-ink2" font-size="10">4560 &middot; 18570 &middot; 14540</text>
+
+  <rect x="447" y="34" width="215" height="270" rx="4" fill="var(--panel)" stroke="var(--ok)" stroke-width="1.6"/>
+  <text x="554" y="58" text-anchor="middle" class="svg-ink" font-size="13" font-weight="700">sim-ros2</text>
+  <text x="554" y="74" text-anchor="middle" class="svg-ink2" font-size="10">4.39 GB &middot; the companion</text>
+  <line x1="463" y1="84" x2="646" y2="84" stroke="var(--rule)"/>
+  <text x="463" y="104" class="svg-ink2" font-size="10.5">ROS 2 Jazzy</text>
+  <text x="463" y="122" class="svg-ink" font-size="10.5" font-weight="600">uXRCE-DDS agent :8888</text>
+  <text x="463" y="140" class="svg-ink2" font-size="10.5">px4_msgs / px4_ros_com</text>
+  <text x="463" y="158" class="svg-ink2" font-size="10.5">airsim_node (the wrapper)</text>
+  <text x="463" y="176" class="svg-ink2" font-size="10.5">control / bringup nodes</text>
+  <text x="463" y="204" class="svg-ink" font-size="10.5" font-weight="600">where /fmu/* is BORN</text>
+  <text x="463" y="220" class="svg-ink2" font-size="10">the agent creates the DDS</text>
+  <text x="463" y="235" class="svg-ink2" font-size="10">participants; PX4 never does</text>
+  <text x="463" y="263" class="svg-ink2" font-size="10" font-style="italic">your autonomy attaches HERE,</text>
+  <text x="463" y="278" class="svg-ink2" font-size="10" font-style="italic">from outside &mdash; scripts/attach.sh</text>
+
+  <rect x="678" y="34" width="208" height="270" rx="4" fill="var(--panel)" stroke="var(--ground)" stroke-width="1.6"/>
+  <text x="782" y="58" text-anchor="middle" class="svg-ink" font-size="13" font-weight="700">sim-qgc</text>
+  <text x="782" y="74" text-anchor="middle" class="svg-ink2" font-size="10">1.43 GB &middot; ground station</text>
+  <line x1="694" y1="84" x2="870" y2="84" stroke="var(--rule)"/>
+  <text x="694" y="104" class="svg-ink2" font-size="10.5">QGroundControl 5.0.8</text>
+  <text x="694" y="122" class="svg-ink2" font-size="10.5">Xvfb (headless X)</text>
+  <text x="694" y="140" class="svg-ink2" font-size="10.5">openbox, Qt xcb libs</text>
+  <text x="694" y="168" class="svg-ink" font-size="10.5" font-weight="600">LOAD-BEARING</text>
+  <text x="694" y="184" class="svg-ink2" font-size="10">PX4 will not arm without a</text>
+  <text x="694" y="199" class="svg-ink2" font-size="10">datalink. NAV_DLL_ACT is</text>
+  <text x="694" y="214" class="svg-ink2" font-size="10">enforced on purpose.</text>
+  <text x="694" y="242" class="svg-ink2" font-size="10" font-style="italic">a real Pixhawk refuses too,</text>
+  <text x="694" y="257" class="svg-ink2" font-size="10" font-style="italic">so relaxing it would hide a</text>
+  <text x="694" y="272" class="svg-ink2" font-size="10" font-style="italic">real-flight failure</text>
+</svg>
+<figcaption>None of these images derives from another any more &mdash; each builds from <code>ubuntu:24.04</code>, or the Epic engine image for the renderer.</figcaption>
+</figure>
+
+<h2 id="flow"><span class="secnum">03</span> Where the data flows</h2>
+
+<figure>
+<svg viewBox="0 0 900 400" role="img" aria-label="Data flow. The renderer exchanges sensor and actuator data with PX4 over MAVLink on TCP 4560. PX4's uxrce_dds_client sends uORB messages to the agent in sim-ros2 on UDP 8888, and the agent creates the slash-fmu DDS topics. The AirSim ROS 2 wrapper reads imagery and lidar from the renderer over RPC 41451 and publishes them as ROS 2 topics. QGroundControl exchanges MAVLink with PX4 on UDP 18570 as the ground-station datalink. Your autonomy code subscribes to the ROS 2 graph and publishes setpoints to slash-fmu-slash-in.">
+  <defs>
+    <marker id="f1" markerWidth="10" markerHeight="10" refX="9" refY="3.2" orient="auto"><path d="M0,0 L9,3.2 L0,6.4 z" fill="var(--air)"/></marker>
+    <marker id="f2" markerWidth="10" markerHeight="10" refX="9" refY="3.2" orient="auto"><path d="M0,0 L9,3.2 L0,6.4 z" fill="var(--ok)"/></marker>
+    <marker id="f3" markerWidth="10" markerHeight="10" refX="9" refY="3.2" orient="auto"><path d="M0,0 L9,3.2 L0,6.4 z" fill="var(--ground)"/></marker>
+    <marker id="f4" markerWidth="10" markerHeight="10" refX="9" refY="3.2" orient="auto"><path d="M0,0 L9,3.2 L0,6.4 z" fill="var(--space)"/></marker>
+  </defs>
+
+  <rect x="20" y="150" width="150" height="70" rx="4" fill="var(--panel2)" stroke="var(--space)" stroke-width="1.6"/>
+  <text x="95" y="180" text-anchor="middle" class="svg-ink" font-size="12" font-weight="700">sim-unreal</text>
+  <text x="95" y="198" text-anchor="middle" class="svg-ink2" font-size="10">world &middot; sensors &middot; physics</text>
+
+  <rect x="330" y="150" width="140" height="70" rx="4" fill="var(--panel2)" stroke="var(--chrome)" stroke-width="1.6"/>
+  <text x="400" y="180" text-anchor="middle" class="svg-ink" font-size="12" font-weight="700">sim-px4</text>
+  <text x="400" y="198" text-anchor="middle" class="svg-ink2" font-size="10">EKF2 &middot; control loops</text>
+
+  <rect x="630" y="150" width="165" height="70" rx="4" fill="var(--panel2)" stroke="var(--ok)" stroke-width="1.6"/>
+  <text x="712" y="176" text-anchor="middle" class="svg-ink" font-size="12" font-weight="700">sim-ros2</text>
+  <text x="712" y="193" text-anchor="middle" class="svg-ink2" font-size="10">agent + wrapper</text>
+  <text x="712" y="209" text-anchor="middle" class="svg-ink2" font-size="10">the ROS 2 graph</text>
+
+  <rect x="330" y="322" width="140" height="58" rx="4" fill="var(--panel2)" stroke="var(--ground)" stroke-width="1.6"/>
+  <text x="400" y="346" text-anchor="middle" class="svg-ink" font-size="12" font-weight="700">sim-qgc</text>
+  <text x="400" y="363" text-anchor="middle" class="svg-ink2" font-size="10">ground station</text>
+
+  <rect x="630" y="26" width="165" height="62" rx="4" fill="none" stroke="var(--ok)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="712" y="50" text-anchor="middle" class="svg-ink" font-size="12" font-weight="700">YOUR autonomy</text>
+  <text x="712" y="68" text-anchor="middle" class="svg-ink2" font-size="10">your image, attached</text>
+
+  <!-- physics link -->
+  <line x1="172" y1="172" x2="326" y2="172" stroke="var(--air)" stroke-width="1.8" marker-end="url(#f1)"/>
+  <line x1="326" y1="198" x2="172" y2="198" stroke="var(--air)" stroke-width="1.8" marker-end="url(#f1)"/>
+  <text x="249" y="164" text-anchor="middle" class="svg-ink" font-size="10.5" font-weight="600">MAVLink &middot; TCP 4560</text>
+  <text x="249" y="188" text-anchor="middle" class="svg-ink2" font-size="9.5">sensors, GPS, IMU &rarr;</text>
+  <text x="249" y="214" text-anchor="middle" class="svg-ink2" font-size="9.5">&larr; motor commands</text>
+
+  <!-- uxrce -->
+  <line x1="472" y1="172" x2="626" y2="172" stroke="var(--ok)" stroke-width="1.8" marker-end="url(#f2)"/>
+  <line x1="626" y1="198" x2="472" y2="198" stroke="var(--ok)" stroke-width="1.8" marker-end="url(#f2)"/>
+  <text x="549" y="164" text-anchor="middle" class="svg-ink" font-size="10.5" font-weight="600">uXRCE-DDS &middot; UDP 8888</text>
+  <text x="549" y="188" text-anchor="middle" class="svg-ink2" font-size="9.5">uORB &rarr; /fmu/out (24 topics)</text>
+  <text x="549" y="214" text-anchor="middle" class="svg-ink2" font-size="9.5">&larr; /fmu/in setpoints</text>
+
+  <!-- rpc: renderer to wrapper -->
+  <path d="M95,148 L95,100 L712,100 L712,146" fill="none" stroke="var(--space)" stroke-width="1.7" marker-end="url(#f4)"/>
+  <text x="400" y="93" text-anchor="middle" class="svg-ink" font-size="10.5" font-weight="600">AirSim RPC &middot; 41451 &mdash; imagery, LiDAR, ground truth</text>
+  <text x="400" y="118" text-anchor="middle" class="svg-ink2" font-size="9.5">simGetImages, simGetCollisionInfo &mdash; SIMULATOR concerns, never control</text>
+
+  <!-- qgc datalink -->
+  <line x1="400" y1="318" x2="400" y2="226" stroke="var(--ground)" stroke-width="1.8" marker-end="url(#f3)"/>
+  <text x="412" y="270" class="svg-ink" font-size="10.5" font-weight="600">MAVLink &middot; UDP 18570</text>
+  <text x="412" y="288" class="svg-ink2" font-size="9.5">GCS datalink &mdash; required to ARM</text>
+
+  <!-- autonomy -->
+  <line x1="712" y1="146" x2="712" y2="92" stroke="var(--ok)" stroke-width="1.8" marker-end="url(#f2)"/>
+  <text x="806" y="122" text-anchor="middle" class="svg-ink2" font-size="9.5">ROS 2 topics</text>
+  <text x="806" y="138" text-anchor="middle" class="svg-ink2" font-size="9.5">both directions</text>
+
+  <text x="20" y="258" class="svg-ink" font-size="11" font-weight="700">THREE transports, ONE control interface</text>
+  <text x="20" y="277" class="svg-ink2" font-size="10.5">ROS 2 (green) is how you fly it. MAVLink to the renderer (blue) is physics. MAVLink to QGC (amber) is</text>
+  <text x="20" y="293" class="svg-ink2" font-size="10.5">the datalink PX4 demands before it will arm. RPC (purple) is for simulator concerns only.</text>
+</svg>
+<figcaption>The green path is the only control interface. The others are load-bearing but are not how the aircraft is commanded.</figcaption>
+</figure>
+
+<div class="grid g3">
+  <div class="stat ok"><div class="k">ROS 2 topics</div><div class="v">53</div><div class="n">51 <code>/fmu/*</code> &middot; 24 are <code>/fmu/out</code></div></div>
+  <div class="stat"><div class="k">imagery</div><div class="v">20 Hz</div><div class="n">RGB + depth, capped in the launch file</div></div>
+  <div class="stat"><div class="k">GPU LiDAR</div><div class="v">10 Hz</div><div class="n">measured at 100% of the ceiling</div></div>
+</div>
+
+<h2 id="ns"><span class="secnum">04</span> The namespace trick that makes it work</h2>
+
+<p>Every container shares <strong>one</strong> network namespace and <strong>one</strong>
+<code>/dev/shm</code>, donated by the renderer (<code>--ipc shareable</code>, 2 GB). That is why
+<code>127.0.0.1</code> means the same thing to PX4, the agent and the renderer &mdash; PX4 dials
+loopback for both the agent and the simulator and reaches two different containers.</p>
+
+<div class="callout stop"><span class="lbl">Sharing the network namespace ALONE is worse than sharing nothing</span>
+<p>Fast-DDS <em>discovers</em> over UDP but <em>delivers</em> over shared memory when it believes
+the peer is same-host. Share the netns without <code>/dev/shm</code> and you get a full topic
+list and total silence. Measured, same subscriber, three ways:</p>
+<pre>no namespaces shared        51 topics   3 messages   OK
+--network only              51 topics   0 messages   BROKEN
+--network + --ipc           51 topics   3 messages   OK</pre>
+<p>Share both, or share neither. <code>scripts/attach.sh</code> shares both so the trap is
+unreachable.</p></div>
+
+<h2 id="reach"><span class="secnum">05</span> Reaching it from another machine</h2>
+
+<p>By default nothing is published and the graph is reachable only from this host. Which switch you
+need is decided by one question: <strong>does the path carry UDP multicast?</strong></p>
+
+<div class="tw"><table>
+  <thead><tr><th>Path</th><th>Switch</th><th>Peer gets</th></tr></thead>
+  <tbody>
+    <tr><td>Same machine</td><td><em>(default)</em> <code>NET_MODE=shared</code></td><td>nothing published</td></tr>
+    <tr><td>LAN with multicast</td><td><code>NET_MODE=host</code></td><td>the whole graph, no DDS config</td></tr>
+    <tr><td>VPN / routed &mdash; no multicast</td><td><code>+ DISCOVERY_SERVER=&lt;ip&gt;:&lt;port&gt;</code></td><td>the whole graph over unicast</td></tr>
+  </tbody>
+</table></div>
+
+<p>Verified from a second host on the overlay &mdash; no shared namespaces, no multicast &mdash;
+each run paired with the same probe <em>without</em> the server:</p>
+
+<pre>                     with discovery server      control: multicast only
+topics visible       total=53  fmu=51  (x3)     total=2  fmu=0  (x3)
+/fmu/out delivery    pos=1936  imu=1936         pos=0    imu=0</pre>
+
+<div class="callout warn"><span class="lbl">Three things that look broken and are not</span>
+<p><code>ros2 node list</code> returns <strong>0</strong> for <code>/fmu/*</code> in every mode
+&mdash; the agent creates raw DDS participants with no ROS 2 node metadata. Topics and data are
+fine.</p>
+<p><code>/fmu/out/*</code> is <strong>BEST_EFFORT + TRANSIENT_LOCAL</strong>. A default RELIABLE
+subscription matches nothing and reads as silence on a healthy stack.</p>
+<p>Frames are <strong>NWU, not ENU</strong>, and spawn <code>Z</code> is <strong>NED</strong> &mdash;
+negative is up.</p></div>
+
+<footer>
+  <span>drone-sim · architecture</span>
+  <span>measured 2026-08-07 · SITL only</span>
+  <span><a href="quickstart.html">Quickstart &rarr;</a></span>
+</footer>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
