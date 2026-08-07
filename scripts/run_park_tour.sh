@@ -103,6 +103,9 @@ sleep 25
 log "starting the collision witness"
 docker cp "$REPO/scripts/watch_collisions.py"  "sim-ros2:/tmp/watch_collisions.py" >/dev/null
 docker cp "$REPO/scripts/airsim_rpc_client.py" "sim-ros2:/tmp/airsim_rpc_client.py" >/dev/null
+# Clear any previous run's file first: `docker exec -d` succeeds whenever the container exists,
+# even when the command cannot run at all, so a stale file would be read as this run's verdict.
+docker exec sim-ros2 rm -f /tmp/collisions.json >/dev/null 2>&1 || true
 docker exec -d sim-ros2 bash -lc \
   "cd /tmp && python3 /tmp/watch_collisions.py --out /tmp/collisions.json > /tmp/collisions.log 2>&1"
 
@@ -166,13 +169,19 @@ fi
 # recorded a sustained scrape against TemplateCube_Rounded_7. A harness that records a crash
 # beside a PASS does not merely miss the failure, it launders it -- so the verdict is overridden
 # here and MISSION_RC is forced non-zero.
-COLLIDED=0
+# ABSENT OR UNREADABLE IS NOT ZERO. Defaulting a missing witness to "no collisions" makes an
+# unobserved run indistinguishable from a clean one -- the same defect this change exists to
+# remove, one level up. -1 means unknown and fails, exactly as run_gate.py scores it.
+COLLIDED=-1
 if [ -f "$RUN/collisions.json" ]; then
   COLLIDED=$(python3 -c "
-import json,sys
-try: print(json.load(open('$RUN/collisions.json')).get('collision_count',0))
-except Exception: print(0)" 2>/dev/null || echo 0)
+import json
+try:
+    print(int(json.load(open('$RUN/collisions.json')).get('collision_count', -1)))
+except Exception:
+    print(-1)" 2>/dev/null || echo -1)
 fi
+case "$COLLIDED" in ''|*[!0-9-]*) COLLIDED=-1 ;; esac
 
 if [ -f "$RUN/summary.json" ]; then
   python3 - "$RUN/summary.json" "${COLLIDED:-0}" <<'PY'
@@ -180,21 +189,24 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 # A collision overrides the leg scoring outright. Printing "PASS" on a line above "COLLISION"
 # is how a harness launders a crash -- the verdict has to carry it.
+# -1 is UNKNOWN, not "collided". Both fail the run, but calling an unobserved run a collision
+# is a different lie from calling it clean -- report which one actually happened.
 collided = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+tag = " (COLLISION)" if collided > 0 else (" (COLLISION STATE UNKNOWN)" if collided < 0 else "")
 if collided:
     d["ok"] = False
 if "error" in d:
     print(f"  verdict: FAILED — {d['error']}")
 elif d.get("mode") == "circle":
     print(f"  verdict: {'PASS' if d.get('ok') else 'FAIL'}"
-          f"{' (COLLISION)' if collided else ''}   "
+          f"{tag}   "
           f"radius error max {d.get('radius_error_max_m')} m / mean {d.get('radius_error_mean_m')} m   "
           f"alt error max {d.get('alt_error_max_m')} m")
     print(f"    mean speed {d.get('speed_mean_ms')} m/s over {d.get('samples')} samples, "
           f"landed={d.get('landed')}")
 else:
     print(f"  verdict: {'PASS' if d.get('ok') else 'FAIL'}"
-          f"{' (COLLISION)' if collided else ''}   "
+          f"{tag}   "
           f"worst {d.get('worst_error_m')} m   mean {d.get('mean_error_m')} m   "
           f"landed={d.get('landed')}")
     for l in d.get("legs", []):
@@ -205,7 +217,11 @@ else
   log "WARNING: no summary.json — the mission node did not complete"
 fi
 
-if [ "${COLLIDED:-0}" -gt 0 ]; then
+if [ "$COLLIDED" -lt 0 ]; then
+  log "COLLISION STATE UNKNOWN -- no readable collisions.json, so this run cannot be scored
+       clean. Treating it as FAIL; check /tmp/collisions.log inside sim-ros2."
+  MISSION_RC=1
+elif [ "$COLLIDED" -gt 0 ]; then
   python3 -c "
 import json
 d = json.load(open('$RUN/collisions.json'))

@@ -74,6 +74,13 @@ def start_collision_witness() -> bool:
     """
     here = Path(__file__).resolve().parent
     try:
+        # DELETE THE PREVIOUS SEED'S FILE FIRST. `docker exec -d` reports success whenever the
+        # container exists -- verified: it returns 0 for a command that cannot run at all. So a
+        # witness that dies on startup leaves the PRIOR seed's collisions.json in place, and a
+        # clean previous seed would mask a real collision on this one. Removing it makes absence
+        # mean "unknown", which stop_collision_witness scores as -1 and check_run fails.
+        subprocess.run(["docker", "exec", SVC, "rm", "-f", "/tmp/gate_collisions.json"],
+                       check=True, capture_output=True, timeout=30)
         for f in ("watch_collisions.py", "airsim_rpc_client.py"):
             subprocess.run(["docker", "cp", str(here / f), f"{SVC}:/tmp/{f}"],
                            check=True, capture_output=True, timeout=30)
@@ -107,7 +114,8 @@ def stop_collision_witness() -> tuple[int, str]:
         if not n:
             return 0, ""
         names = sorted({e.get("object_name", "?") for e in d.get("collisions", [])})
-        return n, f"{n} collision(s) with {', '.join(names[:3])}"
+        shown = ", ".join(names[:3]) + (f" (+{len(names) - 3} more)" if len(names) > 3 else "")
+        return n, f"{n} collision(s) with {shown}"
     except Exception as exc:
         return -1, f"collision witness unreadable: {exc}"
 
