@@ -61,70 +61,13 @@ _spec = importlib.util.spec_from_file_location("run_scenario", REPO / "scripts" 
 rs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(rs)
 
-
-SVC = "sim-ros2"
-
-
-def start_collision_witness() -> bool:
-    """Begin witnessing collisions for one run. False if it could not start.
-
-    The gate re-derives pass/fail from numbers rather than trusting `outcome`, and until this
-    existed it had no number for "did it hit anything". A seed that flew into a building scored
-    PASS on waypoint error alone and inflated the success rate -- the exact defect this gate was
-    written to avoid, in a dimension it could not see (SIM-22).
-    """
-    here = Path(__file__).resolve().parent
-    try:
-        # DELETE THE PREVIOUS SEED'S FILE FIRST. `docker exec -d` reports success whenever the
-        # container exists -- verified: it returns 0 for a command that cannot run at all. So a
-        # witness that dies on startup leaves the PRIOR seed's collisions.json in place, and a
-        # clean previous seed would mask a real collision on this one. Removing it makes absence
-        # mean "unknown", which stop_collision_witness scores as -1 and check_run fails.
-        subprocess.run(["docker", "exec", SVC, "rm", "-f", "/tmp/gate_collisions.json"],
-                       check=True, capture_output=True, timeout=30)
-        for f in ("watch_collisions.py", "airsim_rpc_client.py"):
-            subprocess.run(["docker", "cp", str(here / f), f"{SVC}:/tmp/{f}"],
-                           check=True, capture_output=True, timeout=30)
-        subprocess.run(["docker", "exec", "-d", SVC, "bash", "-lc",
-                        "cd /tmp && python3 /tmp/watch_collisions.py "
-                        "--out /tmp/gate_collisions.json > /tmp/gate_collisions.log 2>&1"],
-                       check=True, capture_output=True, timeout=30)
-        return True
-    except Exception:
-        return False
-
-
-def stop_collision_witness(save_to: Path | None = None) -> tuple[int, str]:
-    """Stop it and report (collision_count, detail). (-1, reason) if it could not be read.
-
-    A witness that cannot be read is NOT reported as zero collisions. Unknown must never be the
-    value that looks clean -- the same rule this gate already applies to non-finite waypoint
-    errors.
-    """
-    try:
-        subprocess.run(["docker", "exec", SVC, "bash", "-lc",
-                        "pkill -INT -f watch_collisions.py || true"],
-                       capture_output=True, timeout=30)
-        time.sleep(1.0)
-        p = subprocess.run(["docker", "exec", SVC, "cat", "/tmp/gate_collisions.json"],
-                           capture_output=True, text=True, timeout=30)
-        if p.returncode != 0:
-            return -1, "collisions.json unreadable"
-        d = json.loads(p.stdout)
-        # Persist the DETAIL, not just the count. The report used to keep only a number and
-        # the object names, which is enough to fail a run and not enough to act on it: the
-        # first question after "it hit something" is "how high was the something", and the
-        # impact points are the only place that answers it.
-        if save_to is not None:
-            save_to.write_text(json.dumps(d, indent=2))
-        n = int(d.get("collision_count", 0))
-        if not n:
-            return 0, ""
-        names = sorted({e.get("object_name", "?") for e in d.get("collisions", [])})
-        shown = ", ".join(names[:3]) + (f" (+{len(names) - 3} more)" if len(names) > 3 else "")
-        return n, f"{n} collision(s) with {shown}"
-    except Exception as exc:
-        return -1, f"collision witness unreadable: {exc}"
+# The witness plumbing lives in ONE place now (scripts/collision_witness.py). It used to exist
+# here in Python and again in bash inside run_park_tour.sh, and the two copies disagreed about
+# what an unreadable witness means -- this one failed the run, that one passed it.
+_cw_spec = importlib.util.spec_from_file_location(
+    "collision_witness", Path(__file__).resolve().parent / "collision_witness.py")
+cw = importlib.util.module_from_spec(_cw_spec)
+_cw_spec.loader.exec_module(cw)
 
 
 def check_run(result: dict, scenario: dict, collisions: int = 0,
@@ -348,14 +291,14 @@ def main() -> int:
             ok, why = False, void_reason
             ncol, cdetail = 0, ""      # never flew; no collision claim to make
         else:
-            witness = start_collision_witness()
+            witness = cw.start()
             try:
                 result = rs.run_flight(scenario, seed)
             except Exception as exc:                  # a crashed run is a failed run,
                 result = {"outcome": "failure",       # never an aborted gate
                           "failure_reason": f"runner raised: {exc}"}
             if witness:
-                ncol, cdetail = stop_collision_witness(
+                ncol, cdetail = cw.stop_and_score(
                     a.outdir / f"{name}-seed{seed}-collisions.json")
             else:
                 ncol, cdetail = -1, "collision witness failed to start"
