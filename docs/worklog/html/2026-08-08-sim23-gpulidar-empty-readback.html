@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-23 &mdash; A Frame That Was Never Read &mdash; 2026-08-08</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-08 &middot; SIM-23</span>
+  <nav><a href="#what">What crashed</a><a href="#tell">The tell</a><a href="#why">Why this stack</a><a href="#fix">The fix</a><a href="#proof">Proof</a><a href="#soak">Soak</a><a href="#route">Build route</a><a href="#closed">Closed</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-08 &middot; SIM-23 &middot; SITL only, nothing real was armed</span>
+  <h1>A Frame That<br>Was Never Read</h1>
+  <p class="sub">The renderer had been dying mid&#8209;flight since 2026&#8209;08&#8209;02. The crash report stated the cause outright, in one line that nobody had read closely enough: <em>into an array of size 0</em>. The out&#8209;of&#8209;bounds index is not the bug &mdash; every index in every report is a legal offset. The array is empty, because the code asked the GPU for pixels, was told the read failed, threw that answer away, and told the physics thread the frame was good.</p>
+  <div class="mastmeta"><span>Crashes explained <b>13 of 18</b></span><span>Array size <b>0</b></span><span>Days live <b>6</b></span><span>Patch <b>0006</b></span><span>Lines changed <b>~20</b></span><span>Soak <b>45/45 flights</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">Upstream, one injected empty readback</div><div class="v">dead in 20&nbsp;ms</div><div class="n">reproduced the production signature exactly</div></div>
+<div class="stat ok"><div class="k">With 0006, identical fault</div><div class="v">alive</div><div class="n">logged the size, dropped the scan, flew on</div></div>
+<div class="stat ok"><div class="k">90-minute soak, 45 consecutive flights</div><div class="v">5405 s, 0 crashes</div><div class="n">past the historical 57-minute failure point</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#what">What was actually crashing</a></li>
+  <li><a href="#tell">The tell: <em>size 0</em>, and the race that wasn't</a></li>
+  <li><a href="#why">Why this stack hits it, and cannot opt out</a></li>
+  <li><a href="#fix">The fix</a></li>
+  <li><a href="#proof">Proving it, because waiting is not evidence</a></li>
+  <li><a href="#soak">The 90-minute soak, and what it does not prove</a></li>
+  <li><a href="#route">The fix did not ship &mdash; and neither had 0005</a></li>
+  <li><a href="#closed">An investigation that had been open since 2026-08-03</a></li>
+</ol></div>
+
+<h2 id="what"><span class="secnum">01</span> What was actually crashing</h2>
+<p><code>Blocks/Saved/Crashes/</code> held 18 reports. They are not one population, and treating
+them as one is part of why this took six days to open:</p>
+<div class="tw"><table>
+<thead><tr><th>Count</th><th>Signature</th><th>Reading</th></tr></thead>
+<tbody>
+<tr><td><strong>13</strong></td><td><code>ProcessCapturedBuffers</code> &rarr; <code>Array.h:1339</code></td><td><strong>the bug</strong> &mdash; 08-02 &rarr; 08-07, still firing</td></tr>
+<tr><td>3</td><td><code>IsRunningCommandlet</code> (pid 7)</td><td>a different, editor-commandlet assertion</td></tr>
+<tr><td>2</td><td><code>VulkanRHI::VerifyVulkanResult</code></td><td>08-01 only, before the ICD symlink fix</td></tr>
+</tbody></table></div>
+<p>The thirteen are identical, and always on AirSim's physics thread &mdash; never the game thread:</p>
+<pre>FDebug::CheckVerifyFailedImpl2
+ALidarCamera::ProcessCapturedBuffers
+ALidarCamera::UpdateAsync             LidarCamera.cpp:371
+UnrealGPULidarSensor::getPointCloud   UnrealGPULidarSensor.cpp:49
+GPULidarSimple::updateOutput -&gt; World::worldUpdatorAsync</pre>
+<p>One to five a day, last at <strong>2026-08-07 23:52</strong>. This was never a today problem;
+it had simply never been opened.</p>
+
+<h2 id="tell"><span class="secnum">02</span> The tell: <em>size 0</em>, and the race that wasn't</h2>
+<div class="callout warn"><span class="lbl">The first instinct was wrong, and worth recording</span>
+<p><strong>A data race fits the stack perfectly.</strong> <code>UpdateAsync</code> runs on the
+physics thread; the buffer it reads is filled by <code>ServiceAsyncCapture</code> on the game
+thread; there is <strong>no mutex</strong> between them, only two <code>std::atomic&lt;bool&gt;</code>
+flags &mdash; which order the <em>flags</em> and say nothing about the <em>buffer</em>. A
+<code>TArray</code> reallocating under a live reader produces exactly this assertion.</p>
+<p><strong>The reported sizes killed it.</strong> A mid-loop reallocation would report varied
+nonzero sizes. All eleven distinct reports say <code>size 0</code>. The reader was handed an array
+that had never been filled at all.</p></div>
+
+<p>The indices confirm the rest. <code>2948, 3405, 8768, 18823, 32088, 42257, 52937, 57062,
+58626, 69923, 147705</code> are all legal offsets into <code>resolution&#178;</code>, so the bounds
+check that <em>is</em> there was doing its job:</p>
+<pre>if (h_pixel &gt;= 0 &amp;&amp; h_pixel &lt; resolution_ &amp;&amp; v_pixel &gt;= 0 &amp;&amp; v_pixel &lt; resolution_) {
+    FColor value_depth = async_buffer_2D_depth_[h_pixel + (v_pixel * resolution_)];</pre>
+<p>It validates the <strong>coordinates</strong> against <code>resolution_</code> &mdash; a
+<em>setting</em>. It never validates the <strong>buffer</strong>. Nothing anywhere in
+<code>LidarCamera.cpp</code> calls <code>Num()</code> or <code>IsValidIndex</code> on any of the
+three async buffers, so the size the reader assumes is inferred and never checked.</p>
+
+<p>Where the empty array comes from &mdash; <code>ServiceAsyncCapture</code>:</p>
+<pre>render_target_2D_depth-&gt;ReadPixels(async_buffer_2D_depth_);
+...
+async_capture_ready_ = true;</pre>
+<p><code>ReadPixels</code> is not <code>void</code>:</p>
+<pre>ENGINE_API virtual bool ReadPixels(TArray&lt;FColor&gt;&amp; OutImageData, ...)
+  -- Engine/Source/Runtime/Engine/Public/UnrealClient.h:113</pre>
+<p>It returns <code>false</code> and leaves the destination <strong>empty</strong> when the readback
+does not complete. Upstream discards that bool and publishes readiness unconditionally.</p>
+
+<figure>
+<svg viewBox="0 0 760 300" role="img" aria-label="Comparison of two paths after a failed GPU readback. In both, ReadPixels returns false and leaves the depth buffer empty. Upstream then sets the ready flag to true unchecked, the physics thread indexes element 42257 of a zero-length array, and the renderer dies. With patch 0006, the buffer length is checked against resolution squared, the ready flag is set false, a warning naming the size is logged, the scan is dropped, and the renderer stays alive.">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e5484d"/>
+    </marker>
+    <marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#30a46c"/>
+    </marker>
+  </defs>
+
+  <text x="16" y="20" font-size="12" font-weight="700" fill="currentColor">Shared cause</text>
+  <rect x="16" y="30" width="180" height="54" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="106" y="52" font-size="12" text-anchor="middle" fill="currentColor">ReadPixels &#8594; false</text>
+  <text x="106" y="70" font-size="11.5" text-anchor="middle" fill="#e5484d" font-weight="700">buffer left EMPTY</text>
+
+  <path d="M 106 84 L 106 122" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#ar)"/>
+  <path d="M 106 84 L 106 232" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#ar)"/>
+
+  <text x="230" y="118" font-size="11" font-weight="700" fill="#e5484d">UPSTREAM</text>
+  <rect x="230" y="126" width="150" height="48" rx="5" fill="none" stroke="#e5484d" stroke-width="1.5"/>
+  <text x="305" y="145" font-size="11.5" text-anchor="middle" fill="currentColor">ready = true</text>
+  <text x="305" y="162" font-size="11" text-anchor="middle" fill="#e5484d">unchecked</text>
+  <path d="M 380 150 L 424 150" stroke="#e5484d" stroke-width="1.5" marker-end="url(#arR)"/>
+  <rect x="428" y="126" width="150" height="48" rx="5" fill="none" stroke="#e5484d" stroke-width="1.5"/>
+  <text x="503" y="145" font-size="11.5" text-anchor="middle" fill="currentColor">index 42257</text>
+  <text x="503" y="162" font-size="11" text-anchor="middle" fill="currentColor">into size 0</text>
+  <path d="M 578 150 L 622 150" stroke="#e5484d" stroke-width="1.5" marker-end="url(#arR)"/>
+  <rect x="626" y="126" width="118" height="48" rx="5" fill="#e5484d" stroke="#e5484d" stroke-width="1.5"/>
+  <text x="685" y="155" font-size="12" text-anchor="middle" fill="#fff" font-weight="700">RENDERER DIES</text>
+
+  <text x="230" y="228" font-size="11" font-weight="700" fill="#30a46c">WITH 0006</text>
+  <rect x="230" y="236" width="150" height="48" rx="5" fill="none" stroke="#30a46c" stroke-width="1.5"/>
+  <text x="305" y="255" font-size="11.5" text-anchor="middle" fill="currentColor">Num() &#8805; res&#178; ?</text>
+  <text x="305" y="272" font-size="11" text-anchor="middle" fill="#30a46c">no &#8594; ready = false</text>
+  <path d="M 380 260 L 424 260" stroke="#30a46c" stroke-width="1.5" marker-end="url(#arG)"/>
+  <rect x="428" y="236" width="150" height="48" rx="5" fill="none" stroke="#30a46c" stroke-width="1.5"/>
+  <text x="503" y="255" font-size="11.5" text-anchor="middle" fill="currentColor">warn: depth 0 px</text>
+  <text x="503" y="272" font-size="11" text-anchor="middle" fill="currentColor">scan dropped</text>
+  <path d="M 578 260 L 622 260" stroke="#30a46c" stroke-width="1.5" marker-end="url(#arG)"/>
+  <rect x="626" y="236" width="118" height="48" rx="5" fill="#30a46c" stroke="#30a46c" stroke-width="1.5"/>
+  <text x="685" y="265" font-size="12" text-anchor="middle" fill="#fff" font-weight="700">RENDERER ALIVE</text>
+</svg>
+<figcaption>The same failed readback, two outcomes. The divergence is one check: whether the
+buffer's real length is compared against the length the reader is about to assume.</figcaption>
+</figure>
+
+<h2 id="why"><span class="secnum">03</span> Why this stack hits it, and cannot opt out</h2>
+<p><code>async_capture_mode</code> is <strong>not a setting</strong>.
+<code>GPULidarSimpleParams.hpp:62</code> assigns it <em>before</em> the JSON is parsed:</p>
+<pre>async_capture_mode = (simmode_name == AirSimSettings::kSimModeTypeMultirotor);</pre>
+<p>There is no <code>"AsyncCaptureMode"</code> key anywhere in the parser. It is hardcoded on for
+every multirotor and <strong>cannot be turned off from <code>settings.json</code></strong> &mdash;
+so "disable the async path" was never available as a workaround.</p>
+<p>Disabling the sensor was rejected too: <code>sim/ue5/settings.json</code> records GPU&#8209;LiDAR
+as <em>"a large part of why this stack replaced Isaac Sim"</em>. Removing a feature to dodge its
+bug is not a fix.</p>
+<p>Upstream does have a warm-up guard &mdash; <code>do_capture = waited_frames_ &gt;= wait_frames_</code>
+&mdash; a fixed frame count standing in for <em>"is the readback working yet"</em>. A fixed count is
+a guess, and this box shares one RTX 3080 between the renderer, the LiDAR capture and the video
+witness.</p>
+
+<h2 id="fix"><span class="secnum">04</span> The fix</h2>
+<p><code>patches/cosys-airsim/0006-gpulidar-empty-readback.patch</code>, two changes:</p>
+<ol>
+<li><strong><code>ServiceAsyncCapture</code></strong> &mdash; <code>capture_ok</code> is the AND of
+every <code>ReadPixels</code> that ran and the resulting <code>Num()</code>.
+<code>async_capture_ready_</code> takes that value instead of <code>true</code>. A frame that could
+not be read is a frame to drop, not to publish.</li>
+<li><strong><code>ProcessCapturedBuffers</code></strong> &mdash; refuse to enter the loop unless each
+buffer the loop will actually index holds <code>resolution&#178;</code> pixels: depth always,
+intensity and segmentation behind their <code>generate_</code> flags, matching the three index sites
+exactly.</li>
+</ol>
+<p>(1) is the bug. (2) is defence in depth, so any future path that gets readiness wrong costs a
+dropped scan rather than the process. The drop logs at <strong>Warning</strong>, naming the actual
+size, because that size is the diagnosis.</p>
+<div class="callout"><span class="lbl">Deliberately not changed</span>
+<p>The <code>FReadSurfaceDataFlags</code> built for the segmentation readback is configured with
+<code>SetLinearToGamma(false)</code> and then <strong>never passed to <code>ReadPixels</code></strong>,
+so segmentation is read with default flags. A real upstream bug &mdash; but fixing it changes
+segmentation pixel values, which is a behaviour change and not this crash.</p></div>
+
+<h2 id="proof"><span class="secnum">05</span> Proving it, because waiting is not evidence</h2>
+<p>"It did not crash" is weak evidence for a fault that fires one to five times a day. The first
+run showed it: a full park tour passed, with the LiDAR provably live
+(<code>getGPULidarData &rarr; 8192 points</code>, exactly 512 &times; 16) &mdash; and
+<strong>zero readback warnings</strong>. The fault simply did not occur. That run proved the patch
+broke nothing, and nothing more.</p>
+<p>So the fault was injected: one <code>async_buffer_2D_depth_.Empty()</code> on the 100th capture,
+emulating precisely what a failed <code>ReadPixels</code> leaves behind &mdash; built
+<strong>both ways</strong>, same injection, same world, same bring-up.</p>
+<div class="tw"><table>
+<thead><tr><th>Build</th><th>Fault fired</th><th>Response</th><th>Renderer</th><th>New crash dir</th></tr></thead>
+<tbody>
+<tr><td><strong>B</strong> &mdash; upstream + fault</td><td>yes</td><td><code>Array index out of bounds: 260098 into an array of size 0</code></td><td><strong>dead in 20 ms</strong></td><td>+1</td></tr>
+<tr><td><strong>A</strong> &mdash; 0006 + fault</td><td>yes</td><td><code>GPU-LiDAR readback incomplete (depth 0 px, need 262144), dropping frame</code></td><td><strong>alive at 59 s</strong></td><td>0</td></tr>
+</tbody></table></div>
+<p>Variant B reproduced the production signature exactly &mdash; same assertion, same file and line,
+same <code>array of size 0</code>. Variant A logged the size and flew on. <code>need 262144</code>
+is 512&#178;, so the guard caught the size-0 case on the buffer the reader was about to index.</p>
+<p>Each build was checked for both markers before running &mdash; <code>FAULTINJECT</code>
+present/absent, <code>readback incomplete</code> present/absent &mdash; because a build that
+silently did not take the change would look identical from outside. The fault-injected crash report
+was then <strong>deleted</strong>: <code>Saved/Crashes/</code> is evidence, and a synthetic crash left
+in it would poison the next person's count.</p>
+
+
+<h2 id="soak"><span class="secnum">06</span> The 90-minute soak, and what it does not prove</h2>
+<p>Fault injection proves the fix <em>handles</em> the condition. It does not prove the condition
+stopped being fatal in the wild, so the last step was time under load.</p>
+<div class="callout stop"><span class="lbl">The existing soak had been pointed at the wrong path</span>
+<p><code>soak_full_stack.sh</code> was written for this exact crash &mdash; and its only load arm was
+<code>simGetImages</code> with <code>compress=true</code>, which never touches
+<code>ProcessCapturedBuffers</code>. That is why its 74,253-call survival on 2026-08-03 read as
+evidence <em>against</em> the hypothesis: the arm could not have reproduced the fault it was built
+to reproduce.</p></div>
+<p>Three things were fixed rather than writing a new harness. <strong><code>_soak_gpulidar.py</code></strong>
+drives the path the crash is actually on. <strong>A drop counter</strong> was added to the sampling
+loop, because with 0006 an empty readback is survivable and "the simulator is still up" no longer
+separates <em>the fault never happened</em> from <em>the fault happened and was handled</em> &mdash;
+the precise way the earlier arm was misread. And <strong>the vehicle had been parked</strong>, which
+was wrong: all 13 crashes happened during flights, and a static scene is plausibly cheaper on the
+readback path, so a continuous park-tour loop was added against the live stack.</p>
+<div class="tw"><table>
+<thead><tr><th>Measure</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Simulator</td><td><strong>survived 5405 s</strong></td></tr>
+<tr><td>Flights</td><td><strong>45/45</strong>, every leg ok, all landed</td></tr>
+<tr><td>Worst error</td><td>max 1.996 m &middot; median 1.448 m &middot; min 1.339 m &mdash; <strong>0 over the 2.0 m tolerance</strong></td></tr>
+<tr><td>GPU-LiDAR calls</td><td>4,991,456 &mdash; 0 errors, 0 short clouds</td></tr>
+<tr><td><code>readback incomplete</code></td><td><strong>0</strong></td></tr>
+<tr><td>Assertions / new crash dirs</td><td><strong>0</strong> / 18 against a baseline of 18</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="lbl">Read this as absence evidence, because that is what it is</span>
+<p>45 consecutive flights and 90 minutes past the historical ~57-minute failure point, on a stack
+that was producing one to five of these a day, is real evidence the crash is gone. It is
+<strong>not</strong> evidence of the fix catching a spontaneous fault &mdash; none occurred. That
+remains proven only by injection.</p>
+<p>And one honest limit in the arm: <code>stale: 4,937,495</code> of 4,991,456 samples. Polling
+<code>getGPULidarData</code> returns the <em>cached</em> cloud rather than forcing a new readback, so
+the arm added RPC and GPU contention but never raised the readback rate above the sensor's own
+10&nbsp;Hz. Realistic load over time, not accelerated load.</p></div>
+
+<h2 id="route"><span class="secnum">07</span> The fix did not ship &mdash; and neither had 0005</h2>
+<p>Patching Blocks by hand fixes one machine. Quickstart 0.2 builds the plugin with upstream's
+<code>build.sh</code> from <strong>pristine</strong> vendor source, and nothing in the repo then
+applies <code>patches/cosys-airsim/*</code> to it. <code>convert_world.sh</code> does that job for a
+<em>user's</em> world and refuses, correctly, to touch anything inside this repo:</p>
+<pre>[inject] FATAL: refusing to inject into a path inside this repo: .../Environments/Blocks</pre>
+<p>So the world we actually fly, and the one the flight gate scores, was the only world that never
+received an Unreal-side patch. <code>scripts/build_blocks.sh</code> closes that, reusing
+<code>convert_world.sh</code>'s routing rule (match the diff header, never the prose), its
+three-way apply / already-applied / refuse-to-guess logic, and its timestamp-marker artifact check
+&mdash; a <code>.so</code> count cannot work here, because the plugin directory ships with one and
+the check could never fail.</p>
+<div class="callout stop"><span class="lbl">Running it proved the gap was not theoretical</span>
+<pre>applied  0005-worldpartition-streaming-source.patch
+already  0006-gpulidar-empty-readback.patch</pre>
+<p><strong>0005 was not in the Blocks plugin</strong> &mdash; five days after it landed. The vendor
+doc had flagged the risk ("not yet wired into the build &hellip; <code>inject_airsim.py</code> copies
+the <strong>built</strong> plugin from Blocks"), and it had come true quietly: every world injected
+from Blocks in that window carried an unpatched plugin. Looking for one bug's build route found
+another bug's missing one.</p></div>
+<p>That also invalidated the earlier flight, which had run on a 0006-only artifact the repo no
+longer produces. Re-flown on the shipping binary: <strong>PASS</strong>, worst 1.335 m, no
+collisions, 0 assertions, 18 crash dirs against a baseline of 18, LiDAR returning full
+8192-point clouds.</p>
+
+<h2 id="closed"><span class="secnum">08</span> An investigation that had been open since 2026-08-03</h2>
+<p><code>docs/vendor/cosys-airsim.md</code> carried a section titled <strong>"Known upstream
+instability, uncharacterised"</strong>: a segfault after 57 minutes, <code>n = 1</code>:</p>
+<pre>Array index out of bounds: 18823 into an array of size 0</pre>
+<p><strong>18823 is one of the thirteen.</strong> The report holding it is
+<code>crashinfo-Blocks-pid-1-019FC031&hellip;</code>, and it contains
+<code>ALidarCamera::ProcessCapturedBuffers</code> and <strong>no <code>RenderRequest</code> or
+<code>CompressImageArray</code> frame at all</strong>. So it was never <code>n = 1</code>, and never
+57 minutes &mdash; that was one sample of a fault firing daily.</p>
+<div class="callout"><span class="lbl">How the miss happened, and why it is worth keeping</span>
+<p>That investigation reasoned from the message <em>shape</em> &mdash; "an index bounded by
+<code>width*height</code> into an array of size 0" &mdash; to <code>RenderRequest.cpp</code> /
+<code>CompressImageArray</code>, a genuinely similar dimensions-set-but-buffer-empty defect in the
+image path. The code analysis is sound and the defect it describes is real. It was simply not the
+array that was crashing.</p>
+<p>The soak that refuted it (74,253 RPC calls, survived) could not have reproduced this one either:
+it exercised the <strong>image</strong> path, and the crash lives on the <strong>LiDAR</strong> path.</p>
+<p><strong>Two call sites in one plugin can produce the same assertion text. The stack in the
+report distinguished them the whole time.</strong></p></div>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

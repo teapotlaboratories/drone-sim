@@ -9,6 +9,18 @@
 # was connected, and the wrapper was polling Scene + DepthPlanar + GPU-LiDAR concurrently.
 # That concurrency is the part this reproduces: several consumers pulling from the render
 # path while MAVLink runs alongside it.
+#
+# 2026-08-08, SIM-23 -- WHAT THIS SOAK GOT WRONG, and what was added.
+# The crash was root-caused to ALidarCamera::ProcessCapturedBuffers: a GPU-LiDAR readback that
+# comes back EMPTY while upstream reports the frame ready. `simGetImages` never drives that
+# path, so this soak's 74,253-call survival could not have reproduced it and should not have
+# been read as evidence against the hypothesis -- the arm was pointed at the wrong path, not
+# at a wrong idea. A GPU-LiDAR arm (LIDAR_ARM=1, default on) now runs alongside the image load.
+#
+# The pass condition changed too. With patches/cosys-airsim/0006 an empty readback is survivable,
+# so "the simulator is still up" no longer distinguishes "the fault never happened" from "the
+# fault happened and was handled". The loop counts `readback incomplete` and reports it either
+# way; a soak that ends with drops > 0 and the simulator alive is the strongest result available.
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${OUT:-$REPO/out/soak}"; mkdir -p "$OUT"
@@ -36,7 +48,22 @@ docker run -d --name soak-rpc \
     --vehicle PX4 --camera front_center \
     --max-calls 2000000 --max-seconds "$MAX_SECONDS" --stats-every 25 >/dev/null
 
+# The GPU-LiDAR arm.                                                          (added SIM-23)
+# The image load above is NOT where the segfault lives. It was aimed there in 2026-08-03, this
+# soak survived 74,253 calls, and that was read as evidence against the hypothesis -- but the
+# crash is on ALidarCamera::ProcessCapturedBuffers, a path `simGetImages` never drives. Pulling
+# getGPULidarData keeps that path as hot as the sensor allows.
+if [ "${LIDAR_ARM:-1}" = "1" ]; then
+  log "adding a GPU-LiDAR load (the path the crash is actually on)"
+  docker cp "$REPO/scripts/_soak_gpulidar.py"  sim-ros2:/tmp/ >/dev/null 2>&1
+  docker cp "$REPO/scripts/airsim_rpc_client.py" sim-ros2:/tmp/ >/dev/null 2>&1
+  docker exec -d sim-ros2 bash -lc \
+    "cd /tmp && python3 /tmp/_soak_gpulidar.py --progress /tmp/soak_gpulidar.jsonl \
+       --max-seconds $MAX_SECONDS --stats-every 50 > /tmp/soak_gpulidar.log 2>&1"
+fi
+
 START=$(date +%s)
+DROPS=0
 log "soaking for up to $((MAX_SECONDS/60)) min; sampling every 60 s"
 while :; do
   NOW=$(date +%s); EL=$((NOW-START))
@@ -46,14 +73,26 @@ while :; do
     docker logs --tail 80 sim-unreal 2>&1 | grep -iE 'assertion|out of bounds|signal|fatal|EPIPE|error: 32' \
       | tail -10 | sed 's/^/    /'
     docker logs --tail 200 sim-unreal > "$OUT/fullstack.crash.log" 2>&1
-    echo "{\"died_after_s\": $EL, \"rpc_compress\": \"$RPC_COMPRESS\"}" > "$OUT/fullstack.result.json"
+    docker logs sim-unreal 2>&1 | grep -i 'readback incomplete' | tail -3 | sed 's/^/    /'
+    echo "{\"died_after_s\": $EL, \"rpc_compress\": \"$RPC_COMPRESS\", \"readback_drops\": $DROPS}" \
+      > "$OUT/fullstack.result.json"
     break
   fi
-  [ "$EL" -ge "$MAX_SECONDS" ] && { log "survived ${EL}s with no crash"; \
-    echo "{\"survived_s\": $EL, \"rpc_compress\": \"$RPC_COMPRESS\"}" > "$OUT/fullstack.result.json"; break; }
+  # The 0006 signal.                                                        (added SIM-23)
+  # An empty readback is no longer fatal, so "still running" stopped being the whole answer: the
+  # question is whether the CONDITION occurred and was survived. Without this counter, a soak
+  # that caught one would look identical to a soak that caught none -- which is exactly how the
+  # image-path arm was misread in 2026-08-03.
+  DROPS=$(docker logs sim-unreal 2>&1 | grep -c 'readback incomplete' || true)
+
+  [ "$EL" -ge "$MAX_SECONDS" ] && { log "survived ${EL}s with no crash; readback drops: $DROPS"; \
+    echo "{\"survived_s\": $EL, \"rpc_compress\": \"$RPC_COMPRESS\", \"readback_drops\": $DROPS}" \
+      > "$OUT/fullstack.result.json"; break; }
   if [ $((EL % 300)) -lt 61 ]; then
     N=$(tail -1 "$OUT/fullstack_rpc.jsonl" 2>/dev/null | python3 -c 'import json,sys;print(json.loads(sys.stdin.read() or "{}").get("n","?"))' 2>/dev/null || echo "?")
-    log "  t=$((EL/60))m  rpc_calls=$N  sim=up"
+    L=$(docker exec sim-ros2 sh -c 'tail -1 /tmp/soak_gpulidar.jsonl 2>/dev/null' 2>/dev/null \
+          | python3 -c 'import json,sys;d=json.loads(sys.stdin.read() or "{}");print(str(d.get("n","?"))+" calls/"+str(d.get("short","?"))+" short")' 2>/dev/null || echo "?")
+    log "  t=$((EL/60))m  rpc_calls=$N  lidar=$L  drops=$DROPS  sim=up"
   fi
   sleep 60
 done
