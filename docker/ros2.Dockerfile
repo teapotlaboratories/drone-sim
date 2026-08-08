@@ -183,8 +183,14 @@ RUN apt-get update \
 # "image_transport/compressed_pub does not exist. Declared types are image_transport/raw_pub",
 # which is a runtime failure a build-time apt check would not have caught -- the same shape as
 # the QGC image passing `test -x` on a binary that could not link.
+# ANCHORED, not a substring. `grep -q 'image_transport/compressed'` also matches
+# `image_transport/compressedDepth`, which is provided by a DIFFERENT package
+# (compressed_depth_image_transport) -- so the wrong package alone would satisfy a check whose
+# only job is proving this one is present. list_transports prints one bare transport name per
+# line under "Declared transports:", so an exact-line match is both available and correct.
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
-    && ros2 run image_transport list_transports 2>/dev/null | grep -q 'image_transport/compressed' \
+    && ros2 run image_transport list_transports 2>/dev/null \
+         | grep -qx 'image_transport/compressed' \
     && echo "compressed_image_transport plugin registers" \
        >> /etc/drone-sim-versions
 

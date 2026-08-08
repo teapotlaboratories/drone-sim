@@ -233,7 +233,15 @@ same link, renderer verified healthy before and after every run:
 | local, raw | 95.3 Hz | 16.75 Hz | 123.5 Mbit/s |
 | WAN, no image subscriber | 94.2 Hz | — | — |
 | **WAN, raw** | **~10 Hz** | **~0 Hz** | ~0 |
-| WAN, `/compressed` | 93.8 Hz | 16.45 Hz | 1.71 Mbit/s |
+| WAN, JPEG † | 93.8 Hz | 16.45 Hz | 1.71 Mbit/s |
+
+> † **That last row was measured with a JPEG republisher, not with the transport described
+> below.** The republisher existed only because `compressed_image_transport` was missing from
+> the image; it has since been deleted in favour of the transport, and the two were measured
+> side by side locally at matched quality — 17.85 Hz / 12.8 KB against 16.45 Hz / ~13 KB, same
+> topic name, same `sensor_msgs/CompressedImage` on the wire. So the row is expected to hold
+> for the transport and nothing suggests otherwise, but **it has not itself been re-measured
+> across the overlay.** Said plainly because everything else in this file was measured.
 
 A 640×480 `rgb8` frame is 921,600 bytes and fragments into ~768 pieces at that MTU. Essentially
 none reassemble, so a remote subscriber gets roughly **one frame per 20 seconds** — and the flood
@@ -257,7 +265,8 @@ full fidelity over shared memory, where raw is free and compression is pure loss
 subscription-driven, so raw costs a remote client nothing as long as it does not subscribe (the
 "no image subscriber" row above ran with `airsim_node` publishing raw the whole time).
 
-Quality is a parameter, not a code change. Measured on the same camera:
+Quality is a parameter, not a code change. Measured on the same camera, **on one machine** —
+these are transport costs, not link measurements:
 
 ```bash
 ros2 param set /airsim_node \
