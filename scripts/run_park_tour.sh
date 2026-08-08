@@ -149,7 +149,6 @@ log "stopping the collision witness"
 COLL_OUT=$(python3 "$REPO/scripts/collision_witness.py" stop --save "$RUN/collisions.json")
 COLL_RC=$?
 COLLIDED=$(printf '%s' "$COLL_OUT" | tail -1 | cut -f1)
-COLL_DETAIL=$(printf '%s' "$COLL_OUT" | tail -1 | cut -f2-)
 # Belt and braces: the count is display-only below, but a non-numeric value must never reach a
 # numeric test and silently take the else branch.
 case "$COLLIDED" in ''|*[!0-9-]*) COLLIDED=-1 ;; esac
@@ -190,9 +189,11 @@ fi
 # recorded a sustained scrape against TemplateCube_Rounded_7. A harness that records a crash
 # beside a PASS does not merely miss the failure, it launders it -- so the verdict is overridden
 # here and MISSION_RC is forced non-zero.
-# COLLIDED and COLL_DETAIL were set above by scripts/collision_witness.py, which owns the
-# scoring. This used to re-parse collisions.json here in bash -- a second implementation of
-# the same rule, which is exactly how the two copies came to disagree in the first place.
+# COLL_RC and COLLIDED were set above by scripts/collision_witness.py, which owns the scoring.
+# This used to re-parse collisions.json here in bash -- a second implementation of the same
+# rule, which is exactly how the two copies came to disagree in the first place. The human-
+# readable detail is not carried in a variable: the block below reads collisions.json directly,
+# so a second copy of the wording would be one more thing that can drift.
 
 if [ -f "$RUN/summary.json" ]; then
   python3 - "$RUN/summary.json" "${COLLIDED:-0}" <<'PY'
