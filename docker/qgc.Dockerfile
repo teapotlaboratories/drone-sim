@@ -77,12 +77,6 @@ RUN apt-get update \
 # The checksum is checked BEFORE extraction. A mismatch fails the build with the version
 # and both hashes, because this binary is the arming datalink — a silent swap changes
 # whether the vehicle can fly.
-# ASSERT THE BINARY LINKS. Moving this image off the PX4 base (SIM-19 slice 2) silently
-# dropped libOpenGL.so.0, libEGL.so.1 and libwayland-client.so.0 -- they had come free from a
-# base this image otherwise used nothing of. QGC then died with exit 127, "error while loading
-# shared libraries", and nothing noticed: the build passed, the stack reached "safe to fly",
-# and the failure only surfaces later as a vehicle that will not arm, because PX4 refuses
-# without a GCS datalink. A package list is a guess; ldd is the check.
 RUN curl -fL --retry 3 --retry-delay 2 -o /tmp/qgc.AppImage "$QGC_URL" \
     && actual="$(sha256sum /tmp/qgc.AppImage | cut -d" " -f1)" \
     && if [ "$actual" != "$QGC_SHA256" ]; then \
@@ -99,13 +93,35 @@ RUN curl -fL --retry 3 --retry-delay 2 -o /tmp/qgc.AppImage "$QGC_URL" \
     && test -x /opt/qgc/squashfs-root/AppRun \
     && echo "qgroundcontrol $QGC_VERSION $QGC_SHA256" >> /etc/drone-sim-versions
 
-# The binary must LINK, not merely exist. `test -x` passed throughout the outage above.
-RUN missing="$(ldd /opt/qgc/squashfs-root/usr/bin/QGroundControl 2>/dev/null \
-                 | awk '/not found/{print $1}' | sort -u | tr '\n' ' ')" \
+# ASSERT THE BINARY LINKS. Moving this image off the PX4 base (SIM-19 slice 2) silently
+# dropped libOpenGL.so.0, libEGL.so.1 and libwayland-client.so.0 -- they had come free from a
+# base this image otherwise used nothing of. QGC then died with exit 127, "error while loading
+# shared libraries", and nothing noticed: the build passed, the stack reached "safe to fly",
+# and the failure only surfaced later as a vehicle that would not arm, because PX4 refuses
+# without a GCS datalink. A package list is a guess; ldd is the check.
+#
+# THE CHECK MUST ITSELF BE UNABLE TO PASS BY ACCIDENT. An earlier version of this ran
+# `ldd <path> 2>/dev/null | awk /not found/` and failed only when that produced output -- so a
+# wrong path, or an upstream AppImage that relocates the binary, left `missing` empty and
+# printed "linkage OK". Verified: it passed on a nonexistent path AND on a text file. That is
+# the same hole as the `test -x` it replaced, which is the whole reason this RUN exists. So the
+# file must exist, ldd must succeed, and it must actually report a dynamic section first.
+RUN bin=/opt/qgc/squashfs-root/usr/bin/QGroundControl \
+    && if [ ! -f "$bin" ]; then \
+         echo "FATAL: no QGC binary at $bin -- the AppImage layout changed" >&2; exit 1; \
+       fi \
+    && if ! out="$(ldd "$bin" 2>&1)"; then \
+         echo "FATAL: ldd could not read $bin:" >&2; echo "$out" >&2; exit 1; \
+       fi \
+    && if ! echo "$out" | grep -q '=>'; then \
+         echo "FATAL: ldd reported no shared libraries for $bin -- not a dynamic executable," >&2; \
+         echo "       so this check would have proved nothing:" >&2; echo "$out" >&2; exit 1; \
+       fi \
+    && missing="$(echo "$out" | awk '/not found/{print $1}' | sort -u | tr '\n' ' ')" \
     && if [ -n "$missing" ]; then \
          echo "FATAL: QGroundControl cannot link: $missing" >&2; exit 1; \
        fi \
-    && echo "qgc linkage OK (no missing shared libraries)"
+    && echo "qgc linkage OK ($(echo "$out" | grep -c '=>') shared libraries, none missing)"
 
 # QGC REFUSES TO RUN AS ROOT — it exits with a dialog. Discovered the hard way while
 # recording the Phase 0 demo video.
