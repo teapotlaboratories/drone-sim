@@ -60,6 +60,7 @@ ARG QGC_URL=https://github.com/mavlink/qgroundcontrol/releases/download/v5.0.8/Q
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         xvfb libfuse2t64 fonts-dejavu-core openbox x11-utils \
+        libopengl0 libegl1 libwayland-client0 \
         libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
         libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
         libxcb-xkb1 libpulse0 libspeechd2 \
@@ -76,6 +77,12 @@ RUN apt-get update \
 # The checksum is checked BEFORE extraction. A mismatch fails the build with the version
 # and both hashes, because this binary is the arming datalink — a silent swap changes
 # whether the vehicle can fly.
+# ASSERT THE BINARY LINKS. Moving this image off the PX4 base (SIM-19 slice 2) silently
+# dropped libOpenGL.so.0, libEGL.so.1 and libwayland-client.so.0 -- they had come free from a
+# base this image otherwise used nothing of. QGC then died with exit 127, "error while loading
+# shared libraries", and nothing noticed: the build passed, the stack reached "safe to fly",
+# and the failure only surfaces later as a vehicle that will not arm, because PX4 refuses
+# without a GCS datalink. A package list is a guess; ldd is the check.
 RUN curl -fL --retry 3 --retry-delay 2 -o /tmp/qgc.AppImage "$QGC_URL" \
     && actual="$(sha256sum /tmp/qgc.AppImage | cut -d" " -f1)" \
     && if [ "$actual" != "$QGC_SHA256" ]; then \
@@ -91,6 +98,14 @@ RUN curl -fL --retry 3 --retry-delay 2 -o /tmp/qgc.AppImage "$QGC_URL" \
     && rm -f /tmp/qgc.AppImage \
     && test -x /opt/qgc/squashfs-root/AppRun \
     && echo "qgroundcontrol $QGC_VERSION $QGC_SHA256" >> /etc/drone-sim-versions
+
+# The binary must LINK, not merely exist. `test -x` passed throughout the outage above.
+RUN missing="$(ldd /opt/qgc/squashfs-root/usr/bin/QGroundControl 2>/dev/null \
+                 | awk '/not found/{print $1}' | sort -u | tr '\n' ' ')" \
+    && if [ -n "$missing" ]; then \
+         echo "FATAL: QGroundControl cannot link: $missing" >&2; exit 1; \
+       fi \
+    && echo "qgc linkage OK (no missing shared libraries)"
 
 # QGC REFUSES TO RUN AS ROOT — it exits with a dialog. Discovered the hard way while
 # recording the Phase 0 demo video.
