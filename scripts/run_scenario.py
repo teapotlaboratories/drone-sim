@@ -286,10 +286,12 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # same container, two behaviours -- so the fix belongs here rather than in a cleanup script.
     #
     # Best-effort by design: this is tidying, and a run that flew must not be failed over file
-    # ownership. `|| true` inside the shell keeps a chown of an absent path harmless.
-    sh(dexec("bash", "-lc",
-             f"chown -R {os.getuid()}:{os.getgid()} {bag} {result_in_container} "
-             f"{video_in_container} 2>/dev/null || true"), timeout=120)
+    # ownership. `sh()` is subprocess.run WITHOUT check=True and no caller reads the result, so a
+    # chown of a path that never appeared (an absent mp4) is already harmless -- no `|| true`
+    # needed, and therefore no shell needed. Argv, exactly like the `rm -rf` of these same three
+    # paths above: interpolating them into a shell string would undo the reason that one is argv.
+    sh(dexec("chown", "-R", f"{os.getuid()}:{os.getgid()}",
+             bag, result_in_container, video_in_container), timeout=120)
 
     # DID A VIDEO ACTUALLY APPEAR? `docker exec -d` reports success whenever the container
     # exists, even when the command cannot run -- the same trap the collision witness already
