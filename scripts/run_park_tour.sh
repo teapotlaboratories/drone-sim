@@ -137,10 +137,29 @@ MISSION_RC=${PIPESTATUS[0]}
 log "stopping the collision witness"
 # Exit code carries the verdict: 0 clean, 1 collided, 2 unknown. Scoring lives in the module,
 # so "unknown is not clean" is stated once rather than re-derived in shell.
-COLL_OUT=$(python3 "$REPO/scripts/collision_witness.py" stop --save "$RUN/collisions.json" 2>&1)
+# BRANCH ON THE EXIT CODE, not on parsed output. The exit code cannot be garbled; stdout can.
+#   0 clean · 1 collided · 2 unknown
+#
+# An earlier version of this captured stdout with 2>&1 and took `cut -f1`, so any stderr line
+# arriving first -- a docker warning, a traceback -- became the "count". With the numeric guard
+# also gone, `[ "$COLLIDED" -lt 0 ]` then errored, both branches fell through, and the run
+# scored CLEAN. That is the exact defect this whole change exists to remove, reintroduced while
+# removing it. stderr now goes to the terminal where it belongs, and the count is only ever
+# used for the message.
+COLL_OUT=$(python3 "$REPO/scripts/collision_witness.py" stop --save "$RUN/collisions.json")
 COLL_RC=$?
-COLLIDED=$(printf '%s' "$COLL_OUT" | cut -f1)
-COLL_DETAIL=$(printf '%s' "$COLL_OUT" | cut -f2-)
+COLLIDED=$(printf '%s' "$COLL_OUT" | tail -1 | cut -f1)
+COLL_DETAIL=$(printf '%s' "$COLL_OUT" | tail -1 | cut -f2-)
+# Belt and braces: the count is display-only below, but a non-numeric value must never reach a
+# numeric test and silently take the else branch.
+case "$COLLIDED" in ''|*[!0-9-]*) COLLIDED=-1 ;; esac
+# One source of truth for the verdict: the exit code. COLLIDED carries only the NUMBER, for the
+# message, and is forced to agree so the printed tag can never contradict the branch taken.
+case "$COLL_RC" in
+  0) COLLIDED=0 ;;
+  2) COLLIDED=-1 ;;
+  *) [ "$COLLIDED" -gt 0 ] 2>/dev/null || COLLIDED=1 ;;
+esac
 
 log "stopping the bag"
 docker exec sim-ros2 bash -lc 'pkill -INT -f "ros2 bag record" || true'
@@ -209,11 +228,11 @@ else
   log "WARNING: no summary.json — the mission node did not complete"
 fi
 
-if [ "$COLLIDED" -lt 0 ]; then
+if [ "$COLL_RC" -eq 2 ]; then
   log "COLLISION STATE UNKNOWN -- no readable collisions.json, so this run cannot be scored
        clean. Treating it as FAIL; check /tmp/collisions.log inside sim-ros2."
   MISSION_RC=1
-elif [ "$COLLIDED" -gt 0 ]; then
+elif [ "$COLL_RC" -ne 0 ]; then
   python3 -c "
 import json
 d = json.load(open('$RUN/collisions.json'))

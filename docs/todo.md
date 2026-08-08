@@ -183,9 +183,18 @@ did at 10 m.
 
 ### Follow-up
 
-The intermittent 92 s leg timeout seen in `SIM-22`'s park-tour runs did **not** appear here --
-ten seeds, uniform 193-195 s, no timeouts. Either it is specific to the park tour's longer
-circuit or it is rarer than 1-in-10. Still open.
+The intermittent leg timeout seen in `SIM-22`'s park-tour runs did **not** appear in the 10-seed
+gate -- uniform 193-195 s, no timeouts.
+
+**Updated 2026-08-07: it is NOT park-tour-specific.** A later single-seed gate run failed with
+`timeout in state waypoints` at 89 s, worst error 0.323 m, with **zero collisions**; the
+immediate re-run passed at 109 s. So the same failure reaches the square mission too, and the
+"specific to the longer circuit" half of the earlier guess is dead.
+
+What is known: it is not a collision, not a VOID, and not spawn-dependent (it has appeared on
+`--reuse`, which always spawns at 0,0,0). Frequency is somewhere under 1-in-10 -- ten seeds
+passed uniformly, then a single-seed run failed. Still open, and it is the one thing standing
+between this gate and a success rate anyone should quote without a caveat.
 
 `scripts/run_gate.py` is the simulator's gate: `scripts/run_scenario.py` drives
 `scripts/sim_up.sh`, and the gate keeps its scoring semantics unchanged — **VOID is distinct
