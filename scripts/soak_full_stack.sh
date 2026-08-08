@@ -55,11 +55,32 @@ docker run -d --name soak-rpc \
 # getGPULidarData keeps that path as hot as the sensor allows.
 if [ "${LIDAR_ARM:-1}" = "1" ]; then
   log "adding a GPU-LiDAR load (the path the crash is actually on)"
-  docker cp "$REPO/scripts/_soak_gpulidar.py"  sim-ros2:/tmp/ >/dev/null 2>&1
-  docker cp "$REPO/scripts/airsim_rpc_client.py" sim-ros2:/tmp/ >/dev/null 2>&1
+  for f in _soak_gpulidar.py airsim_rpc_client.py; do
+    docker cp "$REPO/scripts/$f" sim-ros2:/tmp/ >/dev/null \
+      || { log "FATAL: could not copy $f into sim-ros2"; exit 1; }
+  done
   docker exec -d sim-ros2 bash -lc \
     "cd /tmp && python3 /tmp/_soak_gpulidar.py --progress /tmp/soak_gpulidar.jsonl \
        --max-seconds $MAX_SECONDS --stats-every 50 > /tmp/soak_gpulidar.log 2>&1"
+
+  # PROVE it started. `docker exec -d` returns 0 whenever the CONTAINER exists, even when the
+  # command cannot run at all -- the same trap collision_witness.py documents. A silently absent
+  # LiDAR arm leaves this soak driving only the image path, which is EXACTLY the configuration
+  # whose result was misread in 2026-08-03. Failing loudly here is the entire point of the arm.
+  armed=""
+  for _ in $(seq 1 15); do
+    docker exec sim-ros2 test -s /tmp/soak_gpulidar.jsonl 2>/dev/null && { armed=1; break; }
+    sleep 1
+  done
+  if [ -z "$armed" ]; then
+    log "FATAL: the GPU-LiDAR arm produced no output within 15 s -- it is not running."
+    docker exec sim-ros2 sh -c 'tail -20 /tmp/soak_gpulidar.log 2>/dev/null' 2>&1 | sed 's/^/    /'
+    log "       Re-run with LIDAR_ARM=0 to soak the image path only, knowing that arm cannot"
+    log "       reproduce the ProcessCapturedBuffers crash."
+    docker rm -f soak-rpc >/dev/null 2>&1
+    exit 1
+  fi
+  log "  GPU-LiDAR arm confirmed producing samples"
 fi
 
 START=$(date +%s)
@@ -67,9 +88,23 @@ DROPS=0
 log "soaking for up to $((MAX_SECONDS/60)) min; sampling every 60 s"
 while :; do
   NOW=$(date +%s); EL=$((NOW-START))
+
+  # The 0006 signal.                                                        (added SIM-23)
+  # An empty readback is no longer fatal, so "still running" stopped being the whole answer: the
+  # question is whether the CONDITION occurred and was survived. Without this counter, a soak
+  # that caught one would look identical to a soak that caught none -- which is exactly how the
+  # image-path arm was misread in 2026-08-03.
+  #
+  # Counted BEFORE the liveness check, and deliberately so. It used to be counted after, which
+  # meant the death branch below reported a number up to 60 s stale -- or 0, straight from the
+  # initialiser, if the simulator died in the first minute. Crash-WITH-drops is the single most
+  # informative outcome this counter exists to capture, and that was the one case it got wrong.
+  # `docker logs` still works on a dead container, so there is no reason to read it late.
+  DROPS=$(docker logs sim-unreal 2>&1 | grep -c 'readback incomplete' || true)
+
   ALIVE=$(docker inspect -f '{{.State.Running}}' sim-unreal 2>/dev/null || echo missing)
   if [ "$ALIVE" != "true" ]; then
-    log "SIMULATOR DIED after ${EL}s ($((EL/60)) min)"
+    log "SIMULATOR DIED after ${EL}s ($((EL/60)) min); readback drops: $DROPS"
     docker logs --tail 80 sim-unreal 2>&1 | grep -iE 'assertion|out of bounds|signal|fatal|EPIPE|error: 32' \
       | tail -10 | sed 's/^/    /'
     docker logs --tail 200 sim-unreal > "$OUT/fullstack.crash.log" 2>&1
@@ -78,12 +113,6 @@ while :; do
       > "$OUT/fullstack.result.json"
     break
   fi
-  # The 0006 signal.                                                        (added SIM-23)
-  # An empty readback is no longer fatal, so "still running" stopped being the whole answer: the
-  # question is whether the CONDITION occurred and was survived. Without this counter, a soak
-  # that caught one would look identical to a soak that caught none -- which is exactly how the
-  # image-path arm was misread in 2026-08-03.
-  DROPS=$(docker logs sim-unreal 2>&1 | grep -c 'readback incomplete' || true)
 
   [ "$EL" -ge "$MAX_SECONDS" ] && { log "survived ${EL}s with no crash; readback drops: $DROPS"; \
     echo "{\"survived_s\": $EL, \"rpc_compress\": \"$RPC_COMPRESS\", \"readback_drops\": $DROPS}" \
