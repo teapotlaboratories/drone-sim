@@ -222,6 +222,56 @@ topics visible       total=53  fmu=51  (×3)     total=2  fmu=0  (×3)
 > including the VPN. Anyone routable can arm and command the vehicle. Use it on a trusted network
 > only, and note the same switch later points at a **real** Pixhawk.
 
+#### Imagery over that link: subscribe to `/compressed`, never to the raw topic
+
+Telemetry crosses a WAN comfortably. **Raw imagery does not cross it at all**, and it takes the
+telemetry down with it. Measured over a NetBird overlay (MTU 1280, ~27 ms RTT, discovery server),
+same link, renderer verified healthy before and after every run:
+
+| | telemetry | imagery | bandwidth |
+|---|---|---|---|
+| local, raw | 95.3 Hz | 16.75 Hz | 123.5 Mbit/s |
+| WAN, no image subscriber | 94.2 Hz | — | — |
+| **WAN, raw** | **~10 Hz** | **~0 Hz** | ~0 |
+| WAN, `/compressed` | 93.8 Hz | 16.45 Hz | 1.71 Mbit/s |
+
+A 640×480 `rgb8` frame is 921,600 bytes and fragments into ~768 pieces at that MTU. Essentially
+none reassemble, so a remote subscriber gets roughly **one frame per 20 seconds** — and the flood
+of fragments starves the small messages sharing the transport, collapsing telemetry from 94 Hz to
+~10 Hz **while delivering no pictures**. A remote client that innocently subscribes to a camera
+loses 90% of its flight data and gets nothing for it.
+
+Every camera therefore also publishes a JPEG topic, a child of the raw one:
+
+```
+/airsim_node/PX4/front_center_Scene/image              sensor_msgs/Image
+/airsim_node/PX4/front_center_Scene/image/compressed   sensor_msgs/CompressedImage
+```
+
+This is `compressed_image_transport`, which `airsim_node` advertises automatically — there is no
+bridge process and nothing to start. It is **lazy**: nothing is encoded until something
+subscribes, so the topic costs the machine that is also rendering exactly nothing when unused.
+
+**The raw topic is unchanged and still there** for local consumers — perception and rosbag want
+full fidelity over shared memory, where raw is free and compression is pure loss. DDS is
+subscription-driven, so raw costs a remote client nothing as long as it does not subscribe (the
+"no image subscriber" row above ran with `airsim_node` publishing raw the whole time).
+
+Quality is a parameter, not a code change. Measured on the same camera:
+
+```bash
+ros2 param set /airsim_node \
+  airsim_node.PX4.front_center_Scene.image.compressed.jpeg_quality 70
+```
+
+| quality | rate | frame | bandwidth |
+|---|---|---|---|
+| 95 (default) | 15.13 Hz | 32.9 KB | 4.08 Mbit/s |
+| 70 | 17.85 Hz | 12.8 KB | 1.87 Mbit/s |
+
+Raw on the same run was 900.0 KB a frame at 111.90 Mbit/s, so q70 is **70× smaller at the same
+frame rate**.
+
 ---
 
 ## 2. Configure which sensors are active, and how they are tuned
@@ -370,7 +420,54 @@ none of this.
 
 ---
 
-## 4. Commanding the drone — ROS 2 only
+## 4. The smallest complete program
+
+Everything below this section is reference. If you want **one file that connects, reads
+telemetry, receives a camera image and flies the aircraft**, it is
+[`examples/hello_drone.py`](../examples/hello_drone.py) — no imports from this repo, ~150 lines,
+copy it and change the waypoint.
+
+```bash
+./scripts/sim_up.sh
+./scripts/build_airsim_wrapper.sh            # only if you want the camera — see below
+docker cp examples/hello_drone.py sim-ros2:/tmp/
+docker exec -it sim-ros2 bash -lc \
+  'source /opt/ros/jazzy/setup.bash; source /ros2_ws/install/setup.bash; \
+   python3 /tmp/hello_drone.py'
+```
+
+Measured output, on this stack:
+
+```
+telemetry : x=+0.00 y=-0.67 z=+0.06 m  (NED, z negative is up)
+            xy_valid=True  ref_alt=123.28 m
+image     : 640x480 rgb8, 921600 bytes, frame_id=PX4/front_center_optical
+takeoff   : z=-4.55 m
+arrived   : error 0.81 m
+landed    : armed=False
+```
+
+> **It must run INSIDE `sim-ros2`.** It imports `rclpy` and `px4_msgs`, which live in that
+> container, not on the host — run it on the host and you get `ModuleNotFoundError: rclpy`.
+> The same is true of `verify_sensors.py` and `verify_nav_interface.py`.
+
+> **Camera topics only exist if `airsim_node` is running**, and `sim_up.sh` does **not** start
+> it. Without `build_airsim_wrapper.sh`, `/fmu/*` works and every `/airsim_node/*` topic is
+> simply absent. The example says so rather than hanging.
+
+**The four things that silently give you nothing**, all encoded in that file:
+
+1. **QoS.** `/fmu/out/*` is BEST_EFFORT + TRANSIENT_LOCAL, `/fmu/in/*` is BEST_EFFORT +
+   VOLATILE, and rclpy's default is RELIABLE — which matches **neither**. A default
+   subscription reads as silence on a healthy stack. Camera topics are ordinary ROS 2
+   publishers where the default *is* right: two conventions on one graph.
+2. **Offboard needs setpoints already flowing** before you request the mode, or PX4 rejects it.
+3. **`airsim_node` is separate**, as above.
+4. **Z is NED**: `-5.0` is five metres up; `+5.0` flies into the ground.
+
+---
+
+## 5. Commanding the drone — ROS 2 only
 
 Three command kinds, all confirmed by measurement
 (`scripts/verify_nav_interface.py`, 2026-08-03).
@@ -446,7 +543,7 @@ Stream setpoints **before** requesting OFFBOARD, or the mode change is rejected.
 
 ---
 
-## 5. Verify it works
+## 6. Verify it works
 
 Both scripts live in the repo, not in the image, so copy them in first — and run them
 through a **login** shell, because `docker exec` bypasses the entrypoint and a non-login
@@ -480,7 +577,7 @@ spawn look like it was ignored.
 
 ---
 
-## 6. Known limits
+## 7. Known limits
 
 - **Lockstep is dead code** in Cosys-AirSim — `"LockStep": true` is silently ineffective, so
   **every timing number here is free-running**. Never quote an RTF as deterministic.
