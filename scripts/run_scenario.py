@@ -275,6 +275,22 @@ def run_flight(scenario: dict, seed: int) -> dict:
     sh(dexec("bash", "-lc", "pkill -INT -f watch_video.py || true"), timeout=60)
     time.sleep(1.5)
 
+    # HAND THE ARTIFACTS BACK TO THE OPERATOR. sim-ros2 runs as root, so everything written
+    # through the /out bind mount -- the bag directory, its metadata, the result JSON, the mp4 --
+    # lands root-owned on the host. The operator can read it and cannot delete it: pruning old
+    # runs fails with "Permission denied" on a file they appear to own the directory of, and the
+    # only ways out are sudo on an immutable host or a throwaway container.
+    #
+    # Found while pruning out/: gate artifacts were root:root while park-tour artifacts were not,
+    # because run_park_tour.sh already does exactly this and this path never did. Same mount,
+    # same container, two behaviours -- so the fix belongs here rather than in a cleanup script.
+    #
+    # Best-effort by design: this is tidying, and a run that flew must not be failed over file
+    # ownership. `|| true` inside the shell keeps a chown of an absent path harmless.
+    sh(dexec("bash", "-lc",
+             f"chown -R {os.getuid()}:{os.getgid()} {bag} {result_in_container} "
+             f"{video_in_container} 2>/dev/null || true"), timeout=120)
+
     # DID A VIDEO ACTUALLY APPEAR? `docker exec -d` reports success whenever the container
     # exists, even when the command cannot run -- the same trap the collision witness already
     # guards against. A missing video must not FAIL the run (it is evidence, not a verdict),

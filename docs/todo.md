@@ -3064,6 +3064,43 @@ the argument for the rule having one owner rather than three.
 
 ---
 
+## `SIM-26` — gate artifacts land root-owned, so the operator cannot delete their own runs
+
+**Status:** ✅ **done** — **2026-08-08.** Found while pruning `out/`, not by anything that was
+looking for it.
+
+`sim-ros2` runs as root, so everything written through the `/out` bind mount is root-owned on the
+host. `run_park_tour.sh` has always handed ownership back:
+
+```bash
+chown -R $(id -u):$(id -g) /out/park-tour-$STAMP     # run_park_tour.sh:189
+```
+
+`run_scenario.py` — the path the **flight gate** uses — never did. So the two writers of the same
+directory, from the same container, through the same mount, behaved differently:
+
+```
+drwxr-xr-x. 2 root root   out/square-10m-seed5          <- gate
+drwxr-xr-x. 2 deck ubuntu out/park-tour-20260808T0231…  <- park tour
+```
+
+The operator can read those but not remove them. Pruning old runs fails with `Permission denied`
+partway through a `rm -rf`, leaving a half-deleted directory, and the only ways out are sudo on an
+immutable host or a throwaway container — which is how the leftover 3 GB `.mcap` from that prune
+finally had to go.
+
+Minor as a bug and worth recording as a pattern: the same rule implemented in one of two callers,
+diverging silently, is the third instance in a week — see `SIM-25`, and the collision-witness rule
+that drifted twice before it got a test.
+
+**Fix:** `run_scenario.py` chowns the bag, result JSON and mp4 back to the caller after recording
+stops, best-effort so a run that flew is never failed over file ownership.
+
+**Not fixed:** existing root-owned artifacts under `out/`. They are readable, and rewriting history
+on the evidence drive is not worth it; new runs are correct.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:
