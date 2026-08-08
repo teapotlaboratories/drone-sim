@@ -2885,6 +2885,102 @@ setpoint stream and `/fmu/out` during that 92 s are already recorded.
 
 ---
 
+## `SIM-23` — the renderer dies mid-flight on an empty GPU-LiDAR readback
+
+**Status:** ✅ **done** — **2026-08-08.** Raised by the owner ("lets chase the render issue now")
+after the renderer was seen crashing during runs.
+
+### What is wrong
+
+`vendor/Cosys-AirSim/Unreal/Environments/Blocks/Saved/Crashes/` holds 18 reports. **13 of them,
+from 2026-08-02 to 2026-08-07 and still occurring, are one bug** — always on AirSim's physics
+thread, never the game thread:
+
+```
+Assertion failed: (Index >= 0) & (Index < ArrayNum)  [Array.h] [Line: 1339]
+Array index out of bounds: 42257 into an array of size 0
+
+ALidarCamera::ProcessCapturedBuffers
+ALidarCamera::UpdateAsync             LidarCamera.cpp:371
+UnrealGPULidarSensor::getPointCloud   UnrealGPULidarSensor.cpp:49
+GPULidarSimple::updateOutput -> World::worldUpdatorAsync
+```
+
+**`into an array of size 0` is the diagnosis.** All eleven distinct recorded indices (2948 …
+147705) are legal offsets into `resolution_²`, so the `h_pixel`/`v_pixel` guard is working. The
+buffer it guards is empty.
+
+`ServiceAsyncCapture` discards the `bool` that `ReadPixels` returns
+(`UnrealClient.h:113`) and sets `async_capture_ready_ = true` unconditionally. A readback that
+failed and left the array empty is therefore advertised to the physics thread as a good frame.
+Nothing in `LidarCamera.cpp` ever calls `Num()` on these three buffers.
+
+Not a data race over the buffer: a mid-loop reallocation would report varied nonzero sizes;
+all eleven say `0`.
+
+The path is not optional. `GPULidarSimpleParams.hpp:62` sets
+`async_capture_mode = (simmode_name == kSimModeTypeMultirotor)` **before** the JSON is parsed,
+so it is hardcoded on for every multirotor and there is no settings key to disable it. Our
+`sim/ue5/settings.json` runs a multirotor with `SensorType 8` enabled.
+
+Likely the same root cause as the `rpc::timeout … getGPULidarData` failures seen during
+`SIM-20`.
+
+### The fix
+
+`patches/cosys-airsim/0006-gpulidar-empty-readback.patch` — gate `async_capture_ready_` on
+every `ReadPixels` result *and* the resulting `Num()`, and refuse to enter
+`ProcessCapturedBuffers` unless each buffer the loop will index holds `resolution_²` pixels. A
+frame that could not be read becomes a dropped scan and a `Warning` naming the size, instead of
+a dead process.
+
+### How it was verified
+
+Waiting on a 1–5-a-day fault is not evidence, so the fault was injected — one
+`async_buffer_2D_depth_.Empty()` — and built both ways:
+
+| build | response | renderer |
+|---|---|---|
+| upstream + fault | `Array index out of bounds: 260098 into an array of size 0` | **dead in 20 ms** |
+| 0006 + fault | `GPU-LiDAR readback incomplete (depth 0 px, need 262144), dropping frame` | **alive** |
+
+The unpatched arm reproduced the production signature exactly. Then a real flight on the shipping
+artifact: park tour **PASS**, worst 1.335 m, no collisions, 0 assertions, 18 crash dirs (baseline
+18), `getGPULidarData` returning full 8192-point clouds.
+
+Then a **90-minute soak** (`soak_full_stack.sh`, extended with a GPU-LiDAR arm and a continuous
+flight loop — the old harness only drove the image path, which is why its 2026-08-03 run could
+not reproduce this):
+
+```
+survived 5405 s · 45/45 flights, every leg ok, all landed
+worst 1.996 m (0 over the 2.0 m tolerance) · 4,991,456 LiDAR calls, 0 errors, 0 short
+readback drops 0 · assertions 0 · crash dirs 18 (baseline 18)
+```
+
+**This is absence evidence and is labelled as such.** 90 minutes past the historical ~57-minute
+failure point, on a stack that produced 1–5 crashes a day, is strong evidence the crash is gone —
+but no fault occurred naturally, so the fix catching one is proven *only* by injection.
+
+### It also closed an older investigation
+
+`docs/vendor/cosys-airsim.md` carried a "known upstream instability, **uncharacterised**" — a
+segfault recorded as `n = 1` after 57 minutes, with index `18823`. That index is one of these
+thirteen, and its report's stack is `ProcessCapturedBuffers`, with **no `RenderRequest` frame at
+all**. The 2026-08-03 analysis reasoned from the message *shape* to a similar defect in the image
+path and correctly refuted itself by soak — the soak exercised the wrong path. Two call sites,
+one assertion text; the stack distinguished them all along.
+
+### And it exposed a missing build route
+
+Patching Blocks by hand fixes one machine. Quickstart 0.2 builds the plugin from **pristine**
+vendor source and nothing applies `patches/cosys-airsim/*` to it; `convert_world.sh` only serves
+*user* worlds. So Blocks — the default world and the gate world — never received an Unreal-side
+patch. **`scripts/build_blocks.sh`** (new) closes it, and running it showed **0005 had also been
+missing from Blocks for five days**, exactly as that patch's own "not yet wired into the build"
+note had warned.
+
+---
 ## Not in this backlog
 
 Recorded so they are not smuggled in:

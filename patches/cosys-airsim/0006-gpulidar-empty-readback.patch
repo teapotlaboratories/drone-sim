@@ -1,0 +1,132 @@
+Do not publish a GPU-LiDAR frame whose readback produced nothing.
+
+The renderer segfaults during flight. 13 of 18 crash reports under
+Blocks/Saved/Crashes (2026-08-01 .. 2026-08-07) are the same assertion, on AirSim's
+physics thread, never on the game thread:
+
+    Assertion failed: (Index >= 0) & (Index < ArrayNum)
+      [File:Runtime/Core/Public/Containers/Array.h] [Line: 1339]
+    Array index out of bounds: 42257 into an array of size 0
+
+    FDebug::CheckVerifyFailedImpl2
+    ALidarCamera::ProcessCapturedBuffers
+    ALidarCamera::UpdateAsync             LidarCamera.cpp:371
+    UnrealGPULidarSensor::getPointCloud   UnrealGPULidarSensor.cpp:49
+    GPULidarSimple::updateOutput -> World::worldUpdatorAsync
+
+INTO AN ARRAY OF SIZE 0 is the whole diagnosis. Every recorded index (2948, 3405,
+8768, 18823, 32088, 42257, 52937, 57062, 58626, 69923, 147705) is a legal offset
+into resolution_ x resolution_, so the h_pixel/v_pixel guard is doing its job. The
+buffer it guards is simply empty.
+
+It is empty because ServiceAsyncCapture ignores what ReadPixels tells it:
+
+    ENGINE_API virtual bool ReadPixels(TArray<FColor>& OutImageData, ...)
+      -- Engine/Source/Runtime/Engine/Public/UnrealClient.h:113
+
+ReadPixels returns false and leaves the destination array EMPTY when the readback
+does not complete. Upstream discards that bool and then sets
+async_capture_ready_ = true unconditionally, so a failed capture is advertised to
+the physics thread as a good one. ProcessCapturedBuffers indexes
+async_buffer_2D_depth_[h_pixel + v_pixel * resolution_] and dies. Nothing anywhere
+in LidarCamera.cpp ever calls Num() or IsValidIndex on these three buffers -- the
+size the reader assumes is only ever inferred from a setting, never checked.
+
+This is not the game thread racing the physics thread over the buffer. A
+reallocation mid-loop would report varied nonzero sizes; all eleven distinct
+reports say size 0.
+
+Why this stack hits it and many do not: async_capture_mode is not a settings key.
+GPULidarSimpleParams.hpp:62 assigns it before the JSON is parsed --
+
+    async_capture_mode = (simmode_name == AirSimSettings::kSimModeTypeMultirotor);
+
+-- so it is hardcoded ON for every multirotor and cannot be turned off from
+settings.json. Our sim/ue5/settings.json runs a multirotor with a GPU-LiDAR
+(SensorType 8) enabled, which is the configuration this path was written for.
+The existing warm-up guard (waited_frames_ >= wait_frames_) is a fixed frame count
+standing in for "is the readback working yet", and a fixed count is a guess: this
+box shares one 3080 between the renderer, the LiDAR capture and the video witness.
+
+The fix is the check upstream skipped, in two places:
+
+  1. ServiceAsyncCapture -- capture_ok is the AND of every ReadPixels that ran and
+     the resulting Num(). async_capture_ready_ takes that value instead of true.
+     A frame we could not read is a frame to drop, not a frame to publish.
+  2. ProcessCapturedBuffers -- refuse to enter the loop unless each buffer the loop
+     will actually index (depth always, intensity and segmentation per their
+     generate_ flags, matching the reads at the three index sites) holds at least
+     resolution_^2 pixels. Returning false means "no new pointcloud this frame",
+     which the caller already handles.
+
+Both are needed. (1) is the bug; (2) makes any future path that gets readiness
+wrong cost a dropped scan instead of the process.
+
+Deliberately NOT changed: the FReadSurfaceDataFlags built for the segmentation
+readback on the line above it is constructed, configured with SetLinearToGamma(false),
+and then never passed to ReadPixels -- so segmentation is read with default flags.
+That is a real upstream bug, but fixing it changes segmentation pixel values, which
+is a behaviour change and not this crash. Recorded in docs/vendor/cosys-airsim.md.
+
+--- a/Unreal/Plugins/AirSim/Source/LidarCamera.cpp
++++ b/Unreal/Plugins/AirSim/Source/LidarCamera.cpp
+@@ -444,20 +444,36 @@
+ 		capture_2D_segmentation_->CaptureScene();
+ 		capture_2D_intensity_->CaptureScene();
+ 
++		// ReadPixels returns false and leaves the destination EMPTY when the readback does not
++		// complete. Upstream ignores that and advertises readiness anyway, so the physics thread
++		// is handed a zero-length TArray and indexes it: "Array index out of bounds: 42257 into an
++		// array of size 0". A frame we could not read is a frame to drop, not to publish.
++		const int32 expected_pixels = resolution_ * resolution_;
++
+ 		FTextureRenderTarget2DResource* render_target_2D_depth = (FTextureRenderTarget2DResource*)capture_2D_depth_->TextureTarget->GetResource();
+-		render_target_2D_depth->ReadPixels(async_buffer_2D_depth_);
+-		if (generate_groundtruth_) {
++		bool capture_ok = render_target_2D_depth->ReadPixels(async_buffer_2D_depth_)
++			&& async_buffer_2D_depth_.Num() >= expected_pixels;
++		if (capture_ok && generate_groundtruth_) {
+ 			FTextureRenderTarget2DResource* render_target_2D_segmentation = (FTextureRenderTarget2DResource*)capture_2D_segmentation_->TextureTarget->GetResource();
+ 			FReadSurfaceDataFlags flags(RCM_UNorm, CubeFace_MAX);
+ 			flags.SetLinearToGamma(false);
+-			render_target_2D_segmentation->ReadPixels(async_buffer_2D_segmentation_);
++			capture_ok = render_target_2D_segmentation->ReadPixels(async_buffer_2D_segmentation_)
++				&& async_buffer_2D_segmentation_.Num() >= expected_pixels;
+ 		}
+-		if (generate_intensity_) {
++		if (capture_ok && generate_intensity_) {
+ 			FTextureRenderTarget2DResource* render_target_2D_intensity = (FTextureRenderTarget2DResource*)capture_2D_intensity_->TextureTarget->GetResource();
+-			render_target_2D_intensity->ReadPixels(async_buffer_2D_intensity_);
++			capture_ok = render_target_2D_intensity->ReadPixels(async_buffer_2D_intensity_)
++				&& async_buffer_2D_intensity_.Num() >= expected_pixels;
+ 		}
+ 
+-		async_capture_ready_ = true;
++		if (!capture_ok) {
++			// Warning, not Verbose: this is the exact condition that used to end the process,
++			// and the reported size IS the diagnosis -- upstream crashed on size 0.
++			UE_LOG(LogTemp, Warning,
++				TEXT("GPU-LiDAR readback incomplete (depth %d px, need %d), dropping frame"),
++				async_buffer_2D_depth_.Num(), expected_pixels);
++		}
++		async_capture_ready_ = capture_ok;
+ 	}
+ 
+ 	async_capture_in_flight_ = false;
+@@ -468,6 +484,16 @@
+ {
+ 	bool refresh_pointcloud = false;
+ 
++	// Defence in depth for the same crash: the h_pixel/v_pixel guard below is checked against
++	// resolution_, a SETTING, which says nothing about how many pixels the buffer really holds.
++	// Nothing else in this file ever checks Num(), so one bad readback is an out-of-bounds read.
++	const int32 required_pixels = resolution_ * resolution_;
++	if (async_buffer_2D_depth_.Num() < required_pixels
++		|| (generate_intensity_ && async_buffer_2D_intensity_.Num() < required_pixels)
++		|| (generate_groundtruth_ && async_buffer_2D_segmentation_.Num() < required_pixels)) {
++		return false;
++	}
++
+ 	// Calculate the camera intrensic parameters
+ 	float c_x = resolution_ / 2.0f;
+ 	float c_y = resolution_ / 2.0f;

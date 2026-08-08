@@ -189,10 +189,85 @@ streaming around it completes instead of racing it — that is unsolved.
 no partition to drive. It is added to the multirotor pawn only; `CarPawn` has the same gap and is
 untouched, because nothing in this project drives a car.
 
-**Not yet wired into the build.** `inject_airsim.py` copies the **built** plugin from Blocks, so
-this patch only reaches a user world once Blocks' plugin is rebuilt with it applied. Until that
-happens the fix must be applied to the injected copy and the project rebuilt, which is how it was
-verified here. See `SIM-21`.
+**Wired into the build on 2026-08-08** (`SIM-23`). This previously read *"not yet wired into the
+build"*: `inject_airsim.py` copies the **built** plugin from Blocks, so the patch only reaches a
+user world once Blocks' plugin is rebuilt with it applied — and nothing rebuilt Blocks. It was
+verified by hand-patching the injected copy. `scripts/build_blocks.sh` now does it, and running
+it confirmed the gap was real: 0005 was **not** present in the Blocks plugin, five days after it
+landed. Every world injected from Blocks in that window carried an unpatched plugin.
+
+---
+
+## 5. `0006-gpulidar-empty-readback.patch`
+
+**Fixes the renderer crash that had been firing since 2026-08-02** — the one recorded below as
+"known upstream instability, uncharacterised". Full account:
+[`worklog/2026-08-08-sim23-gpulidar-empty-readback.md`](../worklog/2026-08-08-sim23-gpulidar-empty-readback.md).
+
+`ALidarCamera::ServiceAsyncCapture` discards the `bool` returned by
+`FRenderTarget::ReadPixels` (`UnrealClient.h:113`) and sets `async_capture_ready_ = true`
+unconditionally. `ReadPixels` returns `false` and leaves its destination **empty** when the
+readback does not complete, so a failed capture is advertised to AirSim's physics thread as a
+good frame. `ProcessCapturedBuffers` then indexes
+`async_buffer_2D_depth_[h_pixel + v_pixel * resolution_]` and the process dies:
+
+```
+Array index out of bounds: 42257 into an array of size 0
+```
+
+The `h_pixel`/`v_pixel` guard that is already there validates the **coordinates** against
+`resolution_`, a setting. Nothing in `LidarCamera.cpp` ever calls `Num()` or `IsValidIndex` on
+any of the three async buffers, so the buffer's real length is never checked.
+
+**Not a data race**, though the shape invites that reading — the buffer is filled on the game
+thread and read on the physics thread with only two `std::atomic<bool>` between them. A
+reallocation under a live reader would report varied nonzero sizes; all eleven distinct reports
+say `size 0`.
+
+**Why this stack.** `GPULidarSimpleParams.hpp:62` sets
+`async_capture_mode = (simmode_name == kSimModeTypeMultirotor)` **before** the JSON is parsed.
+There is no `"AsyncCaptureMode"` key in the parser — it is hardcoded on for every multirotor and
+cannot be disabled from `settings.json`, so "turn the async path off" was never available.
+
+**The change.** `async_capture_ready_` takes the AND of every `ReadPixels` result and the
+resulting `Num()`; and `ProcessCapturedBuffers` returns early unless each buffer it will index
+holds `resolution_²` pixels (depth always, intensity and segmentation behind their `generate_`
+flags, matching the three index sites). A frame that could not be read becomes a dropped scan and
+a `Warning` naming the size.
+
+**Verified by fault injection**, because waiting on a 1–5-a-day fault is not evidence. One
+injected `async_buffer_2D_depth_.Empty()`, built both ways:
+
+| build | response | renderer |
+|---|---|---|
+| upstream + fault | `Array index out of bounds: 260098 into an array of size 0` | **dead in 20 ms** |
+| 0006 + fault | `GPU-LiDAR readback incomplete (depth 0 px, need 262144), dropping frame` | **alive** |
+
+Then a real flight on the shipping artifact: park tour PASS, GPU-LiDAR returning full 8192-point
+clouds (512 × 16), no assertions, no new crash reports.
+
+**90-minute soak**, 2026-08-08 — `soak_full_stack.sh` with the new GPU-LiDAR arm and a continuous
+flight loop (see the arm-C note under "known upstream instability" below: the original soak only
+drove the *image* path, which is why it could not reproduce this):
+
+| | |
+|---|---|
+| survived | **5405 s** |
+| flights | **45/45**, every leg ok, all landed, worst 1.996 m (0 over tolerance) |
+| GPU-LiDAR calls | 4,991,456 — 0 errors, 0 short clouds |
+| `readback incomplete` / assertions / new crash dirs | **0 / 0 / 0** |
+
+**Absence evidence, and labelled as such.** 90 minutes past the historical ~57-minute failure
+point on a stack that produced 1–5 crashes a day is strong evidence the crash is gone; it is not
+evidence of the fix catching a spontaneous fault, because none occurred. Note also
+`stale: 4,937,495` of 4,991,456 — polling `getGPULidarData` returns the cached cloud, so the arm
+added contention but never raised the readback rate above the sensor's own 10 Hz. Realistic load
+over time, not accelerated.
+
+**Deliberately not fixed in this patch:** the `FReadSurfaceDataFlags` built for the segmentation
+readback is configured with `SetLinearToGamma(false)` and then **never passed to `ReadPixels`**,
+so segmentation is read with default flags. A real upstream bug, but correcting it changes
+segmentation pixel values — a behaviour change, not this crash.
 
 ---
 
@@ -249,7 +324,28 @@ stream). IMU messages also ship with zero covariances (`// todo covariances` ups
 
 ---
 
-## Known upstream instability, uncharacterised
+## Known upstream instability — CHARACTERISED AND FIXED, 2026-08-08
+
+> **Resolved.** This is the GPU-LiDAR empty-readback bug. It is fixed by
+> [`0006-gpulidar-empty-readback.patch`](#5-0006-gpulidar-empty-readbackpatch) above. The
+> analysis below is kept because the reasoning in it was wrong in an instructive way, and
+> because the *second* defect it identifies is real and still unfixed.
+>
+> **`18823` is the tell.** That index appears in
+> `Saved/Crashes/crashinfo-Blocks-pid-1-019FC031…`, whose stack is
+> `ALidarCamera::ProcessCapturedBuffers ← UpdateAsync ← UnrealGPULidarSensor::getPointCloud`,
+> with **no `RenderRequest` or `CompressImageArray` frame anywhere in the report**. It is one of
+> thirteen identical crashes spanning 2026-08-02 → 08-07 — so it was never `n = 1`, and it was
+> never 57 minutes; that was one sample of a fault that fired 1–5 times a day.
+>
+> **How the miss happened, and it is worth remembering.** The investigation below reasoned from
+> the *message shape* — "an index bounded by `width*height` into an array of size 0" — to a call
+> site that produces exactly that shape. The code analysis is sound and the defect it describes
+> is genuine. It was simply not the array that was crashing. Two call sites in the same plugin
+> produce the same assertion text, and **the stack in the crash report distinguished them the
+> whole time**; it was not read. The soak that refuted the hypothesis could not have reproduced
+> the real fault either: it exercised the **image** path, and the crash lives on the **LiDAR**
+> path.
 
 The simulator segfaulted after **57 minutes** of continuous running:
 
@@ -260,9 +356,10 @@ Array index out of bounds: 18823 into an array of size 0
 
 preceded by one MAVLink `hil` `TcpClientPort socket send failed with error: 32` (EPIPE).
 
-**Observed once (n = 1).** The "~57 minutes" is a single data point, not a measured period. An
-earlier version of the backlog claimed it "gets more likely with more actors" — that had
-no measurement behind it and is **withdrawn**; the crash predates any actor work.
+**Recorded at the time as observed once (n = 1)** — superseded above; it was 13 occurrences, and
+the "~57 minutes" was a single data point, not a measured period. An earlier version of the
+backlog claimed it "gets more likely with more actors" — that had no measurement behind it and
+is **withdrawn**; the crash predates any actor work.
 
 ### Source-level analysis — 2026-08-03, a candidate mechanism (not yet proven)
 

@@ -71,6 +71,18 @@ docker run --rm -v "$PWD/vendor/Cosys-AirSim:/src" drone-sim/unreal:ue5.8 \
 > compiler is the engine's bundled toolchain, so a build without it has no compatible compiler
 > at all rather than a graceful fallback.
 
+Upstream's `build.sh` compiles **pristine** vendor source. The repo's own fixes to the Unreal
+plugin live in `patches/cosys-airsim/` and are applied by a second step:
+
+```bash
+./scripts/build_blocks.sh          # apply the Unreal-side patches to Blocks, then rebuild
+```
+
+> **Do not skip this.** Without it the renderer segfaults mid-flight on an empty GPU-LiDAR
+> readback (`SIM-23`), and a vehicle in a World Partition world falls through the level forever
+> (`SIM-21`). The script is idempotent — re-run it after pulling any change under
+> `patches/cosys-airsim/`, and it does nothing when everything is already applied.
+
 ### 0.3 Check it worked before flying anything
 
 ```bash

@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>17</b></span>
-    <span>Newest <b>2026-08-04</b></span>
+    <span>Entries <b>18</b></span>
+    <span>Newest <b>2026-08-08</b></span>
   </div>
 </header>
 
@@ -114,8 +114,21 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-08-sim23-gpulidar-empty-readback.html">
+    <span class="k">2026-08-08 · SIM-23 · newest</span>
+    <h3>A Frame That Was Never Read</h3>
+    <p>The renderer had been dying mid-flight since 2026-08-02 — <strong>13 of 18 crash reports</strong>, one bug — and the report stated the cause outright in a line nobody had read closely enough: <code>into an array of size 0</code>. The out-of-bounds index is not the bug; every recorded index is a <em>legal</em> offset into <code>resolution²</code>. The array is empty, because <code>ServiceAsyncCapture</code> discards the <code>bool</code> that <code>ReadPixels</code> returns and advertises readiness anyway, handing AirSim's physics thread a zero-length <code>TArray</code>. The obvious data-race reading was <strong>refuted by the sizes</strong>: a reallocation under a live reader gives varied nonzero sizes, and all eleven say <code>0</code>. Verified by <strong>fault injection</strong>, since waiting on a daily fault is not evidence — upstream + one emptied buffer <strong>died in 20 ms</strong> with the exact production signature; with 0006 it logged the size and flew on. A <strong>90-minute soak</strong> then ran 45 consecutive flights past the historical 57-minute failure point with zero crashes — labelled as <em>absence</em> evidence, since no fault fired naturally. Chasing the build route found a second gap: <strong>0005 had never reached Blocks either</strong>, five days after it landed. Also closes the "uncharacterised" instability open since 08-03 — same bug, chased down the wrong array, by a soak that only ever drove the image path.</p>
+    <div class="tags">
+      <span class="pill p-stop">13 of 18 crashes</span>
+      <span class="pill p-stop">array of size 0</span>
+      <span class="pill p-ok">A/B: dead in 20 ms vs alive</span>
+      <span class="pill p-ok">90-min soak, 45/45 flights</span>
+      <span class="pill p-chrome">0005 missing from Blocks</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-04-one-simulator.html">
-    <span class="k">2026-08-04 · SIM-18 · newest</span>
+    <span class="k">2026-08-04 · SIM-18</span>
     <h3>Three Stacks Become One</h3>
     <p>The repo carried three parallel simulator stacks and now carries one. The cleanup was the easy half; the useful half is what the move exposed. Renaming the derived-data-cache volume produced the <em>first genuinely cold start this stack has ever had</em> — and it failed: the renderer needed <strong>199 s</strong> to compile shaders against a <strong>120 s</strong> wait budget, so the bring-up declared a healthy stack dead 80 s before it came up. That is precisely the fresh-machine case the reproducibility goal exists for. Separately, the check written to replace <code>docker compose config</code> failed on its first run and was right: the <strong>57.5 GB Unreal image had been built and flown for three days with no entry in <code>versions.lock</code></strong>. Gazebo out of the PX4 image is <strong>11.6 → 11.0 GB</strong> — a smaller win than the argument implied, recorded as such.</p>
     <div class="tags">
