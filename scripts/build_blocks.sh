@@ -45,7 +45,7 @@ die()  { printf '%s[blocks] FATAL:%s %s\n' "$R" "$X" "$*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -83,9 +83,27 @@ done
 [ "$applied" -gt 0 ] || [ "$already" -gt 0 ] \
   || warn "no Unreal-side patches found under patches/cosys-airsim/ -- nothing to apply"
 
+SO="$PLUGIN/Binaries/Linux/libUnrealEditor-AirSim.so"
+
+# "Already applied" is a statement about SOURCE, and the thing that flies is the BINARY. Skipping
+# the build on source state alone was wrong: if a previous run patched and then the compile
+# failed, a re-run would report "nothing to rebuild" and exit 0 with patched source and an
+# UNPATCHED .so -- the silent-skip failure this script's header is about, reproduced by the
+# script itself. So the skip now has to be earned by the artifact.
 if [ "$applied" -eq 0 ] && [ -z "$FORCE" ]; then
-  ok "every patch was already in place; nothing to rebuild (use --force to compile anyway)"
-  exit 0
+  if [ ! -f "$SO" ]; then
+    warn "every patch is already applied, but there is NO plugin binary at
+       $SO
+       Building rather than reporting success for an artifact that does not exist."
+  elif [ -n "$(find "$PLUGIN/Source" -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
+                    -newer "$SO" -print -quit 2>/dev/null)" ]; then
+    warn "every patch is already applied, but plugin SOURCE is newer than $(basename "$SO") --
+       the binary predates the source and cannot contain those patches. Building."
+  else
+    ok "every patch already applied and $(basename "$SO") is newer than the patched source;
+       nothing to rebuild (use --force to compile anyway)"
+    exit 0
+  fi
 fi
 
 # --------------------------------------------------------------------------------------
@@ -120,7 +138,6 @@ if [ "$rc" != "0" ]; then
 fi
 docker rm -f "$cname" >/dev/null 2>&1 || true
 
-SO="$PLUGIN/Binaries/Linux/libUnrealEditor-AirSim.so"
 [ -f "$SO" ] || { rm -f "$marker"; die "no plugin binary at $SO after a build that reported success"; }
 [ "$SO" -nt "$marker" ] || { rm -f "$marker"; die "$(basename "$SO") is NOT newer than the pre-build marker.
        UnrealBuildTool reported success without producing an artifact, so whatever is on disk is
