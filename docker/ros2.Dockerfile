@@ -143,6 +143,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-geographic-msgs \
         ros-${ROS_DISTRO}-mavros-msgs \
+        ros-${ROS_DISTRO}-compressed-image-transport \
         python3-msgpack \
         patch \
     && rm -rf /var/lib/apt/lists/* \
@@ -152,6 +153,39 @@ RUN apt-get update \
     && test -d /opt/ros/${ROS_DISTRO}/include/mavros_msgs \
     && python3 -c "import msgpack" \
     && echo "airsim-wrapper deps (geographic_msgs mavros_msgs msgpack)" \
+       >> /etc/drone-sim-versions
+
+# compressed_image_transport, and an assertion that the PLUGIN REGISTERS rather than that apt
+# was happy. Installed because raw imagery does not survive a WAN and JPEG does -- measured
+# over a NetBird overlay (MTU 1280), same link, renderer verified alive throughout:
+#
+#   WAN, raw    ~10 Hz telemetry, ~0 images        (900 KB fragments into ~768 pieces)
+#   WAN, JPEG   93.8 Hz telemetry, 16.4 Hz images, 1.7 Mbit/s
+#
+# Raw does not merely fail: the flood of unreassemblable fragments starves the small messages
+# sharing the transport, so a remote client that subscribes to a camera loses 90% of its
+# TELEMETRY and gets no pictures for it.
+#
+# This package IS the feature, not a helper for one. `airsim_node` publishes through
+# image_transport, which advertises only the transports whose plugins it can load -- so with the
+# package absent there is no `<base>/compressed` topic at all, and with it present every camera
+# gains one automatically, lazily (nothing is encoded until something subscribes). Measured
+# natively, no bridge process involved:
+#
+#   q95 (default)  15.13 Hz  32.9 KB  4.08 Mbit/s
+#   q70            17.85 Hz  12.8 KB  1.87 Mbit/s      <- vs raw 900.0 KB, 111.90 Mbit/s
+#
+# Quality is a runtime parameter, so tuning it needs no rebuild:
+#   ros2 param set /airsim_node \
+#     airsim_node.PX4.front_center_Scene.image.compressed.jpeg_quality 70
+#
+# Without the package `ros2 run image_transport republish` also aborts with
+# "image_transport/compressed_pub does not exist. Declared types are image_transport/raw_pub",
+# which is a runtime failure a build-time apt check would not have caught -- the same shape as
+# the QGC image passing `test -x` on a binary that could not link.
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && ros2 run image_transport list_transports 2>/dev/null | grep -q 'image_transport/compressed' \
+    && echo "compressed_image_transport plugin registers" \
        >> /etc/drone-sim-versions
 
 # A login shell sources ROS, so `docker exec sim-ros2 bash -lc 'ros2 topic list'` works
