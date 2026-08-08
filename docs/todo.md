@@ -2981,6 +2981,80 @@ missing from Blocks for five days**, exactly as that patch's own "not yet wired 
 note had warned.
 
 ---
+
+## `SIM-24` — a dropped GPU-LiDAR scan is invisible to every normal run
+
+**Status:** 🟡 **open** — raised **2026-08-08** by the review of `SIM-23`, deferred out of that PR
+because it changes the gate's output.
+
+`SIM-23` traded a crash for a dropped scan. That is the right trade — but it moved the failure
+from *loud* to *silent*, and nothing in the normal flight path is listening.
+
+When a readback comes back empty the simulator now logs:
+
+```
+GPU-LiDAR readback incomplete (depth 0 px, need 262144), dropping frame
+```
+
+The **only** thing that greps for that line is `soak_full_stack.sh`. Neither `run_gate.py` nor
+`run_park_tour.sh` looks at it, and neither writes it into `summary.json`. So a stack that began
+dropping scans regularly would keep scoring **PASS** on waypoint error while its LiDAR data
+quietly thinned, and the first sign would be a perception result nobody could explain.
+
+This is the same shape as `SIM-22`: the harness could not see the thing that was actually going
+wrong, so it reported the run clean. The fix there was an independent witness; here the signal
+already exists and is simply not collected.
+
+### What to do
+
+- Count `readback incomplete` in the renderer log across a run and put it in `summary.json`,
+  next to the collision count.
+- Decide the scoring rule deliberately. A handful of drops in a long flight is not a failed
+  flight; a run dropping continuously has no usable LiDAR and should not read as PASS. Whatever
+  the threshold, **VOID is probably the right verdict rather than FAIL** — the vehicle flew fine,
+  the sensor did not, and `run_gate.py` already distinguishes those.
+- The count belongs with the *evidence*, not just the log: a bag without it cannot be re-scored.
+
+The drop count is also a proxy for how often the underlying readback fails, which is the one
+number `SIM-23` never obtained — its 90-minute soak saw **zero** natural occurrences.
+
+---
+
+## `SIM-25` — one implementation of the Unreal-side patch routing rule, not three
+
+**Status:** 🟡 **open** — raised **2026-08-08** by the review of `SIM-23`.
+
+The rule deciding whether a patch under `patches/cosys-airsim/` belongs to the Unreal plugin or
+the ROS 2 wrapper now exists in **three** scripts:
+
+| script | routing predicate | apply / already / die |
+|---|---|---|
+| `build_airsim_wrapper.sh` | `grep -qE '^\+\+\+ b/Unreal/'` | skips Unreal-side patches |
+| `convert_world.sh` | same | full three-way block |
+| `build_blocks.sh` | same | full three-way block, copy-pasted |
+
+**This repo has already paid for this exact mistake.** `collision_witness.py` exists because the
+"an absent witness is UNKNOWN" rule was written twice — and the two copies disagreed within one
+commit, one scoring a run PASS that the other failed.
+
+The routing rule is more load-bearing than that one. Misroute `0005` and a vehicle falls through
+a World Partition world forever; misroute `0006` and the renderer dies mid-flight. Both scripts
+already carry a `die` for the drift case precisely because silence here is dangerous — which is
+the argument for the rule having one owner rather than three.
+
+### What to do
+
+- Extract it to one place both callers use — a small `scripts/apply_vendor_patches.sh` taking a
+  target directory and a side, or a Python helper if the shell gets awkward.
+- **Unit-test the predicate.** It is a pure function of a patch file's header and needs no
+  simulator; `tests/` already covers `inject_airsim` and `apply_spawn` the same way. A silently
+  misrouted patch is the failure with the worst consequence in this repo and currently has zero
+  test coverage.
+- Do it as its own change — it touches the world-conversion path, so it wants its own
+  verification run rather than riding along with something else.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:
