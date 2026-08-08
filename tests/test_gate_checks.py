@@ -428,3 +428,58 @@ def test_void_exit_codes_are_imported_not_redeclared():
     like a pass."""
     assert rg.ORIGIN_STALE == ekf.VOID_STALE
     assert rg.ORIGIN_UNKNOWN == ekf.VOID_UNKNOWN
+
+
+# --------------------------------------------------------------------------------------
+# Collision scoring (SIM-22 / PR 40).
+#
+# This rule has drifted TWICE. First between two copies of it -- run_gate.py failed an
+# unreadable witness while run_park_tour.sh passed it -- and then again inside the branch
+# that consolidated them, where stdout parsing let a stray stderr line become the "count"
+# and the run scored CLEAN. Both were caught by review rather than by anything executable.
+#
+# check_run is a pure function of its arguments, so there is no excuse for that.
+# --------------------------------------------------------------------------------------
+
+def test_a_collision_fails_a_run_that_is_otherwise_perfect():
+    """Every other number says success; the vehicle hit a building."""
+    ok, why = rg.check_run(result([0.10, 0.12, 0.09]), SCENARIO, collisions=2,
+                           collision_detail="2 collision(s) with TemplateCube_Rounded_7")
+    assert not ok
+    assert "TemplateCube_Rounded_7" in why
+
+
+def test_unknown_collision_state_is_not_clean():
+    """-1 is not "no collisions". An unobserved run and a clean run look identical from the
+    outside, and only one of them is safe to call clean."""
+    ok, why = rg.check_run(result([0.10, 0.12, 0.09]), SCENARIO, collisions=-1)
+    assert not ok
+    assert "unknown" in why.lower()
+
+
+def test_zero_collisions_does_not_block_a_pass():
+    ok, why = rg.check_run(result([0.10, 0.12, 0.09]), SCENARIO, collisions=0)
+    assert ok, why
+
+
+def test_collisions_are_judged_before_the_waypoint_numbers():
+    """Ordering is load-bearing: after an impact the waypoint errors describe a crash that
+    happened to land near the target, so they must not be allowed to speak first."""
+    ok, why = rg.check_run(result([0.05, 0.05]), SCENARIO, collisions=1)
+    assert not ok
+    # the reason must be the collision, not anything about waypoints
+    assert "waypoint" not in why.lower()
+
+
+def test_a_collision_outranks_an_explicit_failure_reason():
+    """Both are failures; the collision is the more actionable one to report."""
+    ok, why = rg.check_run(result([0.05], outcome="failure", failure_reason="timeout"),
+                           SCENARIO, collisions=3, collision_detail="3 collision(s) with Wall")
+    assert not ok
+    assert "Wall" in why
+
+
+@pytest.mark.parametrize("count", [-99, -2, -1])
+def test_every_negative_count_is_unknown_not_clean(count):
+    ok, _ = rg.check_run(result([0.1]), SCENARIO, collisions=count)
+    assert not ok

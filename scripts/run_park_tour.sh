@@ -105,7 +105,17 @@ log "starting the collision witness"
 # One implementation, shared with run_gate.py. This used to be three bash lines that did the
 # same docker cp / exec -d / rm dance, and the two copies drifted: this one scored a missing
 # witness as CLEAN while the gate correctly failed it.
-python3 "$REPO/scripts/collision_witness.py" start >/dev/null || \
+# REMEMBER whether it started; do not merely warn. run_gate.py records -1 when start() fails,
+# and this used to just warn and carry on -- two callers, two behaviours for one condition,
+# which is the drift this whole change removes.
+#
+# It is not only a consistency point. "No file means unknown" holds because start() DELETES the
+# previous run's file first; if start fails at that very step the stale file survives, and a
+# clean previous run would then be read back as this run's verdict. The only caller that can
+# see that happened is this one, here.
+WITNESS_OK=1
+python3 "$REPO/scripts/collision_witness.py" start >/dev/null || WITNESS_OK=0
+[ "$WITNESS_OK" -eq 1 ] || \
   warn "collision witness did not start -- this run cannot be scored clean"
 
 log "starting the bag"
@@ -150,10 +160,15 @@ COLL_OUT=$(python3 "$REPO/scripts/collision_witness.py" stop --save "$RUN/collis
 COLL_RC=$?
 COLLIDED=$(printf '%s' "$COLL_OUT" | tail -1 | cut -f1)
 # Belt and braces: the count is display-only below, but a non-numeric value must never reach a
-# numeric test and silently take the else branch.
-case "$COLLIDED" in ''|*[!0-9-]*) COLLIDED=-1 ;; esac
+# numeric test and silently take the else branch. Strip ONE optional leading minus and then
+# demand digits only -- `*[!0-9-]*` alone also accepted "1-2" and a bare "-", because it allows
+# a minus at any position.
+case "${COLLIDED#-}" in ''|*[!0-9]*) COLLIDED=-1 ;; esac
 # One source of truth for the verdict: the exit code. COLLIDED carries only the NUMBER, for the
 # message, and is forced to agree so the printed tag can never contradict the branch taken.
+# A witness that never started cannot score this run, and must not be rescued by a file that
+# merely happens to be readable -- see WITNESS_OK above.
+[ "$WITNESS_OK" -eq 1 ] || COLL_RC=2
 case "$COLL_RC" in
   0) COLLIDED=0 ;;
   2) COLLIDED=-1 ;;
@@ -231,7 +246,7 @@ fi
 
 if [ "$COLL_RC" -eq 2 ]; then
   log "COLLISION STATE UNKNOWN -- no readable collisions.json, so this run cannot be scored
-       clean. Treating it as FAIL; check /tmp/collisions.log inside sim-ros2."
+       clean. Treating it as FAIL; check /tmp/collision_witness.log inside sim-ros2."
   MISSION_RC=1
 elif [ "$COLL_RC" -ne 0 ]; then
   python3 -c "
