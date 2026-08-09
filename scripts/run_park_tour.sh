@@ -270,8 +270,15 @@ fi
 # was the soak harness. REPORTED, NOT SCORED: this run's verdict is about flight and collisions,
 # and the drop count has never been observed non-zero in normal operation, so any threshold
 # would be invented rather than measured. Read BEFORE teardown, or the container is gone.
-DROPS=$(docker logs sim-unreal 2>&1 | grep -c 'readback incomplete' || true)
-case "$DROPS" in ''|*[!0-9]*) DROPS=-1 ;; esac
+# Counted by scripts/lidar_drops.py, which OWNS the marker string and the container name --
+# three callers need to agree on both, and four hardcoded copies is how one wording change
+# silently turns every counter into a permanent 0.
+#
+# A whole-log total is correct HERE, unlike the gate, because this script cold-starts the stack
+# unconditionally (sim_up.sh above), so the renderer has only ever seen this run. If a --reuse
+# is ever added, this must become a before/after delta like run_scenario.py's.
+DROPS=$(python3 "$REPO/scripts/lidar_drops.py" 2>/dev/null || echo -1)
+case "${DROPS#-}" in ''|*[!0-9]*) DROPS=-1 ;; esac
 if [ "$DROPS" -gt 0 ]; then
   warn "$DROPS GPU-LiDAR readback drop(s) during this run -- scans were LOST, so the LiDAR in
          this bag is incomplete. Not scored: the verdict above is about flight and collisions."

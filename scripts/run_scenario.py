@@ -29,6 +29,7 @@ seeded *conditions*.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import os
@@ -47,11 +48,13 @@ SIM_UP = REPO / "scripts" / "sim_up.sh"
 # drift that turns a healthy stack into "No such container" halfway through a gate.
 ROS2 = "sim-ros2"
 
-# The renderer, for reading its log. Same reasoning as ROS2 above: one spelling, module-level.
-UNREAL = "sim-unreal"
-
-# The line patches/cosys-airsim/0006 emits when a GPU-LiDAR readback comes back empty.
-READBACK_DROP = "readback incomplete"
+# The GPU-LiDAR drop counter lives in ONE place (scripts/lidar_drops.py) because three callers
+# need to agree on what the line says and which container says it -- see that module's header.
+_ld_spec = importlib.util.spec_from_file_location(
+    "lidar_drops", Path(__file__).resolve().parent / "lidar_drops.py")
+ld = importlib.util.module_from_spec(_ld_spec)
+_ld_spec.loader.exec_module(ld)
+UNREAL, READBACK_DROP = ld.UNREAL, ld.READBACK_DROP
 
 
 def sh(cmd: list[str], *, env: dict | None = None, timeout: int = 900,
@@ -66,33 +69,8 @@ def dexec(*args: str) -> list[str]:
     return ["docker", "exec", "-i", ROS2, *args]
 
 
-def readback_drops() -> int:
-    """GPU-LiDAR frames the renderer has dropped so far. -1 if the log cannot be read.  (SIM-24)
-
-    `SIM-23` traded a renderer crash for a dropped LiDAR scan plus a Warning. That is the right
-    trade, but it moved the failure from LOUD to SILENT: until this existed, the only thing that
-    looked for that line was the soak harness, so a stack quietly losing scans would score PASS
-    on waypoint error with nobody the wiser. A crash announces itself; missing data does not.
-
-    Counted CUMULATIVELY here and differenced by the caller, rather than read once at the end.
-    A fresh stack makes the two identical, but `--reuse` keeps one renderer across every seed of
-    a gate, and a whole-log count would then charge each seed with every earlier seed's drops --
-    the number would climb monotonically and mean nothing.
-
-    -1 rather than 0 when the log is unreadable, for the same reason the collision witness
-    reports -1: unknown must not be the value that looks clean.
-    """
-    r = sh(["docker", "logs", UNREAL], timeout=60)
-    if r.returncode != 0:
-        return -1
-    return (r.stdout or "").count(READBACK_DROP) + (r.stderr or "").count(READBACK_DROP)
-
-
-def drops_during(before: int, after: int) -> int:
-    """Drops attributable to one flight. -1 if either endpoint was unknown."""
-    if before < 0 or after < 0:
-        return -1
-    return max(0, after - before)
+readback_drops = ld.readback_drops
+drops_during = ld.drops_during
 
 
 # A scenario `name` becomes part of container paths and of an `rm -rf`, so it is
