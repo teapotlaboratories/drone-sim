@@ -264,6 +264,31 @@ try: print(json.load(open('$RUN/collisions.json'))['ground_contacts'])
 except Exception: print(0)" 2>/dev/null) ground contacts, expected at takeoff and landing)"
 fi
 
+# GPU-LiDAR scans lost to an empty readback.                                     (SIM-24)
+# SIM-23 turned a renderer crash into a dropped scan plus a Warning, which is the right trade
+# but moved the failure from loud to silent -- for a while the only thing looking for that line
+# was the soak harness. REPORTED, NOT SCORED: this run's verdict is about flight and collisions,
+# and the drop count has never been observed non-zero in normal operation, so any threshold
+# would be invented rather than measured. Read BEFORE teardown, or the container is gone.
+DROPS=$(docker logs sim-unreal 2>&1 | grep -c 'readback incomplete' || true)
+case "$DROPS" in ''|*[!0-9]*) DROPS=-1 ;; esac
+if [ "$DROPS" -gt 0 ]; then
+  warn "$DROPS GPU-LiDAR readback drop(s) during this run -- scans were LOST, so the LiDAR in
+         this bag is incomplete. Not scored: the verdict above is about flight and collisions."
+elif [ "$DROPS" -lt 0 ]; then
+  warn "GPU-LiDAR drop count UNKNOWN -- could not read the sim-unreal log"
+fi
+python3 - "$RUN/summary.json" "$DROPS" <<'PY' 2>/dev/null || true
+import json, sys
+p, drops = sys.argv[1], int(sys.argv[2])
+try:
+    d = json.load(open(p))
+except Exception:
+    sys.exit(0)                      # no summary to annotate; the warn above still stands
+d["lidar_readback_drops"] = drops
+json.dump(d, open(p, "w"), indent=2)
+PY
+
 # sim-xrce is listed although nothing creates it any more -- the agent lives in sim-ros2.
 # A stale one from an older checkout would hold udp/8888 and break the next bring-up.
 [ -n "$KEEP_UP" ] || docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce sim-unreal >/dev/null 2>&1

@@ -225,6 +225,19 @@ def _worst(errors) -> float:
     return max(usable) if usable else 0.0
 
 
+def _drops_total(runs) -> int:
+    """Total GPU-LiDAR scans lost across the gate.  (SIM-24)
+
+    Counts only runs that actually reported a number. `None` means the run never got far enough
+    to ask, and -1 means the renderer log could not be read — neither is zero, and summing them
+    as zero would report a clean total for a gate that measured nothing. Those runs are counted
+    separately as `lidar_readback_drops_unknown_runs`.
+    """
+    return sum(r["lidar_readback_drops"] for r in runs
+               if isinstance(r.get("lidar_readback_drops"), int)
+               and r["lidar_readback_drops"] > 0)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="The simulator's success-rate flight gate.")
     ap.add_argument("scenario", type=Path)
@@ -313,12 +326,17 @@ def main() -> int:
             "spawn_pose_applied": not a.reuse,
             "variant": variant,
             "mcap": f"out/{name}-seed{seed}",
+            # GPU-LiDAR scans lost to an empty readback during this run (SIM-24). Recorded, and
+            # deliberately NOT scored -- see the note where the totals are printed below.
+            "lidar_readback_drops": result.get("lidar_readback_drops"),
             "seconds": round(time.time() - t0, 1),
         })
+        drops = runs[-1]["lidar_readback_drops"]
         print(f"  [{i:>2}/{len(seeds)}] seed {seed:<3} "
               f"{'VOID' if void_reason else ('PASS' if ok else 'FAIL'):4}  "
               f"worst {runs[-1]['worst_error_m']:.3f} m  "
               f"{runs[-1]['seconds']:.0f}s"
+              + (f"  lidar-drops {drops}" if drops else "")
               + (f"  — {why}" if not ok else ""))
 
     verdict = score(runs, a.reuse)
@@ -342,6 +360,12 @@ def main() -> int:
         "met": verdict["met"],
         "sr_perfect": verdict["sr_perfect"],
         "mode": "reuse" if a.reuse else "restart-per-run",
+        # SIM-24. Recorded so a re-score is possible later; see the print below for why it is
+        # not part of the verdict.
+        "lidar_readback_drops_total": _drops_total(runs),
+        "lidar_readback_drops_unknown_runs": sum(
+            1 for r in runs if r.get("lidar_readback_drops") is not None
+            and r["lidar_readback_drops"] < 0),
         "wall_seconds": elapsed,
         "caveats": [
             "The seed drives the spawn pose only; in an empty world that changes almost "
@@ -359,6 +383,25 @@ def main() -> int:
     print(f"  success rate : {passed}/{verdict['valid_total']}  ({sr*100:.0f}%)"
           + (f"   [{verdict['voids']} VOID excluded]" if verdict["voids"] else ""))
     print(f"  wall clock   : {elapsed:.0f}s")
+    # SIM-24. REPORTED, NOT SCORED, and that is a deliberate choice rather than an omission.
+    #
+    # This gate's criterion is flight control -- waypoint tracking. A lost LiDAR scan does not
+    # make the tracking wrong, so failing a run over one would be scoring a dimension the
+    # criterion does not claim. VOIDing is also wrong for the same reason: the run DID measure
+    # what it says it measured.
+    #
+    # And any threshold would be invented rather than measured. The condition has never been
+    # observed occurring naturally -- zero drops across a 90-minute soak with 45 flights -- so
+    # there is no evidence for where "a few" ends and "the sensor is dead" begins. Printing the
+    # number is what the evidence currently supports; picking a cutoff is not.
+    total_drops = summary["lidar_readback_drops_total"]
+    unknown = summary["lidar_readback_drops_unknown_runs"]
+    if total_drops:
+        print(f"  lidar drops  : {total_drops} across {len(runs)} run(s) — scans were LOST. "
+              f"Not scored (this gate measures flight control), but the LiDAR data in those "
+              f"MCAPs is incomplete.")
+    if unknown:
+        print(f"  lidar drops  : UNKNOWN for {unknown} run(s) — the renderer log was unreadable")
     print(f"  report       : {out}")
     print()
     if summary["met"]:
