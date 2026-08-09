@@ -2993,8 +2993,8 @@ note had warned.
 
 ## `SIM-24` — a dropped GPU-LiDAR scan is invisible to every normal run
 
-**Status:** 🟡 **open** — raised **2026-08-08** by the review of `SIM-23`, deferred out of that PR
-because it changes the gate's output.
+**Status:** ✅ **done** — **2026-08-09.** Raised 2026-08-08 by the review of `SIM-23` and
+deferred out of that PR because it changes the gate's output.
 
 `SIM-23` traded a crash for a dropped scan. That is the right trade — but it moved the failure
 from *loud* to *silent*, and nothing in the normal flight path is listening.
@@ -3014,18 +3014,50 @@ This is the same shape as `SIM-22`: the harness could not see the thing that was
 wrong, so it reported the run clean. The fix there was an independent witness; here the signal
 already exists and is simply not collected.
 
-### What to do
+### What was built
 
-- Count `readback incomplete` in the renderer log across a run and put it in `summary.json`,
-  next to the collision count.
-- Decide the scoring rule deliberately. A handful of drops in a long flight is not a failed
-  flight; a run dropping continuously has no usable LiDAR and should not read as PASS. Whatever
-  the threshold, **VOID is probably the right verdict rather than FAIL** — the vehicle flew fine,
-  the sensor did not, and `run_gate.py` already distinguishes those.
-- The count belongs with the *evidence*, not just the log: a bag without it cannot be re-scored.
+`run_gate.py` and `run_park_tour.sh` both count the drops and record them in their summary JSON
+next to the collision count, so a bag can be re-scored later rather than only a log read live.
 
-The drop count is also a proxy for how often the underlying readback fails, which is the one
-number `SIM-23` never obtained — its 90-minute soak saw **zero** natural occurrences.
+Counted as a **delta around each flight**, not a whole-log total. A fresh stack makes those
+identical, but `--reuse` keeps one renderer for every seed and a cumulative count would charge
+each seed with all the earlier ones. The fault-injection run below measured exactly this: 8
+warnings in the renderer log, **5** attributed to the flight, the other 3 from bring-up.
+
+Unreadable is `-1`, never `0` — same rule as the collision witness. `_drops_total()` sums only
+real counts and reports unknown runs separately, so a gate that measured nothing cannot print a
+clean total.
+
+### The scoring decision: reported, NOT scored
+
+The entry above guessed VOID would be right. On reflection it is not, and neither is FAIL.
+
+This gate's criterion is **flight control**. A lost LiDAR scan does not make waypoint tracking
+wrong, so failing a run over one scores a dimension the criterion does not claim; VOID is wrong
+for the same reason, because the run *did* measure what it says it measured.
+
+More decisively: **any threshold would be invented rather than measured.** The condition has
+never been observed occurring naturally — zero drops across a 90-minute soak of 45 flights — so
+there is no evidence for where "a few" ends and "the sensor is dead" begins. Printing the number
+is what the evidence supports. Revisit once a natural drop has actually been seen.
+
+### Verified by causing real drops
+
+A recurring fault was compiled into the plugin (empty the depth buffer every 200th capture,
+placed *between* the read and the size check) and a gate seed flown against it:
+
+```
+lidar: 5 GPU-LiDAR readback drop(s) during square-10m-seed94
+[ 1/1] seed 94  PASS  worst 0.781 m  272s  lidar-drops 5
+lidar drops  : 5 across 1 run(s) — scans were LOST. Not scored ...
+report total: 5 | per-run: [5]
+```
+
+The run still PASSED, which is the intended behaviour. Plugin restored afterwards and rebuilt to
+the shipping artifact (`20f5430c1a61`), with the fault absent from the `.so` and 0006 present.
+
+The drop count also remains the one number `SIM-23` never obtained — how often the readback
+actually fails.
 
 ---
 
