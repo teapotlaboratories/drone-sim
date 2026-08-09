@@ -47,6 +47,12 @@ SIM_UP = REPO / "scripts" / "sim_up.sh"
 # drift that turns a healthy stack into "No such container" halfway through a gate.
 ROS2 = "sim-ros2"
 
+# The renderer, for reading its log. Same reasoning as ROS2 above: one spelling, module-level.
+UNREAL = "sim-unreal"
+
+# The line patches/cosys-airsim/0006 emits when a GPU-LiDAR readback comes back empty.
+READBACK_DROP = "readback incomplete"
+
 
 def sh(cmd: list[str], *, env: dict | None = None, timeout: int = 900,
        capture: bool = True) -> subprocess.CompletedProcess:
@@ -58,6 +64,35 @@ def sh(cmd: list[str], *, env: dict | None = None, timeout: int = 900,
 def dexec(*args: str) -> list[str]:
     """`docker exec` into the ROS 2 container, argv-style (no shell unless asked for one)."""
     return ["docker", "exec", "-i", ROS2, *args]
+
+
+def readback_drops() -> int:
+    """GPU-LiDAR frames the renderer has dropped so far. -1 if the log cannot be read.  (SIM-24)
+
+    `SIM-23` traded a renderer crash for a dropped LiDAR scan plus a Warning. That is the right
+    trade, but it moved the failure from LOUD to SILENT: until this existed, the only thing that
+    looked for that line was the soak harness, so a stack quietly losing scans would score PASS
+    on waypoint error with nobody the wiser. A crash announces itself; missing data does not.
+
+    Counted CUMULATIVELY here and differenced by the caller, rather than read once at the end.
+    A fresh stack makes the two identical, but `--reuse` keeps one renderer across every seed of
+    a gate, and a whole-log count would then charge each seed with every earlier seed's drops --
+    the number would climb monotonically and mean nothing.
+
+    -1 rather than 0 when the log is unreadable, for the same reason the collision witness
+    reports -1: unknown must not be the value that looks clean.
+    """
+    r = sh(["docker", "logs", UNREAL], timeout=60)
+    if r.returncode != 0:
+        return -1
+    return (r.stdout or "").count(READBACK_DROP) + (r.stderr or "").count(READBACK_DROP)
+
+
+def drops_during(before: int, after: int) -> int:
+    """Drops attributable to one flight. -1 if either endpoint was unknown."""
+    if before < 0 or after < 0:
+        return -1
+    return max(0, after - before)
 
 
 # A scenario `name` becomes part of container paths and of an `rm -rf`, so it is
@@ -224,6 +259,10 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # failure into a pass. `rm` as argv, with no shell involved at all.
     sh(dexec("rm", "-rf", bag, result_in_container), timeout=60)
 
+    # Baseline the renderer's drop counter BEFORE anything flies, so what is reported is this
+    # flight's drops and not the container's lifetime total. See readback_drops().
+    drops_before = readback_drops()
+
     # VIDEO, on by default. Started before the flight and stopped after, so the recording
     # brackets it rather than clipping the takeoff -- the same reason the bag does.
     #
@@ -305,17 +344,32 @@ def run_flight(scenario: dict, seed: int) -> dict:
             print(f"  video: NONE written for {tag} — see /tmp/watch_video.log in {ROS2}",
                   flush=True)
 
+    # How many LiDAR scans the renderer dropped while this flight was in the air. Attached to
+    # EVERY return path below, including the failure ones: a run that produced no result is
+    # exactly when you want to know whether the renderer was also in trouble.
+    drops = drops_during(drops_before, readback_drops())
+    if drops > 0:
+        print(f"  lidar: {drops} GPU-LiDAR readback drop(s) during {tag} — scans were lost, "
+              f"see `{READBACK_DROP}` in {UNREAL}", flush=True)
+    elif drops < 0:
+        print(f"  lidar: readback drop count UNKNOWN for {tag} — {UNREAL} log unreadable",
+              flush=True)
+
     host_result = REPO / "out" / f"{tag}.json"
     if host_result.exists():
         res = json.loads(host_result.read_text())
         res["video_written"] = video_written
+        res["lidar_readback_drops"] = drops
         return res
     # Fall back to the log line, so a missing file does not erase the evidence.
     m = re.search(r"result: (\{.*\})", proc.stdout or "")
     if m:
-        return json.loads(m.group(1))
+        res = json.loads(m.group(1))
+        res["lidar_readback_drops"] = drops
+        return res
     return {"outcome": "failure",
             "failure_reason": "no result produced",
+            "lidar_readback_drops": drops,
             "stdout_tail": (proc.stdout or "")[-800:]}
 
 

@@ -483,3 +483,58 @@ def test_a_collision_outranks_an_explicit_failure_reason():
 def test_every_negative_count_is_unknown_not_clean(count):
     ok, _ = rg.check_run(result([0.1]), SCENARIO, collisions=count)
     assert not ok
+
+
+# --------------------------------------------------------------------------------------
+# GPU-LiDAR readback drop accounting (SIM-24).
+#
+# SIM-23 turned a renderer crash into a dropped scan, which moved the failure from loud to
+# silent. These pin the two places that silence could creep back in: a drop count that is
+# UNKNOWN must never be summed as zero, and a per-flight delta must not be negative or
+# inherit a previous seed's drops under --reuse.
+# --------------------------------------------------------------------------------------
+
+def _run(drops):
+    return {"seed": 1, "lidar_readback_drops": drops}
+
+
+def test_drops_total_sums_real_drops():
+    assert rg._drops_total([_run(2), _run(0), _run(3)]) == 5
+
+
+def test_unknown_drop_count_is_not_summed_as_zero():
+    """-1 means the renderer log was unreadable. Adding it would UNDERCOUNT the total, which is
+    the same 'unknown looks clean' failure the collision witness already guards against."""
+    assert rg._drops_total([_run(4), _run(-1)]) == 4
+
+
+def test_a_run_that_never_reported_is_not_counted():
+    """None means the run never got far enough to ask — a VOID bring-up, say."""
+    assert rg._drops_total([_run(4), _run(None), {}]) == 4
+
+
+def test_no_drops_totals_zero():
+    assert rg._drops_total([_run(0), _run(0)]) == 0
+
+
+def test_unknown_runs_are_counted_separately_so_they_are_visible():
+    """The total alone cannot distinguish 'clean' from 'never measured'; the companion count is
+    what makes an unmeasured gate say so."""
+    runs = [_run(0), _run(-1), _run(-1), _run(None)]
+    unknown = sum(1 for r in runs
+                  if r.get("lidar_readback_drops") is not None
+                  and r["lidar_readback_drops"] < 0)
+    assert rg._drops_total(runs) == 0 and unknown == 2
+
+
+@pytest.mark.parametrize("before,after,expected", [
+    (0, 0, 0),          # clean flight on a fresh stack
+    (0, 3, 3),          # three scans lost
+    (10, 13, 3),        # --reuse: only THIS flight's drops, not the container's total
+    (-1, 5, -1),        # baseline unreadable -> unknown, never a number
+    (5, -1, -1),        # end unreadable   -> unknown
+    (-1, -1, -1),
+    (7, 5, 0),          # log rotated/truncated: clamp, never report negative drops
+])
+def test_drops_during_is_a_delta_and_propagates_unknown(before, after, expected):
+    assert rg.rs.drops_during(before, after) == expected
