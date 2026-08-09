@@ -921,7 +921,7 @@ inference.
 
 ## SIM-10 — Make the EKF-origin ordering deterministic
 
-**Status:** 🟡 **built and verified once (2026-08-01); "N times in a row" not yet run.**
+**Status:** ✅ **done — 2026-08-09.** Built and verified once on 2026-08-01; the "N times in a row" evidence it was waiting on arrived with the 10-seed gate on `main` @ `f153384`: **ten consecutive cold bring-ups, ten sane EKF origins, zero VOID runs.** The one failed seed (`SIM-27`) failed on landing, with its origin verified like the other nine.
 Evidence: [`worklog/2026-08-01-c10-deterministic-bringup.md`](worklog/2026-08-01-c10-deterministic-bringup.md)
 
 `scripts/sim_up.sh` cold-starts the stack in 83 s unattended and `scripts/check_ekf_origin.py`
@@ -3130,6 +3130,64 @@ stops, best-effort so a run that flew is never failed over file ownership.
 
 **Not fixed:** existing root-owned artifacts under `out/`. They are readable, and rewriting history
 on the evidence drive is not worth it; new runs are correct.
+
+---
+
+---
+
+## `SIM-27` — the vehicle intermittently lands *through* the ground
+
+**Status:** 🟡 **open** — found **2026-08-09** by the 10-seed gate on `main` @ `f153384`. This is
+the thing standing between this gate and a quotable 100%.
+
+Seed 5 of 10 failed with `timeout in state land`. **The timeout is the symptom, not the bug.**
+From its MCAP (`out/gate-20260809`, seed 5):
+
+| t | altitude above origin | `dist_bottom` |
+|---|---|---|
+| 0.0 s | −0.00 m | 0.10 m — started on solid ground |
+| 75.6 s | 20.01 m | `VEHICLE_CMD_NAV_LAND` sent, `nav_state` → 18 (AUTO.LAND) |
+| 91.6 s | 2.83 m | normal descent |
+| 99.6 s | **−2.69 m** | 0.00 — **below the floor** |
+| 131.6 s | **−24.90 m** | still descending |
+
+It descended at a steady **0.694 m/s** — exactly `MPC_LAND_SPEED` — from 20 m clean through the
+ground plane to −28.7 m, where the bag ends. It never touched down, so PX4's land detector never
+fired, so it never disarmed, so the state hit its 60 s budget.
+
+**The mission itself was perfect**: 4/4 waypoints, errors 0.770–0.777 m — the *best* of all ten
+seeds. Collisions 0, LiDAR drops 0. So this is not tracking, not an impact, and not sensor loss;
+the new `SIM-22`/`SIM-24` instrumentation is what makes it possible to say that positively rather
+than by elimination.
+
+### What it is not
+
+- **Not a tight timeout.** A 20 m AUTO.LAND should take ~25 s against a 60 s budget. Worth noting
+  separately that `a7a1aae` doubled `takeoff_altitude_m` 10 → 20 while `state_timeout_s` stayed at
+  60.0 where it has been since the first commit — the margin halved, ~4.8× to ~2.4×. That is
+  untidy but it is **not** the cause, and raising the timeout would only convert a fall-through
+  into a slower fall-through that still never lands.
+- **Not the offboard-vs-AUTO.LAND fight** already documented at `offboard_control.py:303`. That
+  fix (excluding `LAND` from setpoint streaming) is present and working — the descent starts
+  promptly and at the right speed.
+- **Not `SIM-21`/patch 0005 as such.** That is the World Partition streaming-source fix and Blocks
+  is not a World Partition level. But the *symptom is the same family*: no collision geometry
+  under the vehicle, so it falls forever.
+
+### Why it matters more than one failed seed
+
+`SIM-22`'s follow-up records an unexplained intermittent `timeout in state waypoints`, under
+1-in-10, "not a collision, not a VOID, not spawn-dependent". **A world whose collision geometry is
+intermittently absent would produce exactly that too**, in a different phase. These may be one
+bug, and this is the first time either has been characterised rather than counted.
+
+### Next
+
+- Re-fly seed 5 specifically. Runs are not reproducible, so the question is whether the
+  fall-through follows the seed (geometry/placement) or is time-dependent (a streaming or
+  init race). That distinction picks the next move.
+- Check whether the vehicle passes through geometry mid-mission too, or only on descent.
+- `simGetCollisionInfo` during the descent would say whether AirSim thinks contact ever happened.
 
 ---
 
