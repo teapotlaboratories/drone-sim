@@ -3135,59 +3135,72 @@ on the evidence drive is not worth it; new runs are correct.
 
 ---
 
-## `SIM-27` — the vehicle intermittently lands *through* the ground
+## `SIM-27` — a landing that never terminates, and physics that disagrees with the render
 
 **Status:** 🟡 **open** — found **2026-08-09** by the 10-seed gate on `main` @ `f153384`. This is
 the thing standing between this gate and a quotable 100%.
 
-Seed 5 of 10 failed with `timeout in state land`. **The timeout is the symptom, not the bug.**
-From its MCAP (`out/gate-20260809`, seed 5):
+**This entry was rewritten the same day.** Its first version asserted "the vehicle lands through
+the ground" as established fact and cited the flight video as confirmation. The video does not
+confirm it — see *What the imagery actually shows*. The original reading was wrong in two
+specific ways, both recorded below, because the mistakes are more instructive than the tidy
+version was.
 
-| t | altitude above origin | `dist_bottom` |
-|---|---|---|
-| 0.0 s | −0.00 m | 0.10 m — started on solid ground |
-| 75.6 s | 20.01 m | `VEHICLE_CMD_NAV_LAND` sent, `nav_state` → 18 (AUTO.LAND) |
-| 91.6 s | 2.83 m | normal descent |
-| 99.6 s | **−2.69 m** | 0.00 — **below the floor** |
-| 131.6 s | **−24.90 m** | still descending |
+### What is solid
 
-It descended at a steady **0.694 m/s** — exactly `MPC_LAND_SPEED` — from 20 m clean through the
-ground plane to −28.7 m, where the bag ends. It never touched down, so PX4's land detector never
-fired, so it never disarmed, so the state hit its 60 s budget.
+Seed 5 of 10 failed with `timeout in state land`, and the timeout is a **symptom**: the descent
+never terminated, so the vehicle never disarmed, so the state ran out its 60 s budget.
 
-**The mission itself was perfect**: 4/4 waypoints, errors 0.770–0.777 m — the *best* of all ten
-seeds. Collisions 0, LiDAR drops 0. So this is not tracking, not an impact, and not sensor loss;
-the new `SIM-22`/`SIM-24` instrumentation is what makes it possible to say that positively rather
-than by elimination.
+- The mission itself was **perfect**: 4/4 waypoints, errors 0.770–0.777 m, the best of all ten.
+- **Collisions 0, LiDAR drops 0** — so not an impact and not lost sensor data. That can be said
+  positively rather than by elimination, which is what `SIM-22` and `SIM-24` were built for.
+- AirSim's physics state reports the vehicle descending at a steady **0.694 m/s** — exactly
+  `MPC_LAND_SPEED` — from 20 m to **~30 m below its own takeoff surface**, still descending when
+  the recording ended. It took off from solid ground (`dist_bottom` 0.10 m at t=0).
 
-### What it is not
+### What the imagery actually shows — and the two claims that were wrong
 
-- **Not a tight timeout.** A 20 m AUTO.LAND should take ~25 s against a 60 s budget. Worth noting
-  separately that `a7a1aae` doubled `takeoff_altitude_m` 10 → 20 while `state_timeout_s` stayed at
-  60.0 where it has been since the first commit — the margin halved, ~4.8× to ~2.4×. That is
-  untidy but it is **not** the cause, and raising the timeout would only convert a fall-through
-  into a slower fall-through that still never lands.
-- **Not the offboard-vs-AUTO.LAND fight** already documented at `offboard_control.py:303`. That
-  fix (excluding `LAND` from setpoint streaming) is present and working — the descent starts
-  promptly and at the right speed.
-- **Not `SIM-21`/patch 0005 as such.** That is the World Partition streaming-source fix and Blocks
-  is not a World Partition level. But the *symptom is the same family*: no collision geometry
-  under the vehicle, so it falls forever.
+**The rendered view looks like a normal landing.** At a physics-reported 30.20 m below the
+takeoff surface, the front camera shows the Blocks cubes still *resting on the horizon*. Thirty
+metres beneath them they would be far overhead. Frame hashes four seconds apart are all
+different, so the stream is **live**, not a frozen last-good-frame.
 
-### Why it matters more than one failed seed
+Two things the first write-up got wrong:
 
-`SIM-22`'s follow-up records an unexplained intermittent `timeout in state waypoints`, under
-1-in-10, "not a collision, not a VOID, not spawn-dependent". **A world whose collision geometry is
-intermittently absent would produce exactly that too**, in a different phase. These may be one
-bug, and this is the first time either has been characterised rather than counted.
+1. **"Two independent sources agree."** They are not independent. PX4's EKF is fed by AirSim's
+   simulated sensors, which come from AirSim's physics body — the bag and the burned-in ground
+   truth trace to **one** source. Their agreement proves far less than was claimed.
+2. **"The bottom camera shows blank void."** Seed 1 *landed successfully* and its bottom camera
+   is the same uniform cream. That was never evidence of anything.
 
-### Next
+### So what it is
 
-- Re-fly seed 5 specifically. Runs are not reproducible, so the question is whether the
-  fall-through follows the seed (geometry/placement) or is time-dependent (a streaming or
-  init race). That distinction picks the next move.
-- Check whether the vehicle passes through geometry mid-mission too, or only on descent.
-- `simGetCollisionInfo` during the descent would say whether AirSim thinks contact ever happened.
+Not "it fell through the ground" — that is no longer supported. What is supported is that
+**AirSim's physics body and the rendered pose disagree**: physics says 30 m down, the render says
+landed. Which one the vehicle "really" followed is open.
+
+That is arguably worse than the original diagnosis. If physics and imagery can diverge, then any
+perception result gathered during such a run is describing a world the vehicle was not in — and
+nothing currently detects it.
+
+### Next — the test that separates the possibilities
+
+Re-fly and, during the descent, poll `simGetCollisionInfo` **and** AirSim's own pose, comparing
+against the UE actor location. That distinguishes:
+
+- physics fell and the render did not (a sync/decoupling bug), from
+- neither fell and the telemetry is misreporting (an estimator/ground-truth bug).
+
+Also still open, and unaffected by which answer lands: `SIM-22`'s unexplained intermittent
+`timeout in state waypoints`, under 1-in-10, "not a collision, not a VOID, not spawn-dependent".
+A descent or a mission that never terminates for the same underlying reason would produce both.
+
+### A tight timeout exists, and is NOT the cause
+
+`a7a1aae` doubled `takeoff_altitude_m` 10 → 20 and left `state_timeout_s` at the 60.0 it has had
+since the first commit, halving the landing margin (~4.8× → ~2.4×). Worth fixing on its own, but
+a 20 m AUTO.LAND needs ~25 s of that 60 s — raising it would only buy a longer descent that still
+never terminates.
 
 ---
 
