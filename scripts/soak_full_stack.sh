@@ -100,7 +100,8 @@ while :; do
   # initialiser, if the simulator died in the first minute. Crash-WITH-drops is the single most
   # informative outcome this counter exists to capture, and that was the one case it got wrong.
   # `docker logs` still works on a dead container, so there is no reason to read it late.
-  DROPS=$(docker logs sim-unreal 2>&1 | grep -c 'readback incomplete' || true)
+  # scripts/lidar_drops.py owns the marker string and the container name; see its header.
+  DROPS=$(python3 "$REPO/scripts/lidar_drops.py" 2>/dev/null || echo -1)
 
   ALIVE=$(docker inspect -f '{{.State.Running}}' sim-unreal 2>/dev/null || echo missing)
   if [ "$ALIVE" != "true" ]; then
