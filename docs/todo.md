@@ -3266,6 +3266,63 @@ Net: after 20 reproduction attempts and one deliberate forcing attempt, the mech
 **unobserved**. The probe now runs on every flight precisely because that is the realistic way to
 catch it.
 
+### 2026-08-12: a second forcing attempt, and a defect found in the tooling instead
+
+The position-hold test was not AUTO.LAND, so it was redone properly: **40 real
+`VEHICLE_CMD_NAV_LAND` touchdowns**, probe at 10 Hz. Short hops on purpose — if the trigger is a
+missed touchdown event, what matters is the number of touchdowns, not the height.
+
+| | |
+|---|---|
+| landings | **40/40 clean**, 13.7–13.9 s, near-zero variance |
+| probe samples | 9,787 |
+| max \|phys_z − pose_z\| | **0.2104 m** — one sample, at −2.5 m/s, i.e. RPC sampling skew |
+| samples > 1.00 m | **0** |
+| collision events | **47 across 40 landings** — touchdown fires reliably |
+
+So the split does not occur in normal landings, and contact events are **not** being missed.
+
+**Then a real defect turned up, in the RPC itself:**
+
+```cpp
+// RpcLibServerBase.cpp:435
+getVehicleSimApi(vehicle_name)->getCollisionInfoAndReset();
+// PawnSimApi.cpp:507
+state_.collision_info.has_collided = false;      // cleared ON READ
+```
+
+`simGetCollisionInfo` is **read-and-reset**, and `FastPhysicsEngine.hpp:102` needs that same
+one-shot flag to apply its collision response. A poller can therefore steal the touchdown flag
+from the physics. That looked like the answer — so it was tested by polling at **100 Hz** during
+**36 more landings**. All clean. The engine's `body.isGrounded()` alternative and Unreal's
+re-firing of hit events during sustained contact evidently repair a stolen flag, so this is not
+the cause either.
+
+**But it is still a live hazard, and it caught this ticket's own tooling.** `probe_landing.py`
+was about to be wired into every run while also calling `simGetCollisionInfo` — a *second*
+consumer racing `watch_collisions.py` (20 Hz), which is what decides gate PASS/FAIL. That would
+have let the probe silently eat impacts the witness needed, reintroducing exactly the blindness
+`SIM-22` exists to prevent. The call was removed before it shipped, and `watch_collisions.py` is
+now documented as the sole owner of that RPC.
+
+### Where the root cause stands
+
+Unresolved, and now well bounded. Across **~100 landings** in four experiments — 12 full missions,
+8 cold gate seeds, 40 AUTO.LAND cycles, 36 more under 100 Hz flag-stealing — the failure has
+**never recurred** and the actor/integrator split has **never been observed**. Every cheap
+hypothesis has been tried and none survived:
+
+| hypothesis | verdict |
+|---|---|
+| fell through the ground | refuted by the imagery |
+| PX4 estimator fault | refuted — self-consistent, zero resets |
+| tight `state_timeout_s` | ruled out — 25 s needed of a 60 s budget |
+| swept move blocks actor while physics runs on | not reproducible under deliberate forcing |
+| a poller stealing the collision flag | not reproducible at 100 Hz over 36 landings |
+
+The realistic path is no longer forcing it but catching it: the probe now runs on every flight,
+and `/fmu/out/vehicle_land_detected` is recorded.
+
 ### Quantitative evidence of the divergence
 
 PSNR between two front-camera frames of the failing run, versus a real descent over the same

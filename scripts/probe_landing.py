@@ -14,17 +14,30 @@ surface the world still renders as a normal landing, with live frames.
 So AirSim's physics body and the rendered pose disagree, and nothing on the ROS 2 side can say
 which is right, because everything there is downstream of the same physics.
 
-This asks AirSim directly, and logs the three things that separate the possibilities:
+This asks AirSim directly and logs the two poses that can disagree:
 
-    simGetCollisionInfo         does the SIMULATOR think it is touching anything, and what
-    simGetGroundTruthKinematics the physics body's position
-    simGetVehiclePose           the pose AirSim reports for the vehicle
+    simGetGroundTruthKinematics the physics body's position  (what every PX4 sensor derives from)
+    simGetVehiclePose           the Unreal ACTOR's position  (what the cameras see)
 
-MEASURED baseline, at rest on the ground: `has_collided=False`, `object_name='Ground'`,
-`impact_point.z=0.9`, and `time_stamp` ADVANCING. So the flag is edge-triggered and the name
-persists from the last contact -- neither is a live "am I touching the floor" signal. The
-advancing timestamp is, which makes a descent during which it FREEZES the signature of falling
-through nothing. That is why the raw fields are logged and the verdict is left to the reader.
+IT DELIBERATELY DOES NOT CALL simGetCollisionInfo, and must not start.
+
+    // RpcLibServerBase.cpp:435
+    getVehicleSimApi(vehicle_name)->getCollisionInfoAndReset();
+    // PawnSimApi.cpp:507 -- getCollisionInfoAndReset()
+    state_.collision_info.has_collided = false;      // <- clears it ON READ
+
+That RPC is READ-AND-RESET. `has_collided` is a one-shot flag, so every reader CONSUMES it. The
+collision witness (watch_collisions.py, 20 Hz) is what decides gate PASS/FAIL, and a second
+poller would silently eat impacts out from under it -- reintroducing exactly the blindness
+`SIM-22` was built to remove, from inside the tool meant to diagnose `SIM-27`.
+
+Contact is therefore the witness's job alone. This probe answers the one question the witness
+cannot: whether the actor and the integrator still agree.
+
+MEASURED baseline on a healthy landing: the two poses track to within **0.07 m**, and across 40
+consecutive AUTO.LAND touchdowns the worst divergence was 0.21 m -- a single sample taken at
+-2.5 m/s, i.e. skew between two RPC calls rather than a real split. So a genuine divergence would
+be unmistakable.
 
 RUN IT (inside sim-ros2, alongside a flight):
 
@@ -53,8 +66,6 @@ def main() -> int:
     period = 1.0 / max(a.hz, 0.5)
     t0 = time.time()
     n = errs = 0
-    # Remember the last object named, purely for the closing line.
-    last_obj = None
 
     with open(a.out, "w", buffering=1) as fh:
         while time.time() - t0 < a.max_seconds:
@@ -62,7 +73,6 @@ def main() -> int:
             try:
                 kin = rpc.call("simGetGroundTruthKinematics", a.vehicle)
                 pose = rpc.call("simGetVehiclePose", a.vehicle)
-                col = rpc.call("simGetCollisionInfo", a.vehicle)
             except Exception as exc:
                 errs += 1
                 if errs <= 5:
@@ -70,11 +80,6 @@ def main() -> int:
                                          "error": f"{type(exc).__name__}: {exc}"}) + "\n")
                 time.sleep(period)
                 continue
-
-            obj = col.get("object_name")
-            hit = bool(col.get("has_collided"))
-            if obj:
-                last_obj = obj
 
             fh.write(json.dumps({
                 "t": round(time.time() - t0, 2),
@@ -85,22 +90,11 @@ def main() -> int:
                 # which is the whole question this probe exists to answer.
                 "dz": round(kin["position"]["z_val"] - pose["position"]["z_val"], 4),
                 "vz": round(kin.get("linear_velocity", {}).get("z_val", float("nan")), 3),
-                # RAW, not a derived verdict. watch_collisions.py already documents why a
-                # derived one is treacherous here: `has_collided` is edge-triggered and fires at
-                # rest, `object_name` persists from the LAST contact, and `time_stamp` keeps
-                # advancing while contact is sustained. That last property is the signal --
-                # during a genuine fall through empty space it should FREEZE. Recording the raw
-                # fields lets that be checked afterwards instead of guessed at now.
-                "collided": hit,
-                "object": obj,
-                "penetration": round(col.get("penetration_depth") or 0.0, 4),
-                "col_ts": col.get("time_stamp"),
-                "impact_z": round((col.get("impact_point") or {}).get("z_val", float("nan")), 3),
             }) + "\n")
             n += 1
             time.sleep(max(0.0, period - (time.time() - loop)))
 
-    print(f"probe: {n} samples, {errs} errors, last object: {last_obj}", flush=True)
+    print(f"probe: {n} samples, {errs} errors", flush=True)
     return 0
 
 
