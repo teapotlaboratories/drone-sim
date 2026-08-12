@@ -48,6 +48,11 @@ mission:
 record_topics:
   - /fmu/out/vehicle_local_position
   - /fmu/out/vehicle_status_v1
+  # SIM-27. The seed-5 failure was `timeout in state land`, and the ONE topic that says why PX4
+  # did not consider itself landed was not being recorded -- so the bag could show the descent
+  # and not the land detector's own view of it. Cheap (a few Hz) and it is the first thing
+  # anyone will want next time a landing does not terminate.
+  - /fmu/out/vehicle_land_detected
   - /mission/status
   - /mission/result
 

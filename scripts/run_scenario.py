@@ -255,6 +255,29 @@ def run_flight(scenario: dict, seed: int) -> dict:
         sh(["docker", "exec", "-d", ROS2, "bash", "-lc",
             f"cd /tmp && python3 /tmp/watch_video.py --out {video_in_container} "
             f"> /tmp/watch_video.log 2>&1"], timeout=60)
+    # LANDING PROBE, always on.                                                    (SIM-27)
+    #
+    # The 10-seed gate found a landing that never terminates, and the investigation established
+    # something worse than the original guess: AirSim synthesises EVERY sensor PX4 receives --
+    # IMU, GPS, barometer, magnetometer, distance, LiDAR -- from one physics integrator state.
+    # Verified for the rangefinder specifically: UnrealDistanceSensor::getRayLength traces from
+    # `pose.position`, the physics pose, using the actor only to obtain the World. So if that
+    # state is wrong, NOTHING downstream can contradict it, and no sensor you could add would.
+    #
+    # Exactly two things read the Unreal ACTOR instead: the cameras, and simGetVehiclePose
+    # (-> PawnSimApi::getUUPosition -> GetActorLocation). That makes the actor-vs-integrator
+    # comparison the only cheap independent witness in the stack, which is why it is recorded
+    # for every run rather than bolted on after the next failure.
+    #
+    # ~15 RPC calls/s against a soak that sustained 924/s without incident.
+    probe_in_container = f"/out/{tag}-landing.jsonl"
+    sh(dexec("rm", "-f", probe_in_container), timeout=60)
+    for f in ("probe_landing.py", "airsim_rpc_client.py"):
+        sh(["docker", "cp", str(REPO / "scripts" / f), f"{ROS2}:/tmp/{f}"], timeout=60)
+    sh(["docker", "exec", "-d", ROS2, "bash", "-lc",
+        f"cd /tmp && python3 /tmp/probe_landing.py --out {probe_in_container} "
+        f"> /tmp/probe_landing.log 2>&1"], timeout=60)
+
     host_result_path = REPO / "out" / f"{tag}.json"
     host_result_path.unlink(missing_ok=True)
 
@@ -290,6 +313,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # unplayable, and a video that cannot be opened is worse than no video -- it looks like
     # evidence.
     sh(dexec("bash", "-lc", "pkill -INT -f watch_video.py || true"), timeout=60)
+    sh(dexec("bash", "-lc", "pkill -INT -f probe_landing.py || true"), timeout=60)
     time.sleep(1.5)
 
     # HAND THE ARTIFACTS BACK TO THE OPERATOR. sim-ros2 runs as root, so everything written
@@ -308,7 +332,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # needed, and therefore no shell needed. Argv, exactly like the `rm -rf` of these same three
     # paths above: interpolating them into a shell string would undo the reason that one is argv.
     sh(dexec("chown", "-R", f"{os.getuid()}:{os.getgid()}",
-             bag, result_in_container, video_in_container), timeout=120)
+             bag, result_in_container, video_in_container, probe_in_container), timeout=120)
 
     # DID A VIDEO ACTUALLY APPEAR? `docker exec -d` reports success whenever the container
     # exists, even when the command cannot run -- the same trap the collision witness already
