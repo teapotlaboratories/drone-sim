@@ -3232,6 +3232,40 @@ kept as an investigation tool: the actor-vs-integrator comparison is the only ch
 witness the stack has. On a healthy landing the two track within **0.07 m** (measured), so a split
 is unambiguous.
 
+### 2026-08-12: an attempt to FORCE the mechanism — negative
+
+The mechanism above is read out of the source, not observed. So rather than wait for a ~6% event,
+the condition it needs was commanded directly: arm, climb to 5 m, then hold a setpoint at **+8 m**
+— eight metres *below* the floor — for 45 s, with the probe at 10 Hz.
+
+If a swept move can be blocked while the integrator keeps going, this is where it should show.
+
+| | |
+|---|---|
+| commanded | +8 m below the floor, held 45 s |
+| reached | **+0.702 m** — resting ground level, and stopped there |
+| max \|phys_z − pose_z\| | **0.0563 m**, transient, during motion |
+| deepest `phys_z` / `pose_z` | **+0.702 / +0.702** — identical |
+
+**The two poses never split.** The ground lock held, the integrator did not sink, and 934 samples
+produced no divergence at all. The simple form of the mechanism — "push down and the actor blocks
+while physics continues" — is **not** how this behaves normally.
+
+What that rules in and out:
+
+- **Ruled out:** a general, easily-provoked decoupling. The normal path is robust under sustained
+  downward command.
+- **Still possible:** a rare *miss* of the touchdown collision event, after which ground lock never
+  engages. That is consistent with `col_ts` being edge-triggered and with only 2 collision events
+  appearing across a whole session.
+- **Caveat on this test:** a position hold is not AUTO.LAND. PX4's position controller bleeds
+  thrust as it settles, whereas the failing run was a constant 0.7 m/s descent. Close, not
+  identical, so this weakens the hypothesis rather than killing it.
+
+Net: after 20 reproduction attempts and one deliberate forcing attempt, the mechanism remains
+**unobserved**. The probe now runs on every flight precisely because that is the realistic way to
+catch it.
+
 ### Quantitative evidence of the divergence
 
 PSNR between two front-camera frames of the failing run, versus a real descent over the same
