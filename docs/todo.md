@@ -3183,17 +3183,75 @@ That is arguably worse than the original diagnosis. If physics and imagery can d
 perception result gathered during such a run is describing a world the vehicle was not in — and
 nothing currently detects it.
 
+### 2026-08-12: PX4 is exonerated, and the finding is worse than a bad estimate
+
+The obvious worry — "PX4 thinks it is falling, that is a bad sign" — was investigated and **PX4
+is not at fault.** Its estimator is healthy and self-consistent through the whole descent:
+
+| | |
+|---|---|
+| reported `vz` | +0.703 m/s |
+| measured `dz/dt` | +0.694 m/s |
+| EKF `z` / `vz` resets | **0** |
+| `z_valid`, `v_z_valid` | `True` throughout |
+
+It reported a descent because every sensor it had said descent. It was lied to, not broken.
+
+**And it could not have known better.** AirSim synthesises every sensor PX4 receives — IMU, GPS,
+barometer, magnetometer, distance, LiDAR — from the one physics integrator state. Checked
+specifically for the rangefinder, since "add a distance sensor" is the obvious mitigation:
+
+```cpp
+// UnrealSensors/UnrealDistanceSensor.cpp — getRayLength()
+Vector3r start = pose.position;              // the PHYSICS pose
+UAirBlueprintLib::GetObstacle(actor_, ...);  // actor_ only supplies the World
+```
+
+The ray starts wherever the integrator thinks the vehicle is. Point that 30 m underground and the
+ray starts underground too. **No sensor you could add creates an independent signal**, so the
+mitigation does not exist at the sensor level.
+
+**Exactly two things read the Unreal ACTOR instead of the integrator:**
+
+```cpp
+FVector PawnSimApi::getUUPosition() const { return params_.pawn->GetActorLocation(); }
+```
+
+- the **cameras**, which are components on that actor — which is why the flight video was the
+  only place the discrepancy ever surfaced, and why "it looks like it landed" was the
+  observation that broke the first diagnosis;
+- **`simGetVehiclePose`** → `getPose()` → `getUUPosition()` → `GetActorLocation()`.
+
+So the sharp statement is not "physics and render disagree". It is: **the simulator holds one
+source of truth for state and one unrelated source for imagery, with nothing reconciling them.**
+A divergence is invisible to the entire flight stack by construction, and detectable only by
+comparing those two RPCs or by eye.
+
+That is why `probe_landing.py` is now wired into `run_scenario.py` for **every** run rather than
+kept as an investigation tool: the actor-vs-integrator comparison is the only cheap independent
+witness the stack has. On a healthy landing the two track within **0.07 m** (measured), so a split
+is unambiguous.
+
+### Quantitative evidence of the divergence
+
+PSNR between two front-camera frames of the failing run, versus a real descent over the same
+21 s span (higher = more identical):
+
+| | span | PSNR |
+|---|---|---|
+| seed 5, across a physics-reported 23 m of descent | 21 s | **26.11 dB** |
+| seed 1, a genuine descent | 21 s | **13.17 dB** |
+
+A real descent transforms the view. Seed 5's barely changed while the integrator claimed 23 m of
+altitude. Frame hashes 4 s apart all differ, so the stream was live, not a frozen last frame.
+
+### A recording gap, now closed
+
+The bag held `vehicle_local_position` and `vehicle_status_v1` but **not
+`/fmu/out/vehicle_land_detected`** — the one topic that states why PX4 did not consider itself
+landed. Added to the scenario's `record_topics`.
+
 ### Next — the test that separates the possibilities
-
-Re-fly and, during the descent, poll `simGetCollisionInfo` **and** AirSim's own pose, comparing
-against the UE actor location. That distinguishes:
-
-- physics fell and the render did not (a sync/decoupling bug), from
-- neither fell and the telemetry is misreporting (an estimator/ground-truth bug).
-
-Also still open, and unaffected by which answer lands: `SIM-22`'s unexplained intermittent
-`timeout in state waypoints`, under 1-in-10, "not a collision, not a VOID, not spawn-dependent".
-A descent or a mission that never terminates for the same underlying reason would produce both.
 
 ### A tight timeout exists, and is NOT the cause
 
