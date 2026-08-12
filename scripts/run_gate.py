@@ -329,6 +329,11 @@ def main() -> int:
             # GPU-LiDAR scans lost to an empty readback during this run (SIM-24). Recorded, and
             # deliberately NOT scored -- see the note where the totals are printed below.
             "lidar_readback_drops": result.get("lidar_readback_drops"),
+            # SIM-27. Largest actor-vs-integrator gap the probe saw. Healthy landings stay under
+            # ~0.11 m (measured over 40); a real split would be metres. Recorded, not scored --
+            # same reasoning as the drop count, and nothing has ever exceeded it.
+            "max_pose_split_m": result.get("max_pose_split_m"),
+            "probe_written": result.get("probe_written"),
             "seconds": round(time.time() - t0, 1),
         })
         drops = runs[-1]["lidar_readback_drops"]
@@ -363,6 +368,10 @@ def main() -> int:
         # SIM-24. Recorded so a re-score is possible later; see the print below for why it is
         # not part of the verdict.
         "lidar_readback_drops_total": _drops_total(runs),
+        "max_pose_split_m": max((r["max_pose_split_m"] for r in runs
+                                 if isinstance(r.get("max_pose_split_m"), (int, float))),
+                                default=None),
+        "runs_without_probe_data": sum(1 for r in runs if r.get("probe_written") is False),
         "lidar_readback_drops_unknown_runs": sum(
             1 for r in runs if r.get("lidar_readback_drops") is not None
             and r["lidar_readback_drops"] < 0),
@@ -402,6 +411,13 @@ def main() -> int:
               f"MCAPs is incomplete.")
     if unknown:
         print(f"  lidar drops  : UNKNOWN for {unknown} run(s) — the renderer log was unreadable")
+    split = summary["max_pose_split_m"]
+    if split is not None:
+        print(f"  pose split   : max |phys_z - pose_z| {split:.3f} m across {len(runs)} run(s)"
+              + ("   <<< SIM-27, investigate" if split > rs.POSE_SPLIT_M else ""))
+    if summary["runs_without_probe_data"]:
+        print(f"  pose split   : NO probe data for "
+              f"{summary['runs_without_probe_data']} run(s) — not measured, not clean")
     print(f"  report       : {out}")
     print()
     if summary["met"]:

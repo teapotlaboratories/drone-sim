@@ -69,6 +69,29 @@ def dexec(*args: str) -> list[str]:
     return ["docker", "exec", "-i", ROS2, *args]
 
 
+# A healthy landing keeps the Unreal actor and the physics integrator within a few centimetres:
+# measured 0.07 m over one landing, 0.1122 m across 40. Anything beyond this is the SIM-27
+# divergence rather than RPC sampling skew between two calls.
+POSE_SPLIT_M = 0.5
+
+
+def _max_abs_dz(path_in_container: str) -> float | None:
+    """Largest |phys_z - pose_z| the probe saw, or None if it recorded nothing usable."""
+    r = sh(dexec("cat", path_in_container), timeout=60)
+    if r.returncode != 0:
+        return None
+    best = None
+    for line in (r.stdout or "").splitlines():
+        if '"dz"' not in line:
+            continue
+        try:
+            d = abs(json.loads(line)["dz"])
+        except Exception:
+            continue
+        best = d if best is None else max(best, d)
+    return best
+
+
 readback_drops = ld.readback_drops
 drops_during = ld.drops_during
 
@@ -302,6 +325,11 @@ def run_flight(scenario: dict, seed: int) -> dict:
         proc = sh(cmd, timeout=600)
     finally:
         sh(dexec("bash", "-lc", "pkill -INT -f '[r]os2 bag record' || true"), timeout=60)
+        # The probe stops HERE, not after the happy path. `sh(cmd, timeout=600)` raising
+        # TimeoutExpired is precisely the never-terminating-landing case this probe exists to
+        # catch, and stopping it outside the finally would leave it polling for its full 1200 s
+        # -- overlapping the next seed's flight, and its own probe, under --reuse.
+        sh(dexec("bash", "-lc", "pkill -INT -f probe_landing.py || true"), timeout=60)
         try:
             recorder.wait(timeout=60)
         except subprocess.TimeoutExpired:
@@ -313,7 +341,6 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # unplayable, and a video that cannot be opened is worse than no video -- it looks like
     # evidence.
     sh(dexec("bash", "-lc", "pkill -INT -f watch_video.py || true"), timeout=60)
-    sh(dexec("bash", "-lc", "pkill -INT -f probe_landing.py || true"), timeout=60)
     time.sleep(1.5)
 
     # HAND THE ARTIFACTS BACK TO THE OPERATOR. sim-ros2 runs as root, so everything written
@@ -331,6 +358,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # chown of a path that never appeared (an absent mp4) is already harmless -- no `|| true`
     # needed, and therefore no shell needed. Argv, exactly like the `rm -rf` of these same three
     # paths above: interpolating them into a shell string would undo the reason that one is argv.
+    # (Four paths now -- the probe log joined them -- while the rm -rf above still clears two.)
     sh(dexec("chown", "-R", f"{os.getuid()}:{os.getgid()}",
              bag, result_in_container, video_in_container, probe_in_container), timeout=120)
 
@@ -338,6 +366,28 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # exists, even when the command cannot run -- the same trap the collision witness already
     # guards against. A missing video must not FAIL the run (it is evidence, not a verdict),
     # but nine videos for ten seeds must not pass unremarked either.
+    # DID THE PROBE ACTUALLY RECORD? Checked AFTER the flight and after the probe was stopped --
+    # an earlier draft of this ran it moments after launch, where `test -s` passes on two seconds
+    # of pre-flight samples and max|dz| is ~0 by construction. A check that runs before the thing
+    # it checks is the exact defect this block was added to fix.
+    #
+    # `docker exec -d` returns 0 whenever the container exists, even for a command that cannot
+    # run -- collision_witness.py documents that trap. Without this a whole gate can ship with
+    # zero landing artifacts while every run reports success.
+    r = sh(dexec("test", "-s", probe_in_container), timeout=30)
+    probe_written = (r.returncode == 0)
+    if not probe_written:
+        print(f"  probe: NO landing data for {tag} — see /tmp/probe_landing.log in {ROS2}",
+              flush=True)
+
+    # And READ it. An artifact nobody looks at is not a witness: a run whose probe recorded a
+    # 30 m actor/integrator split would otherwise still print PASS with nothing said.
+    max_dz = _max_abs_dz(probe_in_container) if probe_written else None
+    if max_dz is not None and max_dz > POSE_SPLIT_M:
+        print(f"  probe: ACTOR/INTEGRATOR SPLIT during {tag} — max |phys_z - pose_z| "
+              f"= {max_dz:.3f} m (healthy landings stay under {POSE_SPLIT_M} m). SIM-27.",
+              flush=True)
+
     video_written = False
     if os.environ.get("SIM_NO_VIDEO", "") not in ("1", "true", "yes"):
         r = sh(dexec("test", "-s", video_in_container), timeout=30)
@@ -362,16 +412,22 @@ def run_flight(scenario: dict, seed: int) -> dict:
         res = json.loads(host_result.read_text())
         res["video_written"] = video_written
         res["lidar_readback_drops"] = drops
+        res["probe_written"] = probe_written
+        res["max_pose_split_m"] = max_dz
         return res
     # Fall back to the log line, so a missing file does not erase the evidence.
     m = re.search(r"result: (\{.*\})", proc.stdout or "")
     if m:
         res = json.loads(m.group(1))
         res["lidar_readback_drops"] = drops
+        res["probe_written"] = probe_written
+        res["max_pose_split_m"] = max_dz
         return res
     return {"outcome": "failure",
             "failure_reason": "no result produced",
             "lidar_readback_drops": drops,
+            "probe_written": probe_written,
+            "max_pose_split_m": max_dz,
             "stdout_tail": (proc.stdout or "")[-800:]}
 
 
