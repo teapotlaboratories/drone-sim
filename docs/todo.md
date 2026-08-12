@@ -921,7 +921,7 @@ inference.
 
 ## SIM-10 — Make the EKF-origin ordering deterministic
 
-**Status:** ✅ **done — 2026-08-09.** Built and verified once on 2026-08-01; the "N times in a row" evidence it was waiting on arrived with the 10-seed gate on `main` @ `f153384`: **ten consecutive cold bring-ups, ten sane EKF origins, zero VOID runs.** The one failed seed (`SIM-27`) failed on landing, with its origin verified like the other nine.
+**Status:** 🟡 **reopened 2026-08-12 — the claim was too strong.** Closed on 2026-08-09 on the strength of "ten cold bring-ups, ten sane origins, zero VOIDs". That is true of the OUTCOME and false about the mechanism: a 40-seed run shows the origin comes up **stale on 40 of 40 bring-ups** and is repaired every time by `sim_up.sh` restarting PX4. Zero VOIDs measures the repair, not the ordering. **"Deterministically repaired" is earned; "made deterministic" is not.** The systematic offset behind it is now `SIM-28`.
 Evidence: [`worklog/2026-08-01-c10-deterministic-bringup.md`](worklog/2026-08-01-c10-deterministic-bringup.md)
 
 `scripts/sim_up.sh` cold-starts the stack in 83 s unattended and `scripts/check_ekf_origin.py`
@@ -3305,6 +3305,35 @@ have let the probe silently eat impacts the witness needed, reintroducing exactl
 `SIM-22` exists to prevent. The call was removed before it shipped, and `watch_collisions.py` is
 now documented as the sole owner of that RPC.
 
+### 2026-08-12: 40 cold gate seeds in the exact failing configuration
+
+The previous attempts were criticised, correctly, for volume in the wrong configuration: 88 of
+them were persistent-stack short hops with no video, no witness and no waypoint mission. Only 18
+runs had ever matched the conditions that produced the failure. So 40 more were run that did —
+cold stack per seed, 20 m, four waypoints, video and witness both on, probe capturing throughout.
+
+```
+seeds 40   passed 40   SR 100.0%   voids 0   met=True
+wall clock 130 min   lidar drops 0   worst error 0.775-0.831 m
+probe: 20,750 samples, max |phys_z - pose_z| = 0.1122 m
+        (that sample taken at -3.12 m/s -- RPC skew between two calls, not a split)
+```
+
+**Not reproduced, and the actor/integrator divergence has still never been observed.**
+
+The rate estimate drops accordingly:
+
+| | |
+|---|---|
+| cold gate seeds in the failing configuration | **58 total, 1 failure** |
+| point estimate | **1.7%** (was 5.6%) |
+| P(0 in these 40 \| the old 5.6% estimate) | 0.10 — so 5.6% is now unlikely |
+| 95% upper bound over the 48 since | ~6.2% (rule of three) |
+
+Roughly **1 in 60**, consistent with it appearing on the very first 10-seed run and never again
+in 48 attempts. Forcing it is no longer a sensible use of hardware time; the always-on probe and
+the recorded `vehicle_land_detected` are the plan.
+
 ### Where the root cause stands
 
 Unresolved, and now well bounded. Across **~100 landings** in four experiments — 12 full missions,
@@ -3350,6 +3379,51 @@ landed. Added to the scenario's `record_topics`.
 since the first commit, halving the landing margin (~4.8× → ~2.4×). Worth fixing on its own, but
 a 20 m AUTO.LAND needs ~25 s of that 60 s — raising it would only buy a longer descent that still
 never terminates.
+
+---
+
+---
+
+## `SIM-28` — the EKF origin is stale on *every* bring-up, by a systematic 9.13 m
+
+**Status:** 🟡 **open** — found **2026-08-12** by the 40-seed gate, while looking at something
+else. Split out of `SIM-10`, whose claim it corrects.
+
+`sim_up.sh` checks the EKF origin after bring-up and restarts PX4 if it is stale. Across 40
+consecutive cold bring-ups it fired **40 times out of 40**:
+
+```
+VOID: EKF origin is STALE: ref_alt 114.16 m vs GPS 123.28 m = 9.12 m apart (tolerance 1 m)
+offset across 40 samples: min 9.111  max 9.168  mean 9.126 m
+```
+
+**That is not a race.** 57 mm of spread over 40 samples is a systematic offset, not a timing
+coincidence — something initialises PX4's origin against a reference about 9.13 m below the GPS
+altitude, every single time.
+
+### Why it was invisible
+
+The repair works. `sim_up.sh` restarts PX4, the second attempt is sane to 0.000 m, and the gate
+reports **zero VOIDs** — so every report looks clean and nothing draws attention to a defect
+firing on 100% of bring-ups. It cost `SIM-10` a wrong "done".
+
+### Why it is worth fixing rather than tolerating
+
+- Every bring-up pays a PX4 restart it should not need — measurable wall-clock across a 40-seed
+  gate.
+- The repair is two attempts deep (`attempt 1/2`). A run that needed a third would VOID, and
+  nothing currently reports how close to that margin a run came.
+- A stale origin is the documented trap that once read as a control bug for a full day
+  (`SIM-09`). Leaving the underlying cause in place keeps that trap loaded.
+
+### Leads
+
+- 9.13 m is suspiciously close to the difference between the vehicle's spawn height and the
+  Blocks ground plane. Worth checking whether PX4's origin is being taken at the *release*
+  altitude rather than the *resting* one — a spawn `Z` is a release height, and the vehicle
+  falls to whatever is beneath it.
+- Check whether the offset tracks the world: if it is a property of Blocks' ground plane it will
+  change in a different `.uproject`, and that would localise it immediately.
 
 ---
 
