@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-27 &mdash; A Landing That Never Ends &mdash; 2026-08-12</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-12 &middot; SIM-27</span>
+  <nav><a href="#failed">What failed</a><a href="#wrong1">Wrong #1</a><a href="#wrong2">Wrong #2</a><a href="#px4">PX4</a><a href="#exp">Experiments</a><a href="#self">Found in itself</a><a href="#gate">40/40</a><a href="#stands">Stands</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-12 &middot; SIM-27 &middot; SITL only, nothing real was armed</span>
+  <h1>A Landing<br>That Never Ends</h1>
+  <p class="sub">The flight gate came back 9/10 and the failing seed reported <code>timeout in state land</code>. Four days later the root cause is still open &mdash; but the failure is characterised, <strong>two confident diagnoses have been withdrawn</strong>, a defect was found in the tooling built to investigate it, and the gate now passes 40/40. The most useful output is the list of things ruled out.</p>
+  <div class="mastmeta"><span>Gate <b>40/40</b></span><span>Rate <b>1.7%</b></span><span>Diagnoses withdrawn <b>2</b></span><span>Experiments <b>6</b></span><span>New tickets <b>SIM-28</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">Seed 5: descent that never terminated</div><div class="v">0.694 m/s</div><div class="n">exactly MPC_LAND_SPEED, to 30 m below the takeoff surface</div></div>
+<div class="stat ok"><div class="k">40 cold seeds, exact failing config</div><div class="v">40/40</div><div class="n">first quotable success rate this project has</div></div>
+<div class="stat warn"><div class="k">EKF origin stale on every bring-up</div><div class="v">9.126 m</div><div class="n">57 mm spread over 40 &mdash; systematic, and it was invisible</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#failed">What failed</a></li>
+  <li><a href="#wrong1">Wrong diagnosis #1: it fell through the ground</a></li>
+  <li><a href="#wrong2">Wrong diagnosis #2: physics and render disagree</a></li>
+  <li><a href="#px4">What PX4 was doing, and why it could not know better</a></li>
+  <li><a href="#exp">Six experiments, all negative</a></li>
+  <li><a href="#self">The defect the investigation found in itself</a></li>
+  <li><a href="#gate">What the 40-seed run gave us instead</a></li>
+  <li><a href="#stands">Where it stands</a></li>
+</ol></div>
+
+<h2 id="failed"><span class="secnum">01</span> What failed</h2>
+<p>Seed 5 of 10. The mission itself was flawless &mdash; 4/4 waypoints at 0.770&ndash;0.777 m, the
+<em>best</em> errors of all ten seeds. Then it entered <code>land</code> and never came out.</p>
+<pre>descent at a steady 0.694 m/s  == MPC_LAND_SPEED exactly
+from 20 m, straight past the takeoff surface, to ~30 m below it
+never touched down -&gt; never disarmed -&gt; 60 s state budget expired</pre>
+<p>Collisions <strong>0</strong>. LiDAR drops <strong>0</strong>. Both are <em>positive</em>
+statements rather than absences, because <code>SIM-22</code> and <code>SIM-24</code> had just
+landed &mdash; the first time this harness could say "not an impact, and not lost sensor data"
+rather than shrugging.</p>
+
+<h2 id="wrong1"><span class="secnum">02</span> Wrong diagnosis #1: it fell through the ground</h2>
+<p>That is what the telemetry says, and it was written up as established fact, citing the flight
+video as confirmation. The owner looked at the video and said the drone appears to land perfectly.</p>
+<div class="callout stop"><span class="lbl">They were right, and the claim collapsed on two counts</span>
+<p><strong>"Two independent sources agree" was the load-bearing error.</strong> PX4's EKF is fed by
+AirSim's <em>simulated sensors</em>, generated from AirSim's <em>physics integrator</em>. The bag
+and the burned-in ground truth trace to <strong>one</strong> source.</p>
+<p><strong>"The bottom camera shows blank void" was not evidence.</strong> Seed 1 landed
+successfully and its bottom camera shows the identical uniform cream.</p></div>
+<p>Measured rather than eyeballed, second time around &mdash; PSNR between two front-camera frames,
+higher meaning more identical:</p>
+<div class="tw"><table>
+<thead><tr><th></th><th>span</th><th>PSNR</th></tr></thead>
+<tbody>
+<tr><td>seed 5, across a physics-reported 23 m descent</td><td>21 s</td><td><strong>26.11 dB</strong></td></tr>
+<tr><td>seed 1, a genuine descent</td><td>21 s</td><td><strong>13.17 dB</strong></td></tr>
+</tbody></table></div>
+<p>A real descent transforms the view. Seed 5's barely changed. Frame hashes 4 s apart all differ,
+so the stream was live, not frozen.</p>
+
+<h2 id="wrong2"><span class="secnum">03</span> Wrong diagnosis #2: physics and render disagree</h2>
+<p>Better, and still too strong. It became a mechanism read out of the vendored source:</p>
+<pre>// PawnSimApi.cpp:662 — the per-tick pose update
+SetActorLocationAndRotation(position, orientation, true);   // bSweep = true -&gt; ground can BLOCK it
+// FastPhysicsEngine.hpp:102 — the only way back
+if (body.isGrounded() || (collision_info.has_collided &amp;&amp; ts != last_ts)) { ... }</pre>
+
+<figure>
+<svg viewBox="0 0 760 250" role="img" aria-label="Two copies of the drone's position. AirSim's physics integrator feeds the Unreal actor through a swept move that the ground can block, and feeds PX4's synthetic sensors. The actor carries the cameras. The only path back from actor to physics is a new collision event. Block the actor and miss the event, and the integrator free-runs while the camera sits on the ground.">
+  <defs><marker id="a27" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker>
+  <marker id="a27r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#e5484d"/></marker></defs>
+  <rect x="16" y="96" width="168" height="58" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="100" y="120" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="700">physics integrator</text>
+  <text x="100" y="139" font-size="11" text-anchor="middle" fill="currentColor">the one source of truth</text>
+
+  <path d="M 184 112 L 268 60" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#a27)"/>
+  <text x="222" y="74" font-size="10.5" text-anchor="middle" fill="currentColor">swept move</text>
+  <path d="M 184 140 L 268 190" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#a27)"/>
+  <text x="220" y="182" font-size="10.5" text-anchor="middle" fill="currentColor">synthesised</text>
+
+  <rect x="272" y="30" width="180" height="58" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="362" y="54" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="700">Unreal actor</text>
+  <text x="362" y="73" font-size="11" text-anchor="middle" fill="currentColor">cameras bolted here</text>
+
+  <rect x="272" y="162" width="180" height="58" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="362" y="186" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="700">every PX4 sensor</text>
+  <text x="362" y="205" font-size="11" text-anchor="middle" fill="currentColor">IMU GPS baro mag range lidar</text>
+
+  <path d="M 452 59 L 596 59" stroke="currentColor" stroke-width="1.5" marker-end="url(#a27)"/>
+  <text x="524" y="50" font-size="10.5" text-anchor="middle" fill="currentColor">imagery</text>
+  <path d="M 452 191 L 596 191" stroke="currentColor" stroke-width="1.5" marker-end="url(#a27)"/>
+  <text x="524" y="182" font-size="10.5" text-anchor="middle" fill="currentColor">EKF</text>
+  <rect x="600" y="30" width="144" height="58" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="672" y="63" font-size="12" text-anchor="middle" fill="currentColor">what you SEE</text>
+  <rect x="600" y="162" width="144" height="58" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="672" y="195" font-size="12" text-anchor="middle" fill="currentColor">what PX4 BELIEVES</text>
+
+  <path d="M 300 88 C 250 125, 250 125, 190 122" stroke="#e5484d" stroke-width="1.5" fill="none" stroke-dasharray="5 4" marker-end="url(#a27r)"/>
+  <text x="252" y="112" font-size="10.5" text-anchor="middle" fill="#e5484d">only on a NEW collision event</text>
+</svg>
+<figcaption>Two copies of "where the drone is". Physics &rarr; actor is a swept move the ground can
+block; the only path back is a fresh collision event. Block the actor, miss the event, and the
+integrator free-runs while the camera sits on the ground. Coherent, sourced &mdash; and not
+reproducible.</figcaption>
+</figure>
+
+<h2 id="px4"><span class="secnum">04</span> What PX4 was doing, and why it could not know better</h2>
+<p>"PX4 thinks it is falling" is itself alarming, so it was investigated. PX4 was doing its job:</p>
+<div class="tw"><table>
+<tbody>
+<tr><td>reported <code>vz</code></td><td>+0.703 m/s</td></tr>
+<tr><td>measured <code>dz/dt</code></td><td>+0.694 m/s</td></tr>
+<tr><td>EKF <code>z</code> / <code>vz</code> resets</td><td><strong>0</strong></td></tr>
+<tr><td><code>z_valid</code>, <code>v_z_valid</code></td><td><code>True</code> throughout</td></tr>
+</tbody></table></div>
+<p>Self-consistent, no resets. <strong>Lied to, not broken.</strong> And it could not have known
+better &mdash; checked specifically for the rangefinder, since "add a distance sensor" is the
+obvious fix:</p>
+<pre>// UnrealDistanceSensor.cpp — getRayLength()
+Vector3r start = pose.position;              // the PHYSICS pose
+UAirBlueprintLib::GetObstacle(actor_, ...);  // actor_ only supplies the World</pre>
+<div class="callout"><span class="lbl">The architectural finding</span>
+<p>The ray starts wherever the integrator thinks the vehicle is. <strong>No sensor you could add
+creates an independent signal.</strong> Exactly two things read the Unreal actor: the cameras, and
+<code>simGetVehiclePose</code>. The simulator holds one source of truth for state and one unrelated
+source for imagery, with nothing reconciling them &mdash; so a divergence is invisible to the
+entire flight stack by construction, and the video was the only place it could ever have shown up.</p></div>
+
+<h2 id="exp"><span class="secnum">05</span> Six experiments, all negative</h2>
+<div class="tw"><table>
+<thead><tr><th>experiment</th><th>runs</th><th>result</th></tr></thead>
+<tbody>
+<tr><td>full missions, persistent stack</td><td>12</td><td>no failure</td></tr>
+<tr><td>cold gate seeds</td><td>8</td><td>no failure, <strong>probe captured nothing</strong> (harness bug)</td></tr>
+<tr><td>position hold 8 m <em>below</em> the floor</td><td>45 s</td><td>no split; reached +0.702 m and stopped</td></tr>
+<tr><td>real <code>AUTO.LAND</code> touchdowns</td><td>40</td><td>40/40 clean, 47 collision events, no split</td></tr>
+<tr><td>the same under 100 Hz flag-stealing</td><td>36</td><td>36/36 clean</td></tr>
+<tr><td><strong>cold gate seeds, exact failing config</strong></td><td><strong>40</strong></td><td><strong>40/40 clean, no split in 20,750 samples</strong></td></tr>
+</tbody></table></div>
+<p>The 88 middle runs were fairly criticised: persistent stack, 6 m hops, no video, no witness, no
+waypoint mission. <strong>Volume in the wrong configuration.</strong> Only the 40-seed run and the
+earlier 8 were true repeats.</p>
+<p><strong>Rate revised:</strong> 1 failure in 58 cold seeds &asymp; <strong>1.7%</strong>, down
+from 5.6%. P(0 in those 40 | the old estimate) = 0.10.</p>
+
+<h2 id="self"><span class="secnum">06</span> The defect the investigation found in itself</h2>
+<pre>// RpcLibServerBase.cpp:435 -&gt; PawnSimApi.cpp:507
+getCollisionInfoAndReset() { ...; state_.collision_info.has_collided = false; }   // ON READ</pre>
+<p><code>simGetCollisionInfo</code> is <strong>read-and-reset</strong>. It did not explain
+<code>SIM-27</code> &mdash; 36 landings at 100 Hz polling stayed clean. But it caught this ticket's
+own tooling: <code>probe_landing.py</code> was about to be wired into every run <em>while also
+calling that RPC</em>, a second consumer racing <code>watch_collisions.py</code> at 20 Hz, which
+decides gate PASS/FAIL. It would have silently eaten impacts the witness needed &mdash;
+reintroducing exactly the blindness <code>SIM-22</code> exists to prevent, from inside the tool
+built to diagnose <code>SIM-27</code>.</p>
+<div class="callout stop"><span class="lbl">Review then found a worse one, in the shared RPC client</span>
+<pre>for msg in self.unp:
+    if msg[0] == 1:        # returned the FIRST reply seen -- no msgid check
+        return msg[3]</pre>
+<p>One lost reply desyncs the stream permanently, so <code>simGetVehiclePose</code> would return
+the <em>kinematics</em> answer and <code>dz</code> would read 0.000 for the rest of the run &mdash;
+the divergence detector reporting perfect agreement precisely when the RPC was sick. Fixed by
+matching <code>msgid</code>, proved by feeding a stale reply ahead of the correct one.</p></div>
+
+<h2 id="gate"><span class="secnum">07</span> What the 40-seed run gave us instead</h2>
+<pre>seeds 40   passed 40   SR 100.0%   voids 0   met=True
+130 min    lidar drops 0   worst error 0.775-0.831 m</pre>
+<p><strong>The first success rate this project can quote.</strong> The standing 10/10 predated four
+fixes and is superseded.</p>
+<p>And an unrelated finding, from watching the log rather than the report:</p>
+<pre>stale EKF origin, repaired: 40 of 40 bring-ups
+offset: min 9.111  max 9.168  mean 9.126 m</pre>
+<div class="callout warn"><span class="lbl">57 mm of spread over 40 samples is systematic, not a race</span>
+<p>It stayed invisible because <code>sim_up.sh</code> restarts PX4 and the retry is sane to
+0.000 m, so every report shows zero VOIDs. It cost <code>SIM-10</code> a wrong "done" &mdash;
+closed on "ten sane origins, zero VOIDs", which measures the <em>repair</em>, not the ordering.
+Reopened, and the offset is now <code>SIM-28</code>.</p></div>
+
+<h2 id="stands"><span class="secnum">08</span> Where it stands</h2>
+<div class="tw"><table>
+<thead><tr><th>claim</th><th>status</th></tr></thead>
+<tbody>
+<tr><td>fell through the ground</td><td><strong>refuted</strong> by the imagery</td></tr>
+<tr><td>PX4 estimator fault</td><td><strong>refuted</strong> &mdash; self-consistent, zero resets</td></tr>
+<tr><td>tight <code>state_timeout_s</code></td><td><strong>ruled out</strong> &mdash; 25 s needed of a 60 s budget</td></tr>
+<tr><td>swept move blocks actor, physics runs on</td><td><strong>not reproducible</strong> under deliberate forcing</td></tr>
+<tr><td>a poller stealing the collision flag</td><td><strong>not reproducible</strong> at 100 Hz over 36 landings</td></tr>
+<tr><td>root cause</td><td><strong>open</strong>, ~1.7%</td></tr>
+</tbody></table></div>
+<p>Forcing it is no longer a sensible use of hardware. <code>probe_landing.py</code> now runs on
+<strong>every</strong> flight and <code>/fmu/out/vehicle_land_detected</code> is recorded, so the
+next occurrence arrives with the actor-vs-integrator data the first one lacked.</p>
+<div class="callout"><span class="lbl">The recurring lesson, and it applies to me as much as the code</span>
+<p>Three times this week I built a check that could not fail &mdash; a <code>git checkout</code>
+that ate my own uncommitted work, a test injection that was a silent no-op, a probe reporting
+"armed" while capturing nothing &mdash; and then, fixing a review finding <em>about</em> vacuous
+checks, placed the new check <em>before</em> the flight it was meant to verify. Validating that
+something <strong>started</strong> rather than that it <strong>produced data</strong> is the
+failure mode, and it is the same one behind <code>test -x</code> on an unlinkable binary and a
+soak aimed at the wrong code path.</p></div>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

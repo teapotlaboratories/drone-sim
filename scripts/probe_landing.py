@@ -73,14 +73,26 @@ def main() -> int:
             try:
                 kin = rpc.call("simGetGroundTruthKinematics", a.vehicle)
                 pose = rpc.call("simGetVehiclePose", a.vehicle)
+            except KeyboardInterrupt:
+                break
             except Exception as exc:
                 errs += 1
                 if errs <= 5:
                     fh.write(json.dumps({"t": round(time.time() - t0, 2),
                                          "error": f"{type(exc).__name__}: {exc}"}) + "\n")
+                # RECONNECT rather than reuse a socket that just failed. A half-finished
+                # exchange leaves a reply unread, and a client that carries on would answer
+                # every later call with the previous one's result -- so the two poses would be
+                # identical by construction and `dz` would read 0.000 for the rest of the run.
+                # Rpc.call now discards mismatched msgids, and this closes the other half.
+                try:
+                    rpc = Rpc()
+                except Exception:
+                    pass
                 time.sleep(period)
                 continue
 
+            vz = (kin.get("linear_velocity") or {}).get("z_val")
             fh.write(json.dumps({
                 "t": round(time.time() - t0, 2),
                 # NED: positive z is BELOW the origin.
@@ -89,11 +101,18 @@ def main() -> int:
                 # If these two ever differ, the physics body and the reported pose have split,
                 # which is the whole question this probe exists to answer.
                 "dz": round(kin["position"]["z_val"] - pose["position"]["z_val"], 4),
-                "vz": round(kin.get("linear_velocity", {}).get("z_val", float("nan")), 3),
+                # None, not float("nan"): json.dumps emits a bare NaN, which is not valid JSON
+                # and is rejected by jq and every strict parser. Python accepts it, so it would
+                # only bite the first non-Python reader.
+                "vz": (round(vz, 3) if vz is not None else None),
             }) + "\n")
             n += 1
             time.sleep(max(0.0, period - (time.time() - loop)))
 
+    # Printed on the way out however we leave, including SIGINT -- `pkill -INT` is how the
+    # runner stops this, and without the handler above a traceback replaced this line, which is
+    # the ONLY place the error count is reported. "No divergence" and "the RPC was dead for 90 s"
+    # must not look the same from outside.
     print(f"probe: {n} samples, {errs} errors", flush=True)
     return 0
 

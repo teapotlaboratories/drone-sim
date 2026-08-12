@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>18</b></span>
-    <span>Newest <b>2026-08-08</b></span>
+    <span>Entries <b>19</b></span>
+    <span>Newest <b>2026-08-12</b></span>
   </div>
 </header>
 
@@ -114,8 +114,21 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-12-sim27-a-landing-that-never-ends.html">
+    <span class="k">2026-08-12 · SIM-27 · newest</span>
+    <h3>A Landing That Never Ends</h3>
+    <p>The gate came back <strong>9/10</strong> and the failing seed reported <code>timeout in state land</code> — a descent at exactly <code>MPC_LAND_SPEED</code> to 30 m below the takeoff surface that never touched down, never disarmed, and ran out its state budget. Four days later the root cause is <em>still open</em>, and the useful output is the list of things ruled out. <strong>Two confident diagnoses were withdrawn</strong>: "it fell through the ground" died when the owner pointed out the video shows a normal landing, and the two telemetry sources cited as corroboration turned out to be <em>one</em> — every PX4 sensor derives from AirSim's physics integrator, verified down to the rangefinder, so <strong>no sensor you could add creates an independent signal</strong>. Six experiments, all negative, including 40 real <code>AUTO.LAND</code> touchdowns and 40 cold gate seeds in the exact failing configuration. The hunt found a read-and-reset RPC that would have let this ticket's own probe eat the collision witness's impacts, and review found an unmatched <code>msgid</code> that would have made the divergence detector report perfect agreement precisely when the RPC was sick. The gate now passes <strong>40/40</strong>, and the EKF origin turns out to be stale on <em>every</em> bring-up by a systematic 9.13 m.</p>
+    <div class="tags">
+      <span class="pill p-ok">gate 40/40, first quotable SR</span>
+      <span class="pill p-stop">2 diagnoses withdrawn</span>
+      <span class="pill p-stop">root cause still open, ~1.7%</span>
+      <span class="pill p-warn">stale origin 40/40, 9.126 m</span>
+      <span class="pill p-chrome">SIM-10 reopened · SIM-28 filed</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-08-sim23-gpulidar-empty-readback.html">
-    <span class="k">2026-08-08 · SIM-23 · newest</span>
+    <span class="k">2026-08-08 · SIM-23</span>
     <h3>A Frame That Was Never Read</h3>
     <p>The renderer had been dying mid-flight since 2026-08-02 — <strong>13 of 18 crash reports</strong>, one bug — and the report stated the cause outright in a line nobody had read closely enough: <code>into an array of size 0</code>. The out-of-bounds index is not the bug; every recorded index is a <em>legal</em> offset into <code>resolution²</code>. The array is empty, because <code>ServiceAsyncCapture</code> discards the <code>bool</code> that <code>ReadPixels</code> returns and advertises readiness anyway, handing AirSim's physics thread a zero-length <code>TArray</code>. The obvious data-race reading was <strong>refuted by the sizes</strong>: a reallocation under a live reader gives varied nonzero sizes, and all eleven say <code>0</code>. Verified by <strong>fault injection</strong>, since waiting on a daily fault is not evidence — upstream + one emptied buffer <strong>died in 20 ms</strong> with the exact production signature; with 0006 it logged the size and flew on. A <strong>90-minute soak</strong> then ran 45 consecutive flights past the historical 57-minute failure point with zero crashes — labelled as <em>absence</em> evidence, since no fault fired naturally. Chasing the build route found a second gap: <strong>0005 had never reached Blocks either</strong>, five days after it landed. Also closes the "uncharacterised" instability open since 08-03 — same bug, chased down the wrong array, by a soak that only ever drove the image path.</p>
     <div class="tags">

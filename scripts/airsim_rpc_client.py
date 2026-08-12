@@ -29,11 +29,24 @@ class Rpc:
 
     def call(self, method, *params):
         self.msgid += 1
-        self.s.sendall(msgpack.packb([0, self.msgid, method, list(params)],
+        mid = self.msgid
+        self.s.sendall(msgpack.packb([0, mid, method, list(params)],
                                      use_bin_type=True))
         while True:
             for msg in self.unp:
                 if msg[0] == 1:
+                    # MATCH THE msgid. This used to return the first response it saw, which is
+                    # fine until one reply is lost or a read times out -- after that every call
+                    # returns the PREVIOUS call's result, permanently, with no error anywhere.
+                    #
+                    # That is not theoretical for probe_landing.py, which calls
+                    # simGetGroundTruthKinematics then simGetVehiclePose and compares them: one
+                    # slip and the second call returns the first one's reply, so the two poses
+                    # are identical by construction and `dz` reads 0.000 for the rest of the run.
+                    # The divergence detector would report perfect agreement precisely when the
+                    # RPC was in trouble. A stale reply is discarded, not returned.
+                    if msg[1] != mid:
+                        continue
                     if msg[2] is not None:
                         raise RuntimeError(f"{method}: {msg[2]}")
                     return msg[3]

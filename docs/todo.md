@@ -3133,8 +3133,6 @@ on the evidence drive is not worth it; new runs are correct.
 
 ---
 
----
-
 ## `SIM-27` — a landing that never terminates, and physics that disagrees with the render
 
 **Status:** 🟡 **open** — found **2026-08-09** by the 10-seed gate on `main` @ `f153384`. This is
@@ -3371,16 +3369,12 @@ The bag held `vehicle_local_position` and `vehicle_status_v1` but **not
 `/fmu/out/vehicle_land_detected`** — the one topic that states why PX4 did not consider itself
 landed. Added to the scenario's `record_topics`.
 
-### Next — the test that separates the possibilities
-
 ### A tight timeout exists, and is NOT the cause
 
 `a7a1aae` doubled `takeoff_altitude_m` 10 → 20 and left `state_timeout_s` at the 60.0 it has had
 since the first commit, halving the landing margin (~4.8× → ~2.4×). Worth fixing on its own, but
 a 20 m AUTO.LAND needs ~25 s of that 60 s — raising it would only buy a longer descent that still
 never terminates.
-
----
 
 ---
 
