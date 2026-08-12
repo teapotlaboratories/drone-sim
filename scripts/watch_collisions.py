@@ -15,6 +15,17 @@ It is a SEPARATE observer on purpose. The mission node could poll this itself, b
 thing under test would be reporting on its own crash. An independent witness costs one process
 and cannot be silenced by the failure it is watching.
 
+SOLE OWNER OF simGetCollisionInfo -- DO NOT ADD A SECOND POLLER
+
+    // RpcLibServerBase.cpp:435 -> PawnSimApi.cpp:507
+    getCollisionInfoAndReset() { ...; state_.collision_info.has_collided = false; }
+
+That RPC is READ-AND-RESET: `has_collided` is a one-shot flag and every reader CONSUMES it. Any
+other process polling it silently eats impacts out from under this witness, and this witness is
+what decides gate PASS/FAIL -- so a second poller reintroduces exactly the blindness SIM-22 was
+built to remove. probe_landing.py was caught doing this before it shipped (SIM-27) and had the
+call removed. If something else needs contact data, it takes it from this witness's output.
+
 THE TRAP: has_collided IS NOT ENOUGH
 ------------------------------------
 `simGetCollisionInfo` reports the vehicle's CURRENT contact, and a drone sitting on the ground is
