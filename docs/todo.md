@@ -3496,6 +3496,70 @@ vehicle 80 m during every bring-up is worth understanding before blaming a landi
 
 ---
 
+## SIM-29 — Chase-camera video as a scenario artifact
+
+**Status:** 🔵 **open, feasibility PROVEN 2026-08-13.** Not built. The measurements below come
+from a throwaway probe image outside the repo; nothing here is committed yet.
+Evidence: [`worklog/2026-08-13-sim29-chase-camera-via-virtual-display.md`](worklog/2026-08-13-sim29-chase-camera-via-virtual-display.md)
+
+**The problem.** A gate run produces an MCAP bag, a result JSON and metrics — and nothing a human
+can watch that shows *the aircraft*. Every camera in the graph is vehicle-mounted, so the one
+object you want to see is the one object that can never be in frame. That gap cost real time
+during `SIM-27`: the argument over whether a landing "looked correct" could not be settled by
+looking, because no recording showed the drone.
+
+AirSim has a chase camera and it is **already running** — `ViewMode` defaults to `FlyWithMe` for
+a multirotor. It is unviewable only because `sim_up.sh` launches the engine with
+`-RenderOffScreen`, so the view is rendered to nothing. There is no RPC binding for
+`AirSimCameraDirector` (`ECameraDirectorMode` is viewport-only), so `simGetImages` cannot reach
+it at any resolution.
+
+**What was proven.** Give the engine an Xvfb display instead of `-RenderOffScreen`, and grab the
+screen with `ffmpeg -f x11grab`. The chase view records, with the drone in frame. Measured on
+`square-10m` seed 1 (`success, 4/4 waypoints`, twice), 1920x1080, distinct frames counted with
+`mpdecimate` — because `x11grab` re-emits the last frame when the screen has not changed, so its
+nominal rate proves nothing:
+
+| | rate during the 90 s flight window |
+|---|---|
+| `simGetImages` (existing path) | ~13-14 Hz, resolution-independent |
+| x11grab, encoding x264 1080p60 | **30.6 fps** (2756 distinct frames) |
+| x11grab, no encoder (control) | **32.0 fps** (2877 distinct frames) |
+
+**The control is the load-bearing measurement.** Encoding costs **1.3 fps, 4.2%** — so ~31 fps is
+the engine's own render rate under flight load, not contention with the encoder. Capture is
+effectively free. This also means the number will move with GPU load and world complexity; 31 fps
+is Blocks on the 3080, not a constant.
+
+Idle windows read 0.1-7.8 fps distinct, which is correct and worth remembering: a parked drone
+does not change the screen, so **any average taken across a whole run understates the flight**.
+
+**Why this beats the readback path** — it never touches it. `simGetImages` blocks on a GPU->CPU
+readback that stalls the render thread (`SIM-23`); x11grab reads a screen the engine has already
+drawn, and costs the simulator nothing.
+
+**Shape of the work:**
+
+- `sim_up.sh` gains an opt-in display mode — Xvfb plus windowed launch instead of
+  `-RenderOffScreen`. Off by default: headless stays the gate's normal path.
+- The engine image gains `xvfb` and `ffmpeg`. Both are absent today, which is the only reason
+  the probe needed its own image.
+- `run_scenario.py` starts and stops the grab inside the same `try/finally` that owns the bag and
+  the landing probe, and chowns the mp4 back to the caller (`SIM-26` — the same bug will
+  otherwise recur here, since this is a second writer of an artifact into `out/`).
+- The mp4 lands next to the MCAP, named by scenario and seed.
+
+**Open questions before building:**
+
+- **Does display mode change flight behaviour?** Both probe runs passed 4/4, but two runs is not
+  evidence of no effect on timing. Needs a seeded comparison against headless.
+- **Disk.** 64 MB per 122 s at CRF 23. A 40-seed gate would be ~2.5 GB. Either lower the quality,
+  cap the resolution, or keep video opt-in per run — decide before it lands, not after a gate
+  fills the NVMe.
+- **Does it hold in a user's own world?** Measured only in Blocks, which is trivial geometry.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:

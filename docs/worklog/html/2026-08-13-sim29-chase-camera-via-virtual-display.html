@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-29 &mdash; Recording The Chase Camera &mdash; 2026-08-13</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-13 &middot; SIM-29</span>
+  <nav><a href="#dead">Dead end</a><a href="#plain">Hiding in plain sight</a><a href="#built">The probe</a><a href="#measure">The measurement</a><a href="#control">The control</a><a href="#stands">Where it stands</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-13 &middot; SIM-29 &middot; SITL only, nothing real was armed</span>
+  <h1>Recording The Chase Camera<br>By Giving The Engine A Screen</h1>
+  <p class="sub">The question was whether the chase camera could be recorded in high resolution. <strong>The chase camera was never missing &mdash; it has been running the whole time, rendered to nothing.</strong> Swap <code>-RenderOffScreen</code> for an Xvfb display and it records at ~31 fps at 1080p, against ~13&ndash;14 Hz for <code>simGetImages</code>, which cannot frame the aircraft at all.</p>
+  <div class="mastmeta"><span>Flight rate <b>~31 fps</b></span><span>Encoder cost <b>4.2%</b></span><span>Plugin changes <b>none</b></span><span>Committed <b>nothing yet</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Chase camera status</div><div class="v">already on</div><div class="n"><code>ViewMode</code> defaults to <code>FlyWithMe</code> for a multirotor</div></div>
+<div class="stat"><div class="k">Rate during the 90 s flight</div><div class="v">30.6 fps</div><div class="n">2756 distinct frames at 1080p, against ~13&ndash;14 Hz</div></div>
+<div class="stat warn"><div class="k">Cost of encoding x264</div><div class="v">1.3 fps</div><div class="n">4.2% &mdash; so ~31 fps is the engine, not contention</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#dead">Why the obvious path is a dead end</a></li>
+  <li><a href="#plain">The thing hiding in plain sight</a></li>
+  <li><a href="#built">What was built to test it</a></li>
+  <li><a href="#measure">The measurement, and the trap inside it</a></li>
+  <li><a href="#control">The control, which is the load-bearing part</a></li>
+  <li><a href="#stands">Where it stands</a></li>
+</ol></div>
+
+<h2 id="dead"><span class="secnum">01</span> Why the obvious path is a dead end</h2>
+<p>The instinct is to ask AirSim for the chase image over RPC. It cannot be done, for two
+independent reasons, and both are worth writing down because either alone would be enough.</p>
+<ul>
+<li><strong>There is no RPC binding.</strong> The chase camera is <code>AirSimCameraDirector</code>,
+whose modes live in <code>ECameraDirectorMode</code> (<code>AirSimCameraDirector.h</code>). Nothing
+in <code>RpcLibServerBase.cpp</code> exposes it. <code>simGetImages</code> serves
+<em>vehicle-mounted</em> cameras only &mdash; the ones declared in <code>settings.json</code> &mdash;
+and the director's viewpoint is not one of them. It is a viewport concept, not a sensor.</li>
+<li><strong>The readback path is slow anyway.</strong> <code>RenderRequest::getScreenshot</code>
+blocks on a GPU&rarr;CPU readback of roughly 71 ms fixed plus ~5 ms/MB, putting a ceiling near
+13&ndash;14 Hz <em>at any resolution</em> &mdash; the fixed term dominates, so asking for a smaller
+image does not help. That same readback is what <code>SIM-23</code> was about; it stalls the render
+thread while it runs.</li>
+</ul>
+<div class="callout stop"><span class="lbl">So the original question was mis-framed</span>
+<p>It is not "why is the chase camera low-res". It is <strong>"the chase camera is not on the RPC
+surface, and the RPC surface would be too slow regardless"</strong>. Resolution was never the
+constraint.</p></div>
+
+<h2 id="plain"><span class="secnum">02</span> The thing hiding in plain sight</h2>
+<p><code>ViewMode</code> is a <code>settings.json</code> key &mdash; <code>Fpv</code>,
+<code>GroundObserver</code>, <code>FlyWithMe</code>, <code>Manual</code>,
+<code>SpringArmChase</code>, <code>Backup</code>, <code>NoDisplay</code>, <code>Front</code>
+&mdash; and for a multirotor it <strong>defaults to <code>FlyWithMe</code></strong>.</p>
+<p>The chase camera has therefore been active on every run this project has ever done.
+<code>sim_up.sh</code> launches with <code>-RenderOffScreen</code>, so the engine renders that view
+to a surface nobody can read. <strong>The capability was never absent; it was never
+presented.</strong></p>
+
+<figure>
+<svg viewBox="0 0 900 430" role="img" aria-label="Two capture paths compared. Headless today: the chase view renders to nothing and has no RPC binding, while vehicle cameras reach simGetImages through a blocking GPU to CPU readback at 13 to 14 Hz. With a display: the same rendered view goes to an Xvfb screen and is grabbed by ffmpeg at about 31 fps with the drone in frame.">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--ink2)"/>
+    </marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--stop)"/>
+    </marker>
+  </defs>
+
+  <text class="axl" x="30" y="30">01 &nbsp; HEADLESS TODAY &nbsp;&mdash;&nbsp; -RenderOffScreen</text>
+  <rect class="n-box" x="30" y="52" width="150" height="118"/>
+  <text class="nid" x="105" y="98" text-anchor="middle">UnrealEditor</text>
+  <text class="nlb" x="105" y="116" text-anchor="middle">chase view + vehicle cams</text>
+
+  <line class="e-b" x1="180" y1="82" x2="252" y2="82" marker-end="url(#arb)"/>
+  <rect class="n-b" x="256" y="58" width="184" height="48"/>
+  <text class="nid" x="348" y="80" text-anchor="middle">rendered to nothing</text>
+  <text class="nlb" x="348" y="96" text-anchor="middle">no surface to read</text>
+  <text class="nlb" x="460" y="86">no RPC binding for the director</text>
+
+  <line class="e" x1="180" y1="140" x2="252" y2="140" marker-end="url(#ar)"/>
+  <rect class="n-a" x="256" y="116" width="184" height="48"/>
+  <text class="nid" x="348" y="138" text-anchor="middle">blocking readback</text>
+  <text class="nlb" x="348" y="154" text-anchor="middle">GPU&rarr;CPU, stalls render thread</text>
+  <line class="e" x1="440" y1="140" x2="502" y2="140" marker-end="url(#ar)"/>
+  <rect class="n-box" x="506" y="116" width="160" height="48"/>
+  <text class="nid" x="586" y="138" text-anchor="middle">simGetImages</text>
+  <text class="nlb" x="586" y="154" text-anchor="middle">vehicle cameras only</text>
+  <text class="axl" x="686" y="138">~13&ndash;14 Hz</text>
+  <text class="nlb" x="686" y="154">any resolution</text>
+
+  <line x1="30" y1="205" x2="870" y2="205" stroke="var(--rule)" stroke-width="1"/>
+
+  <text class="axl" x="30" y="248">02 &nbsp; WITH A DISPLAY &nbsp;&mdash;&nbsp; Xvfb, windowed</text>
+  <rect class="n-box" x="30" y="270" width="150" height="76"/>
+  <text class="nid" x="105" y="302" text-anchor="middle">UnrealEditor</text>
+  <text class="nlb" x="105" y="320" text-anchor="middle">-windowed, same build</text>
+
+  <line class="e" x1="180" y1="308" x2="252" y2="308" marker-end="url(#ar)"/>
+  <rect class="n-v" x="256" y="284" width="184" height="48"/>
+  <text class="nid" x="348" y="306" text-anchor="middle">Xvfb :99</text>
+  <text class="nlb" x="348" y="322" text-anchor="middle">1920&times;1080 virtual screen</text>
+
+  <line class="e" x1="440" y1="308" x2="502" y2="308" marker-end="url(#ar)"/>
+  <rect class="n-v" x="506" y="284" width="160" height="48"/>
+  <text class="nid" x="586" y="306" text-anchor="middle">ffmpeg x11grab</text>
+  <text class="nlb" x="586" y="322" text-anchor="middle">reads a screen already drawn</text>
+  <text class="axl" x="686" y="306">~31 fps</text>
+  <text class="nlb" x="686" y="322">drone in frame</text>
+
+  <text class="nlb" x="30" y="382">The engine, the plugin and the settings are identical in both rows. The only difference is whether</text>
+  <text class="nlb" x="30" y="398">the rendered view is given a surface &mdash; which is why this needs no change to Cosys-AirSim.</text>
+</svg>
+<figcaption>The chase view exists in both rows. Only the second one can be read.</figcaption>
+</figure>
+
+<h2 id="built"><span class="secnum">03</span> What was built to test it</h2>
+<p>A throwaway image, <code>drone-sim/unreal-xvfb:probe</code>, <code>FROM
+drone-sim/unreal:ue5.8</code> plus <code>xvfb</code>, <code>x11-utils</code>, <code>ffmpeg</code>
+and <code>xdotool</code> &mdash; all four absent from the engine image, which is the only reason a
+new image was needed at all.</p>
+<p><strong>First probe: bare editor</strong>, no PX4, no ROS 2. <code>Xvfb :99 -screen 0
+1920x1080x24</code>, then <code>UnrealEditor Blocks.uproject -game -nosound -windowed</code> with
+<code>DISPLAY=:99</code>. The window appeared &mdash; <code>xdotool search</code> found <em>Blocks
+Environment for Cosys-AirSim</em> &mdash; and <code>ffmpeg -f x11grab</code> captured it. The
+extracted frame showed the Blocks world, the <code>Collision Count:0</code> HUD, and the drone.</p>
+<p><strong>Then the full stack</strong>, because a bare editor proves rendering and nothing about
+flying. <code>sim_up.sh</code> has no display mode, so a copy in scratchpad carried two edits
+&mdash; the image, and <code>-RenderOffScreen</code> replaced by an Xvfb launch at
+<code>-ResX=1920 -ResY=1080 -windowed</code>. The repo was not touched.
+<code>run_scenario.py --no-restart</code> then flew against it.</p>
+<div class="callout ok"><span class="lbl">Worth recording</span>
+<p>That bring-up hit <code>SIM-28</code> and repaired it &mdash; <code>ref_alt 114.069 vs GPS
+123.302, 9.233 m apart</code>, PX4 restarted, re-verified at <code>0.000 m</code>. <strong>The
+display path did not perturb the known trap, and the known trap did not need special handling
+here.</strong></p></div>
+
+<h2 id="measure"><span class="secnum">04</span> The measurement, and the trap inside it</h2>
+<p>The first number was wrong, and the way it was wrong is the useful part.</p>
+<p>The static probe reported "600 frames in 10 s at 1080p, 60 fps". That is the <strong>grab</strong>
+rate. <code>x11grab</code> samples the X server on its own clock and <strong>re-emits the previous
+frame when the screen has not changed</strong>, so it will always report exactly the rate you asked
+for, whatever the engine is doing. Against a parked drone it reported 60 fps while the true
+distinct-frame rate was near zero.</p>
+<div class="callout stop"><span class="lbl">The general shape of the mistake</span>
+<p>A capture tool that never reports less than you asked for <strong>is a tool that cannot tell you
+it is failing</strong>. Distinct frames have to be counted explicitly &mdash;
+<code>-vf mpdecimate -vsync vfr</code> &mdash; and the surviving count is what the engine drew.</p></div>
+<p>Flying <code>square-10m</code> seed 1 (<code>success, 4/4 waypoints, 106.6s</code>) while
+grabbing at 60 fps, 1080p: <strong>7356 frames grabbed, 2954 distinct.</strong></p>
+
+<figure>
+<svg viewBox="0 0 900 290" role="img" aria-label="Distinct frame rate per ten second window. Near zero while parked, 12.5 fps during takeoff, then a stable 29 to 32 fps for the ninety seconds of flight, dropping to 7.2 after landing. The simGetImages ceiling of about 13 to 14 Hz sits far below the flight plateau.">
+  <line class="e" x1="78" y1="232" x2="872" y2="232"/>
+  <text class="axl" x="70" y="236" text-anchor="end">0</text>
+  <line x1="78" y1="86" x2="872" y2="86" stroke="var(--rule)" stroke-width="1" stroke-dasharray="2 4"/>
+  <text class="axl" x="70" y="90" text-anchor="end">30</text>
+
+  <line class="e-b" x1="78" y1="166" x2="872" y2="166"/>
+  <text class="nlb" x="82" y="180">simGetImages ceiling &mdash; ~13&ndash;14 Hz at any resolution</text>
+
+  <rect class="n-box" x="90"  y="231" width="50" height="1"/>
+  <rect class="n-box" x="152" y="171" width="50" height="61"/>
+  <rect class="n-v"   x="214" y="91"  width="50" height="141"/>
+  <rect class="n-v"   x="276" y="87"  width="50" height="145"/>
+  <rect class="n-v"   x="338" y="86"  width="50" height="146"/>
+  <rect class="n-v"   x="400" y="78"  width="50" height="154"/>
+  <rect class="n-v"   x="462" y="76"  width="50" height="156"/>
+  <rect class="n-v"   x="524" y="80"  width="50" height="152"/>
+  <rect class="n-v"   x="586" y="84"  width="50" height="148"/>
+  <rect class="n-v"   x="648" y="82"  width="50" height="150"/>
+  <rect class="n-v"   x="710" y="85"  width="50" height="147"/>
+  <rect class="n-box" x="772" y="197" width="50" height="35"/>
+
+  <text class="axl" x="115" y="223" text-anchor="middle">0.1</text>
+  <text class="axl" x="177" y="163" text-anchor="middle">12.5</text>
+  <text class="axl" x="239" y="83"  text-anchor="middle">29.0</text>
+  <text class="axl" x="301" y="79"  text-anchor="middle">29.9</text>
+  <text class="axl" x="363" y="78"  text-anchor="middle">30.1</text>
+  <text class="axl" x="425" y="70"  text-anchor="middle">31.7</text>
+  <text class="axl" x="487" y="68"  text-anchor="middle">32.2</text>
+  <text class="axl" x="549" y="72"  text-anchor="middle">31.3</text>
+  <text class="axl" x="611" y="76"  text-anchor="middle">30.4</text>
+  <text class="axl" x="673" y="74"  text-anchor="middle">30.8</text>
+  <text class="axl" x="735" y="77"  text-anchor="middle">30.2</text>
+  <text class="axl" x="797" y="189" text-anchor="middle">7.2</text>
+
+  <text class="nlb" x="115" y="250" text-anchor="middle">0&ndash;10</text>
+  <text class="nlb" x="177" y="250" text-anchor="middle">10&ndash;20</text>
+  <text class="nlb" x="239" y="250" text-anchor="middle">20&ndash;30</text>
+  <text class="nlb" x="301" y="250" text-anchor="middle">30&ndash;40</text>
+  <text class="nlb" x="363" y="250" text-anchor="middle">40&ndash;50</text>
+  <text class="nlb" x="425" y="250" text-anchor="middle">50&ndash;60</text>
+  <text class="nlb" x="487" y="250" text-anchor="middle">60&ndash;70</text>
+  <text class="nlb" x="549" y="250" text-anchor="middle">70&ndash;80</text>
+  <text class="nlb" x="611" y="250" text-anchor="middle">80&ndash;90</text>
+  <text class="nlb" x="673" y="250" text-anchor="middle">90&ndash;100</text>
+  <text class="nlb" x="735" y="250" text-anchor="middle">100&ndash;110</text>
+  <text class="nlb" x="797" y="250" text-anchor="middle">110&ndash;120</text>
+
+  <text class="nlb" x="115" y="272" text-anchor="middle">parked</text>
+  <text class="nlb" x="177" y="272" text-anchor="middle">takeoff</text>
+  <text class="nlb" x="480" y="272" text-anchor="middle">&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&nbsp; flying &nbsp;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;</text>
+  <text class="nlb" x="797" y="272" text-anchor="middle">landed</text>
+  <text class="axl" x="30" y="30">DISTINCT FRAMES PER SECOND, BY 10 s WINDOW &mdash; 1920&times;1080</text>
+</svg>
+<figcaption>The idle windows are correct, not a defect &mdash; a parked drone does not change the screen.</figcaption>
+</figure>
+
+<p>Which is why <strong>any average taken across a whole run understates the flight</strong>. The
+flight window is the only honest figure.</p>
+
+<h2 id="control"><span class="secnum">05</span> The control, which is the load-bearing part</h2>
+<p>~31 fps could be the engine's render rate, or it could be x264 stealing CPU from the renderer at
+1080p60. Those have different consequences &mdash; one is a ceiling, the other is a configuration
+mistake &mdash; so it was worth a second flight to separate them.</p>
+<p>The control grabs identically but encodes nothing: <code>-vf mpdecimate -vsync vfr -f null -</code>,
+with <code>-progress</code> giving a time series so the flight window could be isolated the same
+way. Same scenario, same seed (<code>success, 4/4 waypoints, 106.1s</code>).</p>
+
+<div class="tw"><table>
+<thead><tr><th>90 s flight window</th><th class="mono">distinct frames</th><th class="mono">fps</th></tr></thead>
+<tbody>
+<tr><th>grabbing + x264 1080p60</th><td class="mono">2756</td><td class="mono">30.6</td></tr>
+<tr><th>grabbing, no encoder</th><td class="mono">2877</td><td class="mono">32.0</td></tr>
+<tr><th>difference</th><td class="mono">121</td><td class="mono">1.3 &nbsp;<span class="pill p-ok">4.2%</span></td></tr>
+</tbody>
+</table></div>
+
+<div class="callout ok"><span class="lbl">What the control establishes</span>
+<p><strong>~31 fps is the engine's own render rate under flight load, and the capture is very nearly
+free.</strong> Encoding at 1080p60 costs 4.2% of frames. That is the question the first run left
+open.</p></div>
+
+<p>Two caveats belong next to the number. This is <strong>Blocks on the 3080</strong> &mdash; trivial
+geometry on a GPU that is also running the sim &mdash; so it will move with world complexity and GPU
+load. And two successful runs are not evidence that display mode leaves flight timing alone; that
+needs a seeded comparison against headless before this becomes a default anything.</p>
+
+<h2 id="stands"><span class="secnum">06</span> Where it stands</h2>
+
+<div class="tw"><table>
+<thead><tr><th></th><th>simGetImages</th><th>Xvfb + x11grab</th></tr></thead>
+<tbody>
+<tr><th>chase view / drone in frame</th><td><span class="pill p-stop">impossible</span></td><td><span class="pill p-ok">yes</span></td></tr>
+<tr><th>rate under flight</th><td class="mono">~13&ndash;14 Hz</td><td class="mono">~31 fps</td></tr>
+<tr><th>cost to the simulator</th><td>blocking GPU&rarr;CPU readback, stalls the render thread</td><td>reads a screen already drawn</td></tr>
+<tr><th>changes to Cosys-AirSim</th><td class="mono">&mdash;</td><td><span class="pill p-ok">none</span></td></tr>
+</tbody>
+</table></div>
+
+<p><code>SIM-29</code> carries the build: an opt-in display mode in <code>sim_up.sh</code> (headless
+stays the gate's normal path), <code>xvfb</code> and <code>ffmpeg</code> into the engine image, and
+the grab started and stopped by <code>run_scenario.py</code> inside the same
+<code>try/finally</code> that owns the bag &mdash; <strong>including the chown, because
+<code>SIM-26</code> was exactly this bug for exactly this reason</strong>, and a second writer into
+<code>out/</code> will reproduce it.</p>
+<div class="callout warn"><span class="lbl">Decide this before it lands</span>
+<p><strong>Disk.</strong> 64 MB per 122 s at CRF 23 means a 40-seed gate writes ~2.5 GB. Lower the
+quality, cap the resolution, or keep video opt-in per run &mdash; but decide before a gate fills the
+NVMe, not after.</p></div>
+
+<h3>Dead ends and corrections, recorded</h3>
+<ul>
+<li><strong>"We can't record the chase in high res"</strong> &mdash; the premise was resolution; the
+actual constraint was that the chase view is not on the RPC surface at all.</li>
+<li><strong>"60 fps at 1080p"</strong>, reported from the static probe, measured the grab clock
+rather than the engine. Corrected by <code>mpdecimate</code>.</li>
+<li><strong><code>/usr/bin/time</code> is absent</strong> from the probe image, and
+<strong><code>-fps_mode</code> is not in this ffmpeg</strong> (it wants <code>-vsync</code>). Neither
+is interesting except as a reminder that the probe image is Ubuntu-minimal.</li>
+<li><strong><code>REPO</code> in <code>sim_up.sh</code> derives from <code>${BASH_SOURCE[0]}</code></strong>,
+so a copy of the script in scratchpad looks for the repo beside itself and dies on a missing
+<code>settings.json</code>. Pinned explicitly in the copy.</li>
+</ul>
+
+<footer>
+  <span>Worklog &middot; 2026-08-13 &middot; SIM-29</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
