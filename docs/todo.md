@@ -3498,8 +3498,11 @@ vehicle 80 m during every bring-up is worth understanding before blaming a landi
 
 ## SIM-29 — Chase-camera video as a scenario artifact
 
-**Status:** 🔵 **open, feasibility PROVEN 2026-08-13.** Not built. The measurements below come
-from a throwaway probe image outside the repo; nothing here is committed yet.
+**Status:** 🟢 **first slice LANDED 2026-08-13** — capture works from the repo alone; the
+`run_scenario.py` integration is still open. The throwaway probe image is gone: `xvfb`, `ffmpeg`
+and `x11-utils` now live in `docker/unreal.Dockerfile` (178 MB on a 57.4 GB base, measured), so
+there is **no extra image and no extra container**. `sim_up.sh --display` runs the renderer on an
+Xvfb screen; `scripts/record_chase.sh start|stop|status` grabs it.
 Evidence: [`worklog/2026-08-13-sim29-chase-camera-via-virtual-display.md`](worklog/2026-08-13-sim29-chase-camera-via-virtual-display.md)
 
 **The problem.** A gate run produces an MCAP bag, a result JSON and metrics — and nothing a human
@@ -3538,25 +3541,42 @@ does not change the screen, so **any average taken across a whole run understate
 readback that stalls the render thread (`SIM-23`); x11grab reads a screen the engine has already
 drawn, and costs the simulator nothing.
 
-**Shape of the work:**
+**What landed:**
 
-- `sim_up.sh` gains an opt-in display mode — Xvfb plus windowed launch instead of
-  `-RenderOffScreen`. Off by default: headless stays the gate's normal path.
-- The engine image gains `xvfb` and `ffmpeg`. Both are absent today, which is the only reason
-  the probe needed its own image.
-- `run_scenario.py` starts and stops the grab inside the same `try/finally` that owns the bag and
-  the landing probe, and chowns the mp4 back to the caller (`SIM-26` — the same bug will
-  otherwise recur here, since this is a second writer of an artifact into `out/`).
-- The mp4 lands next to the MCAP, named by scenario and seed.
+- **`docker/unreal.Dockerfile`** — `xvfb`, `ffmpeg`, `x11-utils` added to the existing late
+  root-only apt layer, so nothing expensive below it is invalidated. `xdotool` and
+  `x11-xserver-utils` were **trimmed** from the probe's set: the capture grabs the whole screen,
+  so nothing needs to locate a window, and Xvfb's geometry is fixed at start. The layer asserts
+  that **the X server RUNS** — it starts one, connects with `xdpyinfo`, checks the geometry and
+  tears it down — not merely that a binary exists.
+- **`sim_up.sh --display`** (env `DISPLAY_MODE`, `DISPLAY_NUM`, `DISPLAY_GEOM`). Off by default.
+  Waits on `xdpyinfo` rather than sleeping, because Xvfb forks before it accepts clients and
+  Unreal dying on an unready DISPLAY gives no usable diagnostic.
+- **`scripts/record_chase.sh start|stop|status`** — refuses to record a stack brought up without
+  a screen (otherwise it silently captures a black rectangle), SIGINTs rather than kills so the
+  mp4 finalises, chowns the artifact back (`SIM-26`), and reports **both** grabbed and distinct
+  frame counts.
 
-**Open questions before building:**
+**Verified end to end**, not by a clean build: three `square-10m` seed-1 flights on the display
+stack, all `success, 4/4 waypoints` (106.6 / 106.1 / 105.9 s). Last run: 6984 frames grabbed,
+2946 distinct over 116.4 s.
 
-- **Does display mode change flight behaviour?** Both probe runs passed 4/4, but two runs is not
-  evidence of no effect on timing. Needs a seeded comparison against headless.
-- **Disk.** 64 MB per 122 s at CRF 23. A 40-seed gate would be ~2.5 GB. Either lower the quality,
-  cap the resolution, or keep video opt-in per run — decide before it lands, not after a gate
-  fills the NVMe.
-- **Does it hold in a user's own world?** Measured only in Blocks, which is trivial geometry.
+**Still open:**
+
+- **`run_scenario.py` integration** — start/stop the grab inside the same `try/finally` that owns
+  the bag and the landing probe, so the mp4 lands next to the MCAP named by scenario and seed.
+  Today the two are driven separately.
+
+- **Does display mode change flight behaviour?** Three runs passed 4/4, which is not evidence of
+  no effect on timing. Needs a seeded comparison against headless before display mode is used for
+  anything the gate's numbers depend on. This is why it is opt-in.
+- **Disk — smaller than first stated.** The earlier note framed this as 0 → ~2.5 GB, which was
+  wrong: `out/` **already** holds **2.0 GB** of per-seed video from the existing `simGetImages`
+  path (~40 MB × ~50 files, measured with `du`). Chase video at ~63 MB per run adds ~2.5 GB on
+  top of a 40-seed gate. Still worth a policy, but it is a ~2× increase on a cost the repo
+  already pays, not a new class of one.
+- **Does it hold in a user's own world?** Measured only in Blocks, which is trivial geometry, and
+  the ~31 fps will move with world complexity and GPU load.
 
 ---
 

@@ -40,6 +40,18 @@ SPAWN_VEHICLE=${SPAWN_VEHICLE:-}
 SPAWN_ALLOW_BELOW=${SPAWN_ALLOW_BELOW:-}
 WORLD=${WORLD:-}                        # .uproject to load; default is the vendored Blocks
 
+# SIM-29: give the engine a screen so the chase camera can be recorded. AirSim's `ViewMode`
+# defaults to `FlyWithMe`, so the chase view renders on EVERY run -- `-RenderOffScreen` is the
+# only reason nobody can read it. With DISPLAY_MODE=1 the renderer starts an Xvfb server and
+# launches windowed instead, and `scripts/record_chase.sh` can then grab it.
+#
+# OFF BY DEFAULT, deliberately: headless stays the gate's normal path. The measured cost of the
+# capture is 1.3 fps of 32.0 (4.2%), but two passing flights are NOT evidence that a windowed
+# renderer leaves flight timing alone, and the gate is the thing that must not move.
+DISPLAY_MODE=${DISPLAY_MODE:-}
+DISPLAY_NUM=${DISPLAY_NUM:-99}
+DISPLAY_GEOM=${DISPLAY_GEOM:-1920x1080}
+
 # NETWORK MODE. Default `shared`: the renderer donates a private network + IPC namespace and
 # every other container joins it. Nothing is published, nothing is reachable off this machine.
 #
@@ -103,8 +115,12 @@ usage: sim_up.sh [--world PATH.uproject] [--settings PATH.json]
   --vehicle NAME        required only when settings.json defines several vehicles.
   --world PATH          .uproject to load (default: the vendored Blocks environment).
   --allow-below-origin  permit a positive Z (i.e. genuinely below the origin).
+  --display             run the renderer on an Xvfb screen instead of -RenderOffScreen, so
+                        AirSim's chase camera can be recorded with scripts/record_chase.sh.
+                        Off by default: headless is the gate's path. (SIM-29)
 
-Environment equivalents: SPAWN, SPAWN_VEHICLE, WORLD, SETTINGS_FILE, SPAWN_ALLOW_BELOW.
+Environment equivalents: SPAWN, SPAWN_VEHICLE, WORLD, SETTINGS_FILE, SPAWN_ALLOW_BELOW,
+DISPLAY_MODE, DISPLAY_NUM, DISPLAY_GEOM.
 EOF
 }
 
@@ -119,6 +135,7 @@ while [ $# -gt 0 ]; do
     --world)              WORLD="${2:-}";         shift 2 ;;
     --world=*)            WORLD="${1#*=}";        shift ;;
     --allow-below-origin) SPAWN_ALLOW_BELOW=1;    shift ;;
+    --display)            DISPLAY_MODE=1;         shift ;;
     -h|--help)            usage; exit 0 ;;
     *)                    usage >&2; die "unknown argument: $1" ;;
   esac
@@ -200,6 +217,28 @@ start_sim() {
     netargs=(--network host --ipc shareable --shm-size=2g)
     log "NET_MODE=host -- the graph will be reachable off this machine (see the header)"
   fi
+  # The renderer's command line differs in exactly one respect between the two modes: whether
+  # the engine is given a surface. Everything else -- the image, the plugin, the settings, the
+  # mounts -- is identical, which is why display mode needs no change to Cosys-AirSim.
+  local launch
+  if [ -n "$DISPLAY_MODE" ]; then
+    # `sleep` would be a race. Xvfb forks, binds a socket and only then accepts clients; if
+    # Unreal dials DISPLAY before that, it dies at startup with no usable diagnostic. xdpyinfo
+    # is the readiness check the engine image now carries for exactly this reason.
+    launch="Xvfb :$DISPLAY_NUM -screen 0 ${DISPLAY_GEOM}x24 >/tmp/xvfb.log 2>&1 &
+      for i in \$(seq 1 80); do DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1 && break; sleep 0.25; done
+      DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1 || { echo 'FATAL: Xvfb :$DISPLAY_NUM never came up' >&2; cat /tmp/xvfb.log >&2; exit 1; }
+      export DISPLAY=:$DISPLAY_NUM
+      /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
+        $uproject -game -nosound -windowed -ResX=${DISPLAY_GEOM%x*} -ResY=${DISPLAY_GEOM#*x} \
+        -unattended -stdout -settings=/settings.json"
+    log "display mode: Xvfb :$DISPLAY_NUM at $DISPLAY_GEOM -- record with scripts/record_chase.sh"
+  else
+    launch="/home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
+      $uproject -game -RenderOffScreen -nosound \
+      -unattended -stdout -settings=/settings.json"
+  fi
+
   docker run -d --name "$SIM" \
     "${netargs[@]}" \
     --gpus '"device=nvidia.com/gpu=0"' \
@@ -207,9 +246,7 @@ start_sim() {
     -v "$SETTINGS:/settings.json:ro" \
     -v sim-ddc:/home/ue4/.config/Epic \
     drone-sim/unreal:ue5.8 \
-    bash -lc "/home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
-      $uproject -game -RenderOffScreen -nosound \
-      -unattended -stdout -settings=/settings.json" >/dev/null
+    bash -lc "$launch" >/dev/null
 }
 
 # In `shared` mode this joins the renderer's namespaces; in `host` mode every container goes

@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-29 &mdash; Folding Capture Into The Engine Image &mdash; 2026-08-13</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-13 &middot; SIM-29 &middot; II</span>
+  <nav><a href="#where">Where it goes</a><a href="#assert">Asserting the server</a><a href="#bugs">Two bugs</a><a href="#shipped">What shipped</a><a href="#open">Open</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-13 &middot; SIM-29 &middot; second entry &middot; SITL only</span>
+  <h1>Folding The Capture<br>Into The Engine Image</h1>
+  <p class="sub">The first entry proved the chase camera can be recorded, using a throwaway image built outside the repo. The question that produced this one was short: <em>"what if we remove the new container and just add the new packages to the unreal container?"</em> <strong>That is the right call &mdash; and the probe was carrying two separate confusions.</strong></p>
+  <div class="mastmeta"><span>Added <b>178 MB</b></span><span>Of a <b>57.4 GB</b> base</span><span>Rebuild <b>34 s</b></span><span>Flights <b>3 &times; 4/4</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Extra containers now</div><div class="v">none</div><div class="n">the capture always ran inside <code>sim-unreal</code>; only the first probe was standalone</div></div>
+<div class="stat"><div class="k">Cost of the packages</div><div class="v">0.3%</div><div class="n">178 MB on a 57.4 GB engine base, measured from layer history</div></div>
+<div class="stat warn"><div class="k">Bugs found by running it</div><div class="v">2</div><div class="n">both in the harness, both checks measuring the wrong thing</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#where">Why the engine image and not a sidecar</a></li>
+  <li><a href="#assert">Asserting the server, not the binary</a></li>
+  <li><a href="#bugs">Two bugs found by running it</a></li>
+  <li><a href="#shipped">What shipped</a></li>
+  <li><a href="#open">A correction, and what is still open</a></li>
+</ol></div>
+
+<h2 id="where"><span class="secnum">01</span> Why the engine image and not a sidecar</h2>
+<div class="callout"><span class="lbl">The probe was carrying two confusions</span>
+<p>It never needed its own <em>container</em> &mdash; the capture already ran inside
+<code>sim-unreal</code> via <code>docker exec</code>; only the first exploratory probe was
+standalone. And it needed its own <em>image</em> for exactly one reason: five packages were
+missing.</p></div>
+<ul>
+<li><strong>Xvfb is not separable.</strong> Unreal resolves <code>DISPLAY</code> at process start,
+so the X server has to be up <em>in this container</em> before the engine launches. No sidecar
+arrangement changes that.</li>
+<li><strong><code>ffmpeg</code> is separable in principle</strong> &mdash; a sidecar could grab over
+a shared <code>/tmp/.X11-unix</code> or a TCP display. The reason not to is measured: the control
+run put encoding at <strong>1.3 fps of 32.0, 4.2%</strong>. There is no isolation worth buying, and
+a sidecar costs a shared socket plus a second lifecycle to keep in step.</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 900 300" role="img" aria-label="Layer placement in unreal.Dockerfile. The 54 gigabyte engine base is pinned by digest and untouched. The late root-only apt layer gains three packages and is 178 megabytes. Only that layer and the three cheap layers below it rebuild, in 34 seconds.">
+  <rect class="n-box" x="60" y="52" width="780" height="58"/>
+  <text class="nid" x="80" y="78">FROM ghcr.io/epicgames/unreal-engine@sha256:daac0262&hellip;</text>
+  <text class="nlb" x="80" y="96">54 GB &middot; pinned by digest &middot; credential-gated &middot; NOT rebuilt</text>
+  <text class="axl" x="856" y="86" text-anchor="end">cached</text>
+
+  <rect class="n-v" x="60" y="122" width="780" height="58"/>
+  <text class="nid" x="80" y="148">RUN apt-get install &hellip; cmake rsync wget + xvfb ffmpeg x11-utils</text>
+  <text class="nlb" x="80" y="166">178 MB &middot; late, root-only, grouped by RATE OF CHANGE not by subject</text>
+  <text class="axl" x="856" y="156" text-anchor="end">rebuilt</text>
+
+  <rect class="n-box" x="60" y="192" width="780" height="34"/>
+  <text class="nlb" x="80" y="213">assert artifacts &nbsp;&middot;&nbsp; record versions &nbsp;&middot;&nbsp; Vulkan ICD symlink &nbsp;&mdash;&nbsp; three cheap layers, rebuilt</text>
+
+  <text class="nlb" x="60" y="258">The file&apos;s own comment records why the apt block sits late: a cheap package placed high in px4.Dockerfile</text>
+  <text class="nlb" x="60" y="274">once invalidated a 20&ndash;40 minute PX4 build beneath it. Total measured rebuild here: 34 s, nearly all of it export.</text>
+</svg>
+<figcaption>Three packages land where they invalidate nothing expensive.</figcaption>
+</figure>
+
+<p><strong>Trimmed from the probe's set:</strong> <code>xdotool</code> (it found the window by
+title; the capture grabs the whole screen, so nothing needs to locate anything) and
+<code>x11-xserver-utils</code> (<code>xrandr</code>/<code>xset</code> &mdash; Xvfb's geometry is
+fixed by <code>-screen</code> at start). <code>x11-utils</code> stays, for <code>xdpyinfo</code>.</p>
+
+<h2 id="assert"><span class="secnum">02</span> Asserting the server, not the binary</h2>
+<p><code>command -v Xvfb</code> passes on an install that cannot open a screen, and that failure
+would surface at sim bring-up as a renderer that never draws &mdash; a long way from its cause. So
+the layer starts a server, connects to it, checks the geometry, and tears it down:</p>
+<pre>Xvfb :98 -screen 0 320x240x24 &amp;
+for i in $(seq 1 40); do DISPLAY=:98 xdpyinfo &gt;/dev/null 2&gt;&amp;1 &amp;&amp; break; sleep 0.25; done
+DISPLAY=:98 xdpyinfo | grep -q "dimensions:.*320x240"</pre>
+<p>This is the file's existing house rule &mdash; <em>assert the artifacts, not that the script
+reached its end</em> &mdash; applied to a service rather than a binary.</p>
+<div class="callout warn"><span class="lbl">One hazard checked rather than assumed</span>
+<p>Those comments sit inside a <code>RUN</code> whose lines end in <code>\</code>, and a
+<code>#</code> comment that swallowed the next line would <strong>silently delete the assertion
+while the build still passed</strong>. Docker strips whole-line comments inside multi-line
+instructions, so it is fine &mdash; but it was verified against the built image, not trusted:</p>
+<pre>docker history --no-trunc &hellip; | grep -o 'Xvfb :98[^;]*'
+  <b>-&gt; Xvfb :98 -screen 0 320x240x24 &amp; &nbsp; xvfb_pid=$!</b>
+docker history --no-trunc &hellip; | grep -c 'Assert the ENCODER'
+  <b>-&gt; 0</b></pre>
+<p>The assertion is in the baked layer; the prose is not.</p></div>
+
+<h2 id="bugs"><span class="secnum">03</span> Two bugs found by running it</h2>
+<p>Neither was in the feature. Both were in the harness written around it, and both had the same
+shape: <strong>a check that measured something adjacent to what it claimed to measure.</strong></p>
+
+<h3>1. "Is the file growing" is not a liveness signal</h3>
+<p><code>record_chase.sh start</code> proved the capture was alive by sampling the output file
+twice, two seconds apart, and requiring growth. It failed on a perfectly healthy capture:</p>
+<pre>[chase] FATAL: ffmpeg is running but the file is not growing (48B -&gt; 48B)</pre>
+<p>48 bytes is an empty mp4 header. Three seconds later the same file was <strong>524 KB</strong>.
+x264 buffers, and the pre-flight scene is a parked drone that compresses to almost nothing &mdash;
+the encoder genuinely had nothing to write yet.</p>
+<div class="callout stop"><span class="lbl">The same trap, from the other side</span>
+<p>In the previous entry x11grab's frame count was <em>too generous</em>, because it re-emits
+unchanged frames. Here file size was <em>too stingy</em>, because the encoder elides them.
+<strong>Both are proxies for "is the engine drawing", and neither is that.</strong>
+<code>ffmpeg -progress</code> is the right signal: its <code>frame=</code> counter advances per
+frame ingested, regardless of how little gets written.</p></div>
+<p>A readiness check that fails whenever the drone happens to be still is worse than no check
+&mdash; it would have made display mode look broken at random.</p>
+
+<h3>2. Reporting that ran in the wrong filesystem</h3>
+<p><code>stop</code> printed <code>duration ?</code> and <code>frames grabbed ?</code> while the
+recording itself was a perfectly good 63 MB, 7411-frame, 123.5 s h264 file. The stop path copied
+the mp4 out, deleted the container's copy, and <em>then</em> ran <code>ffprobe</code> on the
+<strong>host</strong> path from <strong>inside</strong> the container &mdash; which cannot see it.
+The host fallback found no <code>ffprobe</code> either, because the video toolchain deliberately
+lives in images rather than on the workstation.</p>
+<p>Fixed by analysing in the container, on the container's own copy, before copying anything out.
+Worth naming because <strong>a reporting bug that prints <code>?</code> looks exactly like a
+capture failure</strong>, and the artifact it described was fine the whole time.</p>
+
+<h2 id="shipped"><span class="secnum">04</span> What shipped</h2>
+<div class="tw"><table>
+<thead><tr><th>File</th><th>What it gained</th></tr></thead>
+<tbody>
+<tr><th class="mono">docker/unreal.Dockerfile</th><td><code>xvfb</code>, <code>ffmpeg</code>, <code>x11-utils</code>, a running-server assertion, and both versions recorded in <code>/etc/drone-sim-versions</code></td></tr>
+<tr><th class="mono">scripts/sim_up.sh</th><td><code>--display</code> / <code>DISPLAY_MODE</code>, waiting on <code>xdpyinfo</code> rather than sleeping &mdash; Xvfb forks before it accepts clients, and Unreal dying on an unready DISPLAY gives no usable diagnostic</td></tr>
+<tr><th class="mono">scripts/record_chase.sh</th><td><code>start</code> / <code>stop</code> / <code>status</code>; refuses a screenless stack, SIGINT not SIGKILL so the mp4 finalises, chowns the artifact (<code>SIM-26</code>), reports grabbed <em>and</em> distinct frames</td></tr>
+</tbody>
+</table></div>
+<div class="callout ok"><span class="lbl">Verified by flying it, not by building it</span>
+<p>Three <code>square-10m</code> seed-1 flights on the display stack: <code>success, 4/4
+waypoints</code> at 106.6, 106.1 and 105.9 s. Last recording: <strong>6984 frames grabbed, 2946
+distinct over 116.4 s</strong>. Both bring-ups hit <code>SIM-28</code>'s stale origin (9.118 m,
+9.233 m) and repaired it &mdash; display mode does not perturb that trap.</p></div>
+
+<h2 id="open"><span class="secnum">05</span> A correction, and what is still open</h2>
+<div class="callout stop"><span class="lbl">Correcting the previous entry's disk note</span>
+<p>It warned that a 40-seed gate would write ~2.5 GB of video, framed as a new cost. <strong>It is
+not.</strong> <code>out/</code> already holds <strong>2.0 GB</strong> of per-seed mp4s from the
+existing <code>simGetImages</code> path, measured with <code>du</code>. Chase video roughly doubles
+a cost the repo already pays rather than introducing one. Worklogs are frozen, so the correction
+lives here and in the <code>SIM-29</code> entry.</p></div>
+<ul>
+<li><strong><code>run_scenario.py</code> integration.</strong> The bag and the video are driven
+separately today; the grab belongs in the same <code>try/finally</code> that owns the bag and the
+landing probe.</li>
+<li><strong>A seeded headless-vs-display timing comparison.</strong> Three passing flights are not
+evidence that a windowed renderer leaves flight timing alone. Until that exists, display mode stays
+opt-in and the gate stays headless.</li>
+<li><strong>A world that is not Blocks.</strong> ~31 fps is trivial geometry on a GPU that is also
+running the sim.</li>
+</ul>
+
+<footer>
+  <span>Worklog &middot; 2026-08-13 &middot; SIM-29 &middot; second entry</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
