@@ -78,25 +78,41 @@ def chase_available() -> bool:
     PROBED, never assumed. `--no-restart` reuses whatever stack is already up, so the flag this
     run was invoked with says nothing about the stack it is flying against.
 
-    TWO checks, and the second one is the load-bearing one. `xdpyinfo` succeeding proves only
-    that SOME X server answers on that number -- and because every container here shares one
-    network namespace, and X binds an abstract socket scoped to the netns, that server may
-    belong to another container entirely. Probing `xdpyinfo` alone on a headless stack found
-    QGroundControl's Xvfb and recorded its map view as a chase video: a plausible artifact of
-    the wrong thing, which beats a black rectangle for danger because it reads as evidence.
-    Requiring a LOCAL Xvfb process is what ties the display to the renderer.        (SIM-29)
+    THE CHECK THAT MATTERS IS THE FILESYSTEM SOCKET, and it took two attempts to get there.
+
+    `xdpyinfo` succeeding proves only that SOME X server answers on that number: every
+    container here shares one network namespace, X binds an ABSTRACT socket scoped to the
+    netns, so the answer may come from another container. Probing it alone on a headless stack
+    found QGroundControl's Xvfb and recorded its map view as a chase video.
+
+    Adding `pgrep -x Xvfb` did NOT close that. It proves a server exists here; it does not
+    prove it is the one answering. With the renderer on :77, `DISPLAY_NUM=99` passes both --
+    the local :77 Xvfb satisfies the pgrep, QGC's :99 satisfies the xdpyinfo -- and the bug is
+    back, one stale export away.
+
+    X's OTHER socket, /tmp/.X11-unix/X<N>, lives in this container's filesystem and is
+    therefore the only container-local evidence available. The original bug report's own
+    diagnostic showed it: that directory was EMPTY in the renderer while :99 answered.
+    (SIM-29, review PR 50)
     """
-    if sh(["docker", "exec", UNREAL, "bash", "-lc", "pgrep -x Xvfb >/dev/null"],
-          timeout=30).returncode != 0:
-        return False
     # The display number is resolved HERE and interpolated into the command. `docker exec` does
     # not forward the caller's environment into the container, so a `${DISPLAY_NUM}` left for
     # the container's shell would expand to empty -- probing `DISPLAY=:` and reporting every
     # display-mode stack as headless.
     num = os.environ.get("DISPLAY_NUM", "77").lstrip(":")
-    r = sh(["docker", "exec", UNREAL, "bash", "-lc",
-            f"DISPLAY=:{num} xdpyinfo >/dev/null 2>&1"], timeout=30)
-    return r.returncode == 0
+    if not num.isdigit():
+        print(f"  chase: DISPLAY_NUM={num!r} is not a display number", file=sys.stderr)
+        return False
+    checks = [
+        # container-local: proves the server is OURS, and on THIS number
+        f"test -S /tmp/.X11-unix/X{num}",
+        # and that it is a live Xvfb serving it, not a socket a dead one left behind
+        f"pgrep -x -a Xvfb | grep -qE ' :{num}( |$)'",
+        # and that it actually answers
+        f"DISPLAY=:{num} xdpyinfo >/dev/null 2>&1",
+    ]
+    return all(sh(["docker", "exec", UNREAL, "bash", "-lc", c], timeout=30).returncode == 0
+               for c in checks)
 
 
 def chase(*args: str) -> bool:
@@ -106,7 +122,18 @@ def chase(*args: str) -> bool:
     -- a full disk, a renderer that died, an ffmpeg that would not start -- must not fail a
     flight that otherwise flew, so every call here is advisory and says so on stderr.
     """
-    r = sh([str(RECORD_CHASE), *args], timeout=900)
+    # sh() is subprocess.run(..., timeout=900), which RAISES TimeoutExpired -- and a raise from
+    # the `finally` below would abort a flight that had already succeeded, skip the
+    # recorder.wait()/kill() under it (orphaning the `ros2 bag record` this try/finally exists
+    # to reap) and have run_gate.py score the seed as "runner raised". A capture problem must
+    # not fail a flight that flew, which is what this function's first line promises.
+    #                                                                          (review, PR 50)
+    try:
+        r = sh([str(RECORD_CHASE), *args], timeout=900)
+    except Exception as exc:
+        print(f"  chase: {' '.join(args)} raised (non-fatal): {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+        return False
     if r.returncode != 0:
         tail = (r.stderr or r.stdout or "").strip().splitlines()
         print(f"  chase: {' '.join(args)} failed (non-fatal): {tail[-1] if tail else '?'}",
@@ -339,12 +366,10 @@ def run_flight(scenario: dict, seed: int) -> dict:
         print("  chase: SIM_CHASE_VIDEO is set but the renderer has no display — "
               "bring the stack up with ./scripts/sim_up.sh --display", file=sys.stderr)
     chase_mp4 = REPO / "out" / f"{tag}-chase.mp4"
-    if chase_on:
+    if chase_on and (REPO / "out" / ".chase-recording").exists():
         # Stale state from a previous run that died between start and stop would refuse this
         # one. `stop` is the documented way to clear it and is safe when nothing is recording.
-        if (REPO / "out" / ".chase-recording").exists():
-            chase("stop", "--no-distinct")
-        chase_on = chase("start", "--out", str(chase_mp4))
+        chase("stop", "--no-distinct")
 
     # LANDING PROBE, always on.                                                    (SIM-27)
     #
@@ -386,6 +411,16 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # try/finally so a controller timeout cannot leak the recorder into the NEXT run.
     # Without it, `sh()` raising TimeoutExpired skipped the pkill entirely and left an
     # orphaned `ros2 bag record` running — precisely when clean evidence matters most.
+    # STARTED HERE, immediately before the try, and NOT next to the other recorders further up.
+    # Between that point and this one sit five `sh()` calls and a Popen, any of which can raise
+    # TimeoutExpired on a wedged docker daemon -- and a raise there would escape run_flight with
+    # a 60 fps 1080p grab still running for up to MAX_SECONDS. run_gate.py catches that and
+    # moves to the next seed, so the orphan would record the NEXT seed's flight into the
+    # previous seed's file. Zero gap between start and the finally that stops it.
+    #                                                                          (review, PR 50)
+    if chase_on:
+        chase_on = chase("start", "--out", str(chase_mp4))
+
     try:
         cmd = dexec("bash", "-lc",
                     "cd /ros2_ws && . install/setup.bash && "

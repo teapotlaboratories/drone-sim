@@ -65,6 +65,12 @@ DISPLAY_MODE=${DISPLAY_MODE:-}
 # broken, a map reads as evidence.                                                   (SIM-29)
 DISPLAY_NUM=${DISPLAY_NUM:-77}
 DISPLAY_NUM=${DISPLAY_NUM#:}
+# QGC's number is hard-coded in docker/qgc-entrypoint.sh:9 and cannot be negotiated from here.
+# Because start_sim runs BEFORE `join sim-qgc`, asking for :99 would let the renderer win the
+# abstract socket and leave QGC's entrypoint to die on its own `kill -0 "$XVFB_PID"` check --
+# costing the stack its MAVLink datalink, after which PX4 refuses to arm (NAV_DLL_ACT) and the
+# only clue is a dead sim-qgc container. Refuse it up front.                  (review, PR 50)
+QGC_DISPLAY_NUM=99
 DISPLAY_GEOM=${DISPLAY_GEOM:-1920x1080}
 
 # NETWORK MODE. Default `shared`: the renderer donates a private network + IPC namespace and
@@ -250,6 +256,11 @@ start_sim() {
     # `sleep` would be a race. Xvfb forks, binds a socket and only then accepts clients; if
     # Unreal dials DISPLAY before that, it dies at startup with no usable diagnostic. xdpyinfo
     # is the readiness check the engine image now carries for exactly this reason.
+    [ "$DISPLAY_NUM" = "$QGC_DISPLAY_NUM" ] && die \
+      "DISPLAY_NUM=$DISPLAY_NUM belongs to QGroundControl (docker/qgc-entrypoint.sh). Every
+       container here shares one network namespace and X binds an abstract socket scoped to it,
+       so display numbers are stack-global: taking :99 would leave QGC without an X server and
+       the stack without a datalink. Pick another number (default 77)."
     # -ac and the extensions are NOT decoration. docker/qgc-entrypoint.sh:37 carries the same
     # set with a comment recording that without them a Qt/GL client dies MID-SESSION with
     # "XIO: fatal IO error 2 on X server" -- and that it cost an afternoon to find. Three
@@ -257,10 +268,24 @@ start_sim() {
     # carries the flags rather than betting the renderer is different. `-nolisten tcp` also
     # matters under NET_MODE=host, where this X server would otherwise sit on the HOST's
     # network namespace. (review, PR 49)
+    #
+    # The readiness loop below WAITS ON THE LOCAL SOCKET, not on xdpyinfo. That loop was the
+    # third place in this feature to ask "does anyone answer on :N" and take yes for "our
+    # server is up". If :N were already served in the shared netns, the local Xvfb would fail
+    # to bind, xdpyinfo would succeed against the OTHER container's server, and Unreal would
+    # render into it -- the same bug, one layer lower. /tmp/.X11-unix/X<N> is container-local.
+    #
+    # NOTE these comments sit OUTSIDE the launch string on purpose. Everything inside it is
+    # shipped to the container, and a `#` comment containing double quotes CLOSES the enclosing
+    # double-quoted assignment: the first draft of this block put the sentence above inside the
+    # string and bash tried to run `anyone` on the host.                       (review, PR 50)
     launch="Xvfb :$DISPLAY_NUM -screen 0 ${DISPLAY_GEOM}x24 \
         -ac +extension GLX +extension RANDR +render -noreset -nolisten tcp >/tmp/xvfb.log 2>&1 &
-      for i in \$(seq 1 80); do DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1 && break; sleep 0.25; done
-      DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1 || { echo 'FATAL: Xvfb :$DISPLAY_NUM never came up' >&2; cat /tmp/xvfb.log >&2; exit 1; }
+      xvfb_pid=\$!
+      for i in \$(seq 1 80); do [ -S /tmp/.X11-unix/X$DISPLAY_NUM ] && break; sleep 0.25; done
+      kill -0 \$xvfb_pid 2>/dev/null || { echo 'FATAL: Xvfb :$DISPLAY_NUM exited' >&2; cat /tmp/xvfb.log >&2; exit 1; }
+      [ -S /tmp/.X11-unix/X$DISPLAY_NUM ] || { echo 'FATAL: Xvfb :$DISPLAY_NUM never created its socket' >&2; cat /tmp/xvfb.log >&2; exit 1; }
+      DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1 || { echo 'FATAL: Xvfb :$DISPLAY_NUM does not answer' >&2; cat /tmp/xvfb.log >&2; exit 1; }
       export DISPLAY=:$DISPLAY_NUM
       /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
         $uproject -game -nosound -windowed -ResX=${DISPLAY_GEOM%x*} -ResY=${DISPLAY_GEOM#*x} \
