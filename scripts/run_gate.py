@@ -320,6 +320,10 @@ def main() -> int:
             "seed": seed, "passed": ok, "reason": why,
             "collisions": ncol if not void_reason else None,
             "video_written": result.get("video_written"),
+            # SIM-29: --no-distinct exists specifically for this path, so the mp4s are produced
+            # by a gate run -- and were then unreferenced by the only report anyone reads for
+            # one. An artifact nobody can find is not evidence.               (review, PR 50)
+            "chase_video": result.get("chase_video"),
             "void": bool(void_reason),
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
