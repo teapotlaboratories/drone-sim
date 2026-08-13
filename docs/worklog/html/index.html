@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
-  <a class="card" href="2026-08-13-sim29-chase-camera-via-virtual-display.html">
+  <a class="card" href="2026-08-13-sim29-folding-capture-into-the-engine-image.html">
     <span class="k">2026-08-13 · SIM-29 · newest</span>
+    <h3>Folding The Capture Into The Engine Image</h3>
+    <p>The previous entry proved the chase camera can be recorded, using a throwaway image built outside the repo. One question retired it: <em>"what if we just add the new packages to the unreal container?"</em> <strong>The probe was carrying two separate confusions</strong> — it never needed its own <em>container</em> (the capture already ran inside <code>sim-unreal</code>), and it needed its own <em>image</em> only because five packages were missing. <code>xvfb</code>, <code>ffmpeg</code> and <code>x11-utils</code> now sit in the engine image's late root-only apt layer: <strong>178 MB on a 57.4 GB base, 34 s to rebuild</strong>, with the pinned-by-digest engine untouched. Xvfb turns out not to be separable at all — Unreal resolves <code>DISPLAY</code> at process start — and the 4.2% encoder cost removes any reason to split <code>ffmpeg</code> out either. The layer asserts that an X <em>server runs</em>, not that a binary exists. <strong>Running it found two bugs, both in the harness rather than the feature, both the same shape:</strong> "is the file growing" fails on a healthy capture (x264 buffers; a parked drone compresses to nothing — 48 B for four seconds, then 524 KB), and the stop path ran <code>ffprobe</code> on a host path from inside the container, printing <code>?</code> for every number while the 63 MB recording was perfectly fine.</p>
+    <div class="tags">
+      <span class="pill p-ok">no extra image, no extra container</span>
+      <span class="pill p-chrome">178 MB of 57.4 GB</span>
+      <span class="pill p-warn">two harness bugs, same shape</span>
+      <span class="pill p-air">3 flights, 4/4 each</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-08-13-sim29-chase-camera-via-virtual-display.html">
+    <span class="k">2026-08-13 · SIM-29 · I</span>
     <h3>Recording The Chase Camera By Giving The Engine A Screen</h3>
     <p>The question was whether the chase camera could be recorded in high resolution. <strong>It was mis-framed: resolution was never the constraint.</strong> The chase view is <code>AirSimCameraDirector</code>, which has <em>no RPC binding at all</em> — <code>simGetImages</code> serves vehicle-mounted cameras only — and that path is capped near <strong>13–14 Hz at any resolution</strong> by a blocking GPU→CPU readback whose fixed ~71 ms term dominates. Meanwhile <code>ViewMode</code> defaults to <code>FlyWithMe</code>, so <strong>the chase camera has been running on every run this project has ever done</strong>, rendered to nothing because <code>sim_up.sh</code> launches with <code>-RenderOffScreen</code>. Give the engine an Xvfb display instead and <code>ffmpeg -f x11grab</code> records it at <strong>~31 fps at 1080p, with the drone in frame</strong>, changing nothing in Cosys-AirSim. One trap inside the measurement: x11grab re-emits the last frame when the screen is unchanged, so it <em>always</em> reports the rate you asked for — the first "60 fps" was the grab clock, not the engine, and only <code>mpdecimate</code> tells the truth. A no-encoder control run puts x264's cost at <strong>1.3 fps, 4.2%</strong>, which is what makes ~31 fps a render ceiling rather than contention.</p>
     <div class="tags">

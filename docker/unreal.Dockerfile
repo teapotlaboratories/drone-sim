@@ -1,8 +1,8 @@
 # Unreal Engine 5.8 + Cosys-AirSim build environment  (D-04, SIM-02)
 #
 # WHAT THIS IS: Epic's pre-built UE5.8 image plus the three tools Cosys-AirSim's build.sh
-# needs and `dev-slim` does not ship. Nothing more — the engine is 54 GB and this layer is
-# a few tens of MB.
+# needs and `dev-slim` does not ship, plus the three the chase-camera capture needs
+# (SIM-29). Nothing more — the engine is 54 GB and this layer is 178 MB, measured.
 #
 # WHY IT EXISTS AT ALL: `./build.sh --ue-root ...` fails in one second on the stock image
 # with an empty CMAKE variable, because `which cmake` finds nothing. Enumerated the rest up
@@ -11,6 +11,28 @@
 #   needed by build.sh/setup.sh : clang cmake gcc make rsync unzip wget zip
 #   already in dev-slim         : make unzip zip gcc g++ git curl python3 tar patch pkg-config
 #   MISSING, added here         : cmake rsync wget
+#
+# THE SECOND GROUP — xvfb, ffmpeg, x11-utils — exists for SIM-29, recording the chase
+# camera. `ViewMode` defaults to `FlyWithMe`, so AirSim's chase view renders on every run;
+# `-RenderOffScreen` is the only reason nobody can read it. Give the engine an Xvfb display
+# and ffmpeg grabs the screen at ~31 fps at 1080p, against ~13-14 Hz for simGetImages, which
+# cannot frame the aircraft at all because AirSimCameraDirector has no RPC binding.
+#
+# THEY GO IN *THIS* IMAGE, NOT A SIDECAR, because Xvfb is not separable: Unreal resolves
+# DISPLAY at process start, so the X server has to be up in this container before the engine
+# launches. ffmpeg could in principle live elsewhere and grab over a shared /tmp/.X11-unix
+# socket or a TCP display, but a measured control run puts encoding at 1.3 fps of 32.0
+# (4.2%), so there is no isolation to buy — only a second lifecycle to keep in step.
+#
+# TRIMMED from the throwaway probe that proved this: `xdotool` (found the window by title;
+# the capture grabs the whole screen, so nothing needs to locate it) and
+# `x11-xserver-utils` (xrandr/xset — Xvfb's geometry is fixed by -screen at start).
+# `x11-utils` stays for `xdpyinfo`, which is how a caller waits for the display to be up
+# instead of sleeping and hoping.
+#
+# NOT `drone-sim/video`. That image re-encodes finished renders offline and deliberately
+# dropped its Xvfb/openbox ancestry when the Gazebo demo retired; it is a post-processing
+# tool and is unaffected by this.
 #
 # clang is deliberately NOT installed. The engine ships its own toolchain
 # (Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v26_clang-20.1.8-rockylinux8) and
@@ -39,6 +61,9 @@ RUN apt-get update \
       cmake \
       rsync \
       wget \
+      xvfb \
+      ffmpeg \
+      x11-utils \
  && rm -rf /var/lib/apt/lists/*
 
 # Assert the ARTIFACTS, not that the script reached its end (D-01). A build script's own
@@ -47,6 +72,24 @@ RUN apt-get update \
 RUN set -eux; \
     command -v cmake; command -v rsync; command -v wget; \
     test -x "$(command -v cmake)"; \
+    command -v Xvfb; command -v ffmpeg; command -v xdpyinfo; \
+    # Assert the ENCODER, not just the binary. An ffmpeg without libx264 installs happily and
+    # then fails at the one job it is here for, at the end of a long flight. Written to a file
+    # and grepped rather than piped into `grep -q`: grep exits on its first match, closes the
+    # pipe, ffmpeg takes SIGPIPE, and under `-o pipefail` the layer fails with 141 — a build
+    # that breaks precisely BECAUSE the assertion passed. docker/video.Dockerfile carries the
+    # same warning; the trap is generic to asserting on a chatty command. \
+    ffmpeg -hide_banner -encoders > /tmp/encoders.txt 2>/dev/null; \
+    grep -q libx264 /tmp/encoders.txt; \
+    rm -f /tmp/encoders.txt; \
+    # Assert the X SERVER RUNS, not that its binary exists. `command -v Xvfb` would pass on an
+    # install that cannot open a screen, and the failure would surface only at sim bring-up as
+    # a renderer that never draws. Start one, connect to it, tear it down. \
+    Xvfb :98 -screen 0 320x240x24 & \
+    xvfb_pid=$!; \
+    for i in $(seq 1 40); do DISPLAY=:98 xdpyinfo >/dev/null 2>&1 && break; sleep 0.25; done; \
+    DISPLAY=:98 xdpyinfo | grep -q "dimensions:.*320x240"; \
+    kill "$xvfb_pid"; \
     ls -d /home/ue4/UnrealEngine/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/*/ \
       | grep -q clang; \
     test -f /home/ue4/UnrealEngine/Engine/Build/Build.version
@@ -65,11 +108,14 @@ RUN set -eux; \
     base_os="$(. /etc/os-release; echo "$VERSION_ID $VERSION_CODENAME")"; \
     cmake_v="$(cmake --version | head -1 | awk '{print $3}')"; \
     rsync_v="$(rsync --version | head -1 | awk '{print $3}')"; \
-    for v in "$ue_engine" "$ue_toolchain" "$base_os" "$cmake_v" "$rsync_v"; do \
+    ffmpeg_v="$(ffmpeg -version | head -1 | awk '{print $3}')"; \
+    xvfb_v="$(Xvfb -help 2>&1 | grep -oE 'X.Org X Server [0-9.]+' | awk '{print $4}' || true)"; \
+    test -n "$xvfb_v" || xvfb_v="$(dpkg-query -W -f='${Version}' xvfb)"; \
+    for v in "$ue_engine" "$ue_toolchain" "$base_os" "$cmake_v" "$rsync_v" "$ffmpeg_v" "$xvfb_v"; do \
       test -n "$v" || { echo "FATAL: a version probe produced an empty value" >&2; exit 1; }; \
     done; \
-    printf 'ue_engine=%s\nue_toolchain=%s\nbase_os=%s\ncmake=%s\nrsync=%s\n' \
-      "$ue_engine" "$ue_toolchain" "$base_os" "$cmake_v" "$rsync_v" \
+    printf 'ue_engine=%s\nue_toolchain=%s\nbase_os=%s\ncmake=%s\nrsync=%s\nffmpeg=%s\nxvfb=%s\n' \
+      "$ue_engine" "$ue_toolchain" "$base_os" "$cmake_v" "$rsync_v" "$ffmpeg_v" "$xvfb_v" \
       > /etc/drone-sim-versions
 
 # ---------------------------------------------------------------------------------------
