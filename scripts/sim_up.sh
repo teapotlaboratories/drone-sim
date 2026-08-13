@@ -52,7 +52,18 @@ DISPLAY_MODE=${DISPLAY_MODE:-}
 # Accept BOTH `99` and `:99`. docker/qgc-entrypoint.sh:9 reads this same variable name WITH the
 # colon (`${DISPLAY_NUM:-:99}`), so an operator following the repo's existing script would
 # otherwise get `Xvfb ::99` and a bring-up that fails 20 s later with a confusing message.
-DISPLAY_NUM=${DISPLAY_NUM:-99}
+# :77, NOT :99 -- and this is not cosmetic. Every container in this stack shares ONE network
+# namespace (that is the point of the `--ipc shareable` / `--network container:` design), and an
+# X server binds an ABSTRACT unix socket, which Linux scopes to the NETWORK namespace rather
+# than the filesystem. So a display number is stack-global here, not container-local.
+#
+# docker/qgc-entrypoint.sh:9 has owned :99 since the Gazebo era. Using it here meant
+# `DISPLAY=:99` inside the RENDERER resolved to QGROUNDCONTROL'S Xvfb -- and on a headless
+# stack, where the renderer has no X server at all, the chase recorder cheerfully captured
+# QGC's map view and wrote it out as `<tag>-chase.mp4`. A plausible-looking artifact of
+# entirely the wrong thing, which is worse than a black rectangle: a black frame reads as
+# broken, a map reads as evidence.                                                   (SIM-29)
+DISPLAY_NUM=${DISPLAY_NUM:-77}
 DISPLAY_NUM=${DISPLAY_NUM#:}
 DISPLAY_GEOM=${DISPLAY_GEOM:-1920x1080}
 
@@ -203,6 +214,16 @@ start_sim() {
   # The simulator ran without it, which proves 64 MB is survivable at these rates, not that
   # it is correct: the failure mode is silent starvation under load, not a clean error.
   local mounts=(-v "$REPO/vendor/Cosys-AirSim:/src")
+  # In display mode the renderer becomes a WRITER of artifacts, so it needs the same /out bind
+  # mount every other artifact reaches the host through (sim-ros2 gets it below). Without it a
+  # chase recording would have to be `docker cp`-ed out of the container's writable overlay --
+  # which works, but stages the whole file on the overlay first, and a long capture is GBs.
+  # Writing straight into /out also keeps ONE delivery route for artifacts, which is what
+  # SIM-26 (root-owned files nobody could read) came out of.                          (SIM-29)
+  if [ -n "$DISPLAY_MODE" ]; then
+    mkdir -p "$REPO/out"
+    mounts+=(-v "$REPO/out:/out")
+  fi
   local uproject=/src/Unreal/Environments/Blocks/Blocks.uproject
   if [ -n "$WORLD" ]; then
     [ -f "$WORLD" ] || die "world not found: $WORLD"

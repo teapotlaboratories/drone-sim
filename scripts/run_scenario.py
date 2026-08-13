@@ -69,6 +69,51 @@ def dexec(*args: str) -> list[str]:
     return ["docker", "exec", "-i", ROS2, *args]
 
 
+RECORD_CHASE = REPO / "scripts" / "record_chase.sh"
+
+
+def chase_available() -> bool:
+    """Is the renderer running with a screen, so its chase camera can be recorded? (SIM-29)
+
+    PROBED, never assumed. `--no-restart` reuses whatever stack is already up, so the flag this
+    run was invoked with says nothing about the stack it is flying against.
+
+    TWO checks, and the second one is the load-bearing one. `xdpyinfo` succeeding proves only
+    that SOME X server answers on that number -- and because every container here shares one
+    network namespace, and X binds an abstract socket scoped to the netns, that server may
+    belong to another container entirely. Probing `xdpyinfo` alone on a headless stack found
+    QGroundControl's Xvfb and recorded its map view as a chase video: a plausible artifact of
+    the wrong thing, which beats a black rectangle for danger because it reads as evidence.
+    Requiring a LOCAL Xvfb process is what ties the display to the renderer.        (SIM-29)
+    """
+    if sh(["docker", "exec", UNREAL, "bash", "-lc", "pgrep -x Xvfb >/dev/null"],
+          timeout=30).returncode != 0:
+        return False
+    # The display number is resolved HERE and interpolated into the command. `docker exec` does
+    # not forward the caller's environment into the container, so a `${DISPLAY_NUM}` left for
+    # the container's shell would expand to empty -- probing `DISPLAY=:` and reporting every
+    # display-mode stack as headless.
+    num = os.environ.get("DISPLAY_NUM", "77").lstrip(":")
+    r = sh(["docker", "exec", UNREAL, "bash", "-lc",
+            f"DISPLAY=:{num} xdpyinfo >/dev/null 2>&1"], timeout=30)
+    return r.returncode == 0
+
+
+def chase(*args: str) -> bool:
+    """Drive record_chase.sh, NEVER fatally.
+
+    The chase recording is a convenience, not evidence the gate scores on. A capture that fails
+    -- a full disk, a renderer that died, an ffmpeg that would not start -- must not fail a
+    flight that otherwise flew, so every call here is advisory and says so on stderr.
+    """
+    r = sh([str(RECORD_CHASE), *args], timeout=900)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout or "").strip().splitlines()
+        print(f"  chase: {' '.join(args)} failed (non-fatal): {tail[-1] if tail else '?'}",
+              file=sys.stderr)
+    return r.returncode == 0
+
+
 # A healthy landing keeps the Unreal actor and the physics integrator within a few centimetres:
 # measured 0.07 m over one landing, 0.1122 m across 40. Anything beyond this is the SIM-27
 # divergence rather than RPC sampling skew between two calls.
@@ -278,6 +323,29 @@ def run_flight(scenario: dict, seed: int) -> dict:
         sh(["docker", "exec", "-d", ROS2, "bash", "-lc",
             f"cd /tmp && python3 /tmp/watch_video.py --out {video_in_container} "
             f"> /tmp/watch_video.log 2>&1"], timeout=60)
+    # CHASE VIDEO, opt-in.                                                          (SIM-29)
+    #
+    # A SECOND video, and deliberately not a replacement: `watch_video.py` above records what
+    # the drone SEES (a vehicle-mounted camera over the AirSim RPC), while this records what the
+    # drone DOES -- the chase view, the only one the aircraft itself appears in. They answer
+    # different questions, so both are kept.
+    #
+    # OPT-IN, unlike the RPC video, for two measured reasons: it needs the stack brought up with
+    # `sim_up.sh --display`, and at ~63 MB per run a 40-seed gate adds ~2.5 GB on top of the
+    # ~2.0 GB of per-seed video out/ already holds.
+    chase_on = (os.environ.get("SIM_CHASE_VIDEO", "") in ("1", "true", "yes")
+                and chase_available())
+    if os.environ.get("SIM_CHASE_VIDEO", "") in ("1", "true", "yes") and not chase_on:
+        print("  chase: SIM_CHASE_VIDEO is set but the renderer has no display — "
+              "bring the stack up with ./scripts/sim_up.sh --display", file=sys.stderr)
+    chase_mp4 = REPO / "out" / f"{tag}-chase.mp4"
+    if chase_on:
+        # Stale state from a previous run that died between start and stop would refuse this
+        # one. `stop` is the documented way to clear it and is safe when nothing is recording.
+        if (REPO / "out" / ".chase-recording").exists():
+            chase("stop", "--no-distinct")
+        chase_on = chase("start", "--out", str(chase_mp4))
+
     # LANDING PROBE, always on.                                                    (SIM-27)
     #
     # The 10-seed gate found a landing that never terminates, and the investigation established
@@ -330,6 +398,12 @@ def run_flight(scenario: dict, seed: int) -> dict:
         # catch, and stopping it outside the finally would leave it polling for its full 1200 s
         # -- overlapping the next seed's flight, and its own probe, under --reuse.
         sh(dexec("bash", "-lc", "pkill -INT -f probe_landing.py || true"), timeout=60)
+        # Stopped HERE for the same reason the probe is: a controller timeout must not leave a
+        # 60 fps screen grab running into the next seed's flight. --no-distinct because the
+        # mpdecimate pass decodes the whole file (~10 s), which across a 40-seed gate is ~7
+        # minutes spent on a per-seed number nobody reads.
+        if chase_on:
+            chase("stop", "--no-distinct")
         try:
             recorder.wait(timeout=60)
         except subprocess.TimeoutExpired:
@@ -413,6 +487,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
         res["video_written"] = video_written
         res["lidar_readback_drops"] = drops
         res["probe_written"] = probe_written
+        res["chase_video"] = str(chase_mp4) if (chase_on and chase_mp4.exists()) else None
         res["max_pose_split_m"] = max_dz
         return res
     # Fall back to the log line, so a missing file does not erase the evidence.
@@ -421,12 +496,14 @@ def run_flight(scenario: dict, seed: int) -> dict:
         res = json.loads(m.group(1))
         res["lidar_readback_drops"] = drops
         res["probe_written"] = probe_written
+        res["chase_video"] = str(chase_mp4) if (chase_on and chase_mp4.exists()) else None
         res["max_pose_split_m"] = max_dz
         return res
     return {"outcome": "failure",
             "failure_reason": "no result produced",
             "lidar_readback_drops": drops,
             "probe_written": probe_written,
+            "chase_video": str(chase_mp4) if (chase_on and chase_mp4.exists()) else None,
             "max_pose_split_m": max_dz,
             "stdout_tail": (proc.stdout or "")[-800:]}
 

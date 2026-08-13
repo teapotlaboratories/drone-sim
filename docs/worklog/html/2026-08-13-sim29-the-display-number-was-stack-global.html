@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-29 &mdash; The Chase Recorder Captured QGroundControl &mdash; 2026-08-13</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-13 &middot; SIM-29 &middot; III</span>
+  <nav><a href="#why">Why it had a display</a><a href="#worse">Worse than black</a><a href="#fix">The fix</a><a href="#integration">The integration</a><a href="#verify">Verification</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-13 &middot; SIM-29 &middot; third entry &middot; SITL only</span>
+  <h1>The Chase Recorder<br>Captured QGroundControl</h1>
+  <p class="sub">Wiring the capture into <code>run_scenario.py</code> was meant to be plumbing, and that part worked. Then the regression test &mdash; a <strong>headless</strong> stack with <code>SIM_CHASE_VIDEO=1</code>, which should record nothing &mdash; produced an 8.2 MB mp4.</p>
+  <div class="mastmeta"><span>Recorded <b>QGC's map</b></span><span>Renderer had <b>no X server</b></span><span>Cause <b>shared netns</b></span><span>Flights <b>7 &times; 4/4</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">What the artifact contained</div><div class="v">a real flight</div><div class="n">QGroundControl's map view &mdash; correctly timed, entirely the wrong thing</div></div>
+<div class="stat warn"><div class="k">Why :99 resolved at all</div><div class="v">abstract socket</div><div class="n">X binds one, and Linux scopes it to the NETWORK namespace</div></div>
+<div class="stat ok"><div class="k">Fix</div><div class="v">two parts</div><div class="n">renumber to :77, and require a LOCAL Xvfb &mdash; either alone leaves it armed</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#why">Why a headless container had a display</a></li>
+  <li><a href="#worse">Why this was worse than a black rectangle</a></li>
+  <li><a href="#fix">The fix, in two parts</a></li>
+  <li><a href="#integration">What the integration looks like</a></li>
+  <li><a href="#verify">Verification, and the lesson</a></li>
+</ol></div>
+
+<h2 id="why"><span class="secnum">01</span> Why a headless container had a display</h2>
+<p>Every container in this stack shares <strong>one network namespace</strong> &mdash; that is the
+whole point of the <code>--ipc shareable</code> / <code>--network container:$SIM</code> design, and
+it is what makes <code>127.0.0.1</code> mean the same thing to PX4, the agent and the renderer.</p>
+<p>An X server binds <strong>two</strong> sockets: a filesystem one at
+<code>/tmp/.X11-unix/X&lt;N&gt;</code>, and an <strong>abstract</strong> unix socket. Abstract
+sockets have no filesystem presence and are scoped to the <strong>network namespace</strong>.</p>
+<div class="callout stop"><span class="lbl">So a display number here is stack-global, not container-local</span>
+<pre>pgrep -a Xvfb          <b>-&gt; no Xvfb process</b>
+ls /tmp/.X11-unix/     <b>-&gt; empty</b>
+DISPLAY=:99 xdpyinfo   <b>-&gt; name of display: :99   vendor: The X.Org Foundation</b></pre>
+<p>No local server, no local socket, and a working display &mdash; because
+<code>docker/qgc-entrypoint.sh:9</code> has read <code>DISPLAY_NUM="${DISPLAY_NUM:-:99}"</code>
+since the Gazebo era, and QGC's Xvfb was answering across the shared netns. I picked
+<code>:99</code> for the renderer without checking who already had it.</p></div>
+
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="All containers share one network namespace. QGroundControl runs Xvfb on display 99 and binds an abstract socket scoped to that namespace. The renderer, running headless with no X server of its own, resolves DISPLAY 99 across the namespace to QGC's server, so the recorder captured QGC's window. The fix moves the renderer to display 77 and requires a local Xvfb process.">
+  <rect x="30" y="46" width="840" height="150" fill="none" stroke="var(--rule)" stroke-dasharray="5 4"/>
+  <text class="axl" x="44" y="66">SHARED NETWORK NAMESPACE &mdash; abstract X sockets live here, not in any container&apos;s filesystem</text>
+
+  <rect class="n-a" x="60" y="86" width="200" height="86"/>
+  <text class="nid" x="160" y="118" text-anchor="middle">sim-qgc</text>
+  <text class="nlb" x="160" y="136" text-anchor="middle">Xvfb :99</text>
+  <text class="nlb" x="160" y="152" text-anchor="middle">owns :99 since the Gazebo era</text>
+
+  <rect class="n-b" x="620" y="86" width="200" height="86"/>
+  <text class="nid" x="720" y="118" text-anchor="middle">sim-unreal</text>
+  <text class="nlb" x="720" y="136" text-anchor="middle">headless &mdash; NO X server</text>
+  <text class="nlb" x="720" y="152" text-anchor="middle">-RenderOffScreen</text>
+
+  <line class="e-b" x1="616" y1="129" x2="266" y2="129" marker-end="url(#arb2)"/>
+  <defs><marker id="arb2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--stop)"/></marker></defs>
+  <text class="nlb" x="441" y="122" text-anchor="middle">DISPLAY=:99 resolves ACROSS the namespace</text>
+  <text class="nlb" x="441" y="150" text-anchor="middle">&rarr; ffmpeg grabbed QGC&apos;s window</text>
+
+  <text class="axl" x="30" y="238">THE FIX &mdash; both parts, because either alone leaves it armed</text>
+  <rect class="n-v" x="60" y="252" width="360" height="48"/>
+  <text class="nlb" x="240" y="272" text-anchor="middle">renderer moves to :77</text>
+  <text class="nlb" x="240" y="290" text-anchor="middle">removes today&apos;s collision</text>
+  <rect class="n-v" x="460" y="252" width="360" height="48"/>
+  <text class="nlb" x="640" y="272" text-anchor="middle">require a LOCAL Xvfb process</text>
+  <text class="nlb" x="640" y="290" text-anchor="middle">removes the trap for the next service that wants a screen</text>
+</svg>
+<figcaption>&quot;A display answers&quot; never meant &quot;the display is ours&quot;.</figcaption>
+</figure>
+
+<h2 id="worse"><span class="secnum">02</span> Why this was worse than a black rectangle</h2>
+<p>The guard written in the previous entry carries this comment:</p>
+<pre>Without this check the grab would succeed and record a black rectangle, which is
+indistinguishable from a broken renderer at review time.</pre>
+<p>That was the failure mode I imagined, and it is the <em>benign</em> one. What actually happened
+is the dangerous one. The extracted frame shows QGroundControl mid-flight: <strong>"Flying /
+Offboard", 20.0 m, 0.1 m/s, the vehicle icon tracking across a satellite map.</strong> A recording
+of a real flight, correctly timed, of entirely the wrong thing.</p>
+<div class="callout stop"><span class="lbl">The asymmetry that matters</span>
+<p><strong>A black frame reads as broken. A map reads as evidence.</strong> Anyone opening
+<code>square-10m-seed9-chase.mp4</code> during a post-mortem would have seen a flight and believed
+it &mdash; and this project has already lost days to arguing from a video that did not show what it
+seemed to (<code>SIM-27</code>).</p></div>
+
+<h2 id="fix"><span class="secnum">03</span> The fix, in two parts</h2>
+<p><strong>1. The renderer moved to <code>:77</code>.</strong> QGC owns <code>:99</code> by
+documented default; the collision was avoidable and should never have been created.</p>
+<p><strong>2. Detection now requires a LOCAL <code>Xvfb</code> process</strong>, not merely that
+<code>xdpyinfo</code> answers:</p>
+<pre>docker exec "$SIM" bash -lc 'pgrep -x Xvfb &gt;/dev/null'   <span class="c"># is the server OURS</span>
+docker exec "$SIM" bash -lc "DISPLAY=:$N xdpyinfo ..."   <span class="c"># is it on the number we expect</span></pre>
+<p>Renumbering alone would have fixed today's collision and left the trap for the next person who
+adds a service with a display. Only the second check encodes the real rule.</p>
+
+<h2 id="integration"><span class="secnum">04</span> What the integration looks like</h2>
+<p>Unremarkable, which is the point &mdash; it follows the shape already in
+<code>run_scenario.py</code>: <code>SIM_CHASE_VIDEO=1</code> starts the grab before the flight so
+the recording brackets takeoff, stops it inside the <strong>same <code>finally</code></strong> as
+the bag and the landing probe (a controller timeout must not leave a 60 fps grab running into the
+next seed), lands the mp4 as <code>out/&lt;scenario&gt;-seed&lt;N&gt;-chase.mp4</code>, surfaces it
+as <code>chase_video</code> in the run JSON, and treats every call as <strong>non-fatal</strong>
+&mdash; a capture failure must not fail a flight that flew.</p>
+<p>Two deliberate departures:</p>
+<ul>
+<li><strong><code>sim_up.sh --display</code> bind-mounts <code>out/</code> into the renderer</strong>,
+so ffmpeg writes straight to the final path. Staging in the container overlay and
+<code>docker cp</code>-ing afterwards works &mdash; it is what the previous entry shipped &mdash; but
+a long capture is GBs through the overlay. Headless renderers do not get the mount.</li>
+<li><strong><code>stop --no-distinct</code> in the gate path.</strong> The <code>mpdecimate</code>
+pass decodes the whole file, ~10 s per capture, ~7 minutes across 40 seeds, for a per-seed number
+nobody reads.</li>
+</ul>
+
+<h2 id="verify"><span class="secnum">05</span> Verification, and the lesson</h2>
+<div class="tw"><table>
+<thead><tr><th>stack</th><th class="mono">SIM_CHASE_VIDEO</th><th>expected</th><th>got</th></tr></thead>
+<tbody>
+<tr><th class="mono">--display</th><td class="mono">1</td><td>chase mp4 beside the MCAP</td><td>seed 7 — 62 MB, owner <code>deck</code>, in the run JSON</td></tr>
+<tr><th class="mono">--display</th><td class="mono">unset</td><td>nothing</td><td>seed 8 — no chase file, <code>chase_video: None</code></td></tr>
+<tr><th class="mono">headless</th><td class="mono">1</td><td>warn, skip, fly anyway</td><td>seed 12 — warned, no file, <code>success</code></td></tr>
+</tbody>
+</table></div>
+<p>Seven <code>square-10m</code> flights in total, all <code>success, 4/4 waypoints</code>. The
+display-mode frame was <strong>looked at</strong>, not merely counted: Blocks world, drone in
+frame, <code>Collision Count:0</code>.</p>
+<div class="callout"><span class="lbl">The lesson worth carrying</span>
+<p>Every check in this feature has now failed the same way once: <code>x11grab</code>'s frame count
+was too generous, file size was too stingy, and <code>xdpyinfo</code> answered for someone else's
+server. <strong>Three proxies for "is the renderer drawing", none of which was that.</strong></p>
+<p>The one thing that has never lied is opening the file and looking at it.</p></div>
+
+<footer>
+  <span>Worklog &middot; 2026-08-13 &middot; SIM-29 &middot; third entry</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

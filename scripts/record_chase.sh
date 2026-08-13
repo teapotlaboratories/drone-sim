@@ -29,17 +29,37 @@ SIM=${SIM:-sim-unreal}
 # `${DISPLAY_NUM:-:99}` -- with the colon -- so an operator following the repo's existing
 # script would otherwise produce `Xvfb ::99` and a bring-up that fails 20 s later. Normalise
 # once, here, and prepend the colon at every use site. (review, PR 49)
-DISPLAY_NUM=${DISPLAY_NUM:-99}
+DISPLAY_NUM=${DISPLAY_NUM:-77}
 DISPLAY_NUM=${DISPLAY_NUM#:}
 FPS=${FPS:-60}
 CRF=${CRF:-23}
-IN_CONTAINER_MP4=/tmp/chase.mp4
+# Fallback container-side path, used when the renderer has no /out mount (a stack brought up
+# by something other than `sim_up.sh --display`). _resolve_target below prefers /out.
+FALLBACK_MP4=/tmp/chase.mp4
 PROGRESS=/tmp/chase-progress.txt
 STATE=${STATE:-$REPO/out/.chase-recording}
 MAX_SECONDS=${MAX_SECONDS:-1800}
 
 log()  { printf '\033[36m[chase]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[chase] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Where the renderer should WRITE, given where the caller wants the file.
+#
+# `sim_up.sh --display` bind-mounts <repo>/out into the renderer, so a target under out/ can be
+# written straight to its final location: no staging in the container's writable overlay and no
+# `docker cp` of the whole file afterwards. That matters for long captures, which are GBs.
+#
+# Everything else falls back to /tmp + copy, so this still works against a stack brought up
+# some other way.
+_resolve_target() {
+  local host=$1
+  if [ "${host#$REPO/out/}" != "$host" ] \
+     && docker exec "$SIM" bash -lc 'test -d /out' >/dev/null 2>&1; then
+    printf '/out/%s\n' "$(basename "$host")"
+  else
+    printf '%s\n' "$FALLBACK_MP4"
+  fi
+}
 
 # Last `frame=N` ffmpeg has written to its progress file, or empty if it has written none.
 _progress_frames() {
@@ -50,17 +70,19 @@ _progress_frames() {
 # Leave nothing running behind a failed start. Without this the orphan blocks the next start
 # with "ffmpeg is already running", and the real error is two layers back in the scrollback.
 _abort_capture() {
-  docker exec "$SIM" bash -lc "pkill -INT -x ffmpeg; sleep 1; rm -f $IN_CONTAINER_MP4 $PROGRESS" 2>/dev/null || true
+  local target=${1:-$FALLBACK_MP4}
+  docker exec "$SIM" bash -lc "pkill -INT -x ffmpeg; sleep 1; rm -f $target $PROGRESS" 2>/dev/null || true
 }
 
 usage() {
   cat <<'EOF'
 usage: record_chase.sh start [--out PATH.mp4]
-       record_chase.sh stop
+       record_chase.sh stop [--no-distinct]
        record_chase.sh status
 
   start   begin grabbing the renderer's screen. Default output out/chase-<UTC>.mp4.
-  stop    finalise the recording, copy it out, and report BOTH grabbed and distinct frames.
+  stop    finalise the recording, deliver it, and report BOTH grabbed and distinct frames.
+          --no-distinct skips the mpdecimate pass (~10 s per flight-length capture).
   status  is a recording running, and how many frames it has ingested.
 
 Environment: SIM, DISPLAY_NUM, FPS (60), CRF (23), MAX_SECONDS (1800).
@@ -89,8 +111,17 @@ require_container() {
 # finished mp4 inside the container. (review, PR 49)
 require_display() {
   require_container
+  # TWO checks, because `xdpyinfo` succeeding does NOT mean the display belongs to this
+  # container. X binds an abstract unix socket, scoped to the NETWORK namespace, and every
+  # container in this stack shares one -- so any display number another container serves is
+  # reachable from here. Probing only `xdpyinfo` once recorded QGroundControl's map view and
+  # saved it as a chase video.                                                       (SIM-29)
+  docker exec "$SIM" bash -lc 'pgrep -x Xvfb >/dev/null' \
+    || die "no Xvfb running inside '$SIM' — bring the stack up with: ./scripts/sim_up.sh --display
+       (a display may still be REACHABLE here via the shared network namespace, e.g. QGC's —
+        recording it would capture the wrong window, so this refuses rather than guess)"
   docker exec "$SIM" bash -lc "DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1" \
-    || die "no X display :$DISPLAY_NUM in '$SIM' — bring the stack up with: ./scripts/sim_up.sh --display"
+    || die "'$SIM' runs an Xvfb but not on :$DISPLAY_NUM — check DISPLAY_NUM against sim_up.sh"
 }
 
 cmd_start() {
@@ -113,17 +144,18 @@ cmd_start() {
   docker exec "$SIM" bash -lc 'pgrep -x ffmpeg >/dev/null' \
     && die "ffmpeg is already running inside '$SIM' — stop it before starting another"
 
-  local geom
+  local geom target
   geom=$(docker exec "$SIM" bash -lc \
     "DISPLAY=:$DISPLAY_NUM xdpyinfo | awk '/dimensions:/{print \$2}'" | tr -d '\r')
   [ -n "$geom" ] || die "could not read the screen geometry from :$DISPLAY_NUM"
+  target=$(_resolve_target "$out")
 
-  docker exec "$SIM" bash -lc "rm -f $IN_CONTAINER_MP4 $PROGRESS"
+  docker exec "$SIM" bash -lc "rm -f $target $PROGRESS"
   docker exec -d "$SIM" bash -lc \
     "DISPLAY=:$DISPLAY_NUM ffmpeg -hide_banner -loglevel warning \
        -f x11grab -framerate $FPS -video_size $geom -i :$DISPLAY_NUM \
        -t $MAX_SECONDS -c:v libx264 -preset ultrafast -crf $CRF \
-       -progress $PROGRESS -y $IN_CONTAINER_MP4 \
+       -progress $PROGRESS -y $target \
        > /tmp/chase-ffmpeg.log 2>&1"
 
   # "Armed" must mean FRAMES ARE BEING ENCODED, not that a command was issued -- a harness in
@@ -150,21 +182,39 @@ cmd_start() {
   # container, so any profile or motd output lands on stdout ahead of the number and produces
   # exactly that. (review, PR 49)
   if ! [[ "$f1" =~ ^[0-9]+$ ]] || ! [[ "$f2" =~ ^[0-9]+$ ]]; then
-    _abort_capture
+    _abort_capture "$target"
     die "could not read ffmpeg's frame counter (got '${f1:-}' then '${f2:-}') — nothing verified"
   fi
   if [ "$f2" -le "$f1" ]; then
-    _abort_capture
+    _abort_capture "$target"
     die "ffmpeg is running but no frames are being ingested ($f1 -> $f2)"
   fi
 
-  printf '%s\n' "$out" > "$STATE"
-  log "recording $geom at ${FPS} fps -> $out"
+  printf '%s\n%s\n' "$out" "$target" > "$STATE"
+  if [ "${target#/out/}" != "$target" ]; then
+    log "recording $geom at ${FPS} fps -> $out (written directly, no copy)"
+  else
+    log "recording $geom at ${FPS} fps -> $out (staged in $SIM:$target)"
+  fi
 }
 
 cmd_stop() {
+  local no_distinct=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      # Skip the mpdecimate pass. It decodes the whole file (~10 s per flight-length capture),
+      # which is right interactively and wrong in a 40-seed gate -- ~7 minutes of pure
+      # post-processing for a per-seed number nobody reads.                          (SIM-29)
+      --no-distinct) no_distinct=1; shift ;;
+      *)             usage >&2; die "unknown argument: $1" ;;
+    esac
+  done
   [ -f "$STATE" ] || die "no recording in progress (no $STATE)"
-  local out; out=$(cat "$STATE")
+  local out target
+  out=$(sed -n '1p' "$STATE")
+  target=$(sed -n '2p' "$STATE")
+  # State files written before the target was recorded carry only the host path.
+  [ -n "$target" ] || target=$FALLBACK_MP4
   # Container, NOT display: see require_display's comment. A finished recording must be
   # retrievable even if the screen has gone.
   require_container
@@ -175,10 +225,10 @@ cmd_stop() {
   # with "a recording is already running" and every later `stop` fails the same way -- while
   # `status` tells the operator to "run stop to clean up", which is the one path that cannot
   # work. Detect it, say so, and clear the state. (review, PR 49)
-  if ! docker exec "$SIM" bash -lc "test -f $IN_CONTAINER_MP4" 2>/dev/null; then
+  if ! docker exec "$SIM" bash -lc "test -f $target" 2>/dev/null; then
     rm -f "$STATE"
     docker exec "$SIM" bash -lc "rm -f $PROGRESS" 2>/dev/null || true
-    die "no recording found at $IN_CONTAINER_MP4 in '$SIM' — the stack was probably restarted mid-recording. State cleared; '$out' was never written."
+    die "no recording found at $target in '$SIM' — the stack was probably restarted mid-recording. State cleared; '$out' was never written."
   fi
 
   # SIGINT, never SIGKILL. ffmpeg writes the moov atom on clean shutdown; killed, the mp4 is
@@ -201,21 +251,33 @@ cmd_stop() {
   # A reporting bug that looks like a capture failure is worth the comment.
   local grabbed dur distinct
   grabbed=$(docker exec "$SIM" bash -lc \
-    "ffprobe -v error -select_streams v:0 -show_entries stream=nb_frames -of csv=p=0 $IN_CONTAINER_MP4" \
+    "ffprobe -v error -select_streams v:0 -show_entries stream=nb_frames -of csv=p=0 $target" \
     2>/dev/null | tr -d '\r' || true)
   dur=$(docker exec "$SIM" bash -lc \
-    "ffprobe -v error -show_entries format=duration -of csv=p=0 $IN_CONTAINER_MP4" \
+    "ffprobe -v error -show_entries format=duration -of csv=p=0 $target" \
     2>/dev/null | tr -d '\r' || true)
+  if [ -n "$no_distinct" ]; then
+    distinct=""
+  else
   log "counting distinct frames (mpdecimate decodes the whole file; ~10 s per flight-length capture)"
   distinct=$(docker exec "$SIM" bash -lc \
-    "ffmpeg -hide_banner -nostats -loglevel info -i $IN_CONTAINER_MP4 -vf mpdecimate -vsync vfr -an -f null - 2>&1 \
+    "ffmpeg -hide_banner -nostats -loglevel info -i $target -vf mpdecimate -vsync vfr -an -f null - 2>&1 \
      | grep -o 'frame= *[0-9]*' | tail -1 | grep -o '[0-9]*'" 2>/dev/null | tr -d '\r' || true)
+  fi
 
-  docker cp "$SIM:$IN_CONTAINER_MP4" "$out" >/dev/null
+  # When the renderer wrote straight into the /out bind mount, the file is ALREADY on the host
+  # at its final path -- copying it would be copying it onto itself. Only the staged path needs
+  # the copy.
+  if [ "${target#/out/}" != "$target" ]; then
+    [ -f "$out" ] || die "renderer reported writing $target but $out does not exist on the host"
+  else
+    docker cp "$SIM:$target" "$out" >/dev/null
+    docker exec "$SIM" bash -lc "rm -f $target"
+  fi
   # SIM-26: artifacts written from inside a container land as root and the caller cannot read
   # their own results. Every writer into out/ has to do this.
   if [ "$(id -u)" != "0" ]; then chown "$(id -u):$(id -g)" "$out" 2>/dev/null || true; fi
-  docker exec "$SIM" bash -lc "rm -f $IN_CONTAINER_MP4 $PROGRESS"
+  docker exec "$SIM" bash -lc "rm -f $PROGRESS"
   rm -f "$STATE"
 
   log "saved $out"
@@ -237,7 +299,7 @@ cmd_stop() {
 
 cmd_status() {
   if [ ! -f "$STATE" ]; then log "not recording"; return 0; fi
-  local out; out=$(cat "$STATE")
+  local out; out=$(sed -n '1p' "$STATE")
   if docker exec "$SIM" bash -lc 'pgrep -x ffmpeg >/dev/null' 2>/dev/null; then
     # Frames, not bytes. A parked drone compresses to nothing, so byte count reads as a stall
     # on a perfectly healthy capture -- the same trap the readiness check above fell into.
@@ -250,7 +312,7 @@ cmd_status() {
 
 case "${1:-}" in
   start)  shift; cmd_start "$@" ;;
-  stop)   shift; cmd_stop ;;
+  stop)   shift; cmd_stop "$@" ;;
   status) shift; cmd_status ;;
   -h|--help) usage ;;
   *)      usage >&2; die "expected: start | stop | status" ;;
