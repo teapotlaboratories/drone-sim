@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-13-sim29-chase-camera-via-virtual-display.html">
+    <span class="k">2026-08-13 · SIM-29 · newest</span>
+    <h3>Recording The Chase Camera By Giving The Engine A Screen</h3>
+    <p>The question was whether the chase camera could be recorded in high resolution. <strong>It was mis-framed: resolution was never the constraint.</strong> The chase view is <code>AirSimCameraDirector</code>, which has <em>no RPC binding at all</em> — <code>simGetImages</code> serves vehicle-mounted cameras only — and that path is capped near <strong>13–14 Hz at any resolution</strong> by a blocking GPU→CPU readback whose fixed ~71 ms term dominates. Meanwhile <code>ViewMode</code> defaults to <code>FlyWithMe</code>, so <strong>the chase camera has been running on every run this project has ever done</strong>, rendered to nothing because <code>sim_up.sh</code> launches with <code>-RenderOffScreen</code>. Give the engine an Xvfb display instead and <code>ffmpeg -f x11grab</code> records it at <strong>~31 fps at 1080p, with the drone in frame</strong>, changing nothing in Cosys-AirSim. One trap inside the measurement: x11grab re-emits the last frame when the screen is unchanged, so it <em>always</em> reports the rate you asked for — the first "60 fps" was the grab clock, not the engine, and only <code>mpdecimate</code> tells the truth. A no-encoder control run puts x264's cost at <strong>1.3 fps, 4.2%</strong>, which is what makes ~31 fps a render ceiling rather than contention.</p>
+    <div class="tags">
+      <span class="pill p-ok">~31 fps vs ~13–14 Hz</span>
+      <span class="pill p-chrome">chase camera was always on</span>
+      <span class="pill p-warn">grab rate ≠ render rate</span>
+      <span class="pill p-air">no plugin change</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-13-sim28-the-vehicle-falls-during-bringup.html">
-    <span class="k">2026-08-13 · SIM-28 · newest</span>
+    <span class="k">2026-08-13 · SIM-28</span>
     <h3>The Vehicle Falls 80 m On Every Boot</h3>
     <p><strong>Supersedes a conclusion in yesterday's entry.</strong> That one recorded a stale EKF origin on 40 of 40 bring-ups by a systematic 9.13 m and argued — in bold — that 57 mm of spread across 40 samples made it <em>"systematic, not a race"</em>. Wrong: <strong>a tight distribution can mean deterministic timing just as easily as constant offset</strong>, and the two are only separable by watching the quantity move. Sampling <code>sensor_gps</code> from the first PX4 boot shows the vehicle falling <code>118 → 114 → 108 → … → 41 m</code> at ~5 m per sample before snapping back to its spawn altitude — <strong>the vehicle genuinely falls ~80 m during bring-up</strong>, and PX4 latches its origin on the second sample of that fall. So 9.13 m was never an offset anyone chose; it is the gap between where the fall had reached and where the vehicle ended up. The earlier decomposition into <code>−7.85</code> and <code>+1.87</code> was arithmetic on a moving target. Same family as <code>SIM-21</code>. Also: the Blocks floor is <em>not</em> at Z=0 (it is 0.9 m below), and PX4 latches from GPS, not the barometer.</p>
     <div class="tags">
