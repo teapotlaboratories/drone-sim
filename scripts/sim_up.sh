@@ -49,7 +49,11 @@ WORLD=${WORLD:-}                        # .uproject to load; default is the vend
 # capture is 1.3 fps of 32.0 (4.2%), but two passing flights are NOT evidence that a windowed
 # renderer leaves flight timing alone, and the gate is the thing that must not move.
 DISPLAY_MODE=${DISPLAY_MODE:-}
+# Accept BOTH `99` and `:99`. docker/qgc-entrypoint.sh:9 reads this same variable name WITH the
+# colon (`${DISPLAY_NUM:-:99}`), so an operator following the repo's existing script would
+# otherwise get `Xvfb ::99` and a bring-up that fails 20 s later with a confusing message.
 DISPLAY_NUM=${DISPLAY_NUM:-99}
+DISPLAY_NUM=${DISPLAY_NUM#:}
 DISPLAY_GEOM=${DISPLAY_GEOM:-1920x1080}
 
 # NETWORK MODE. Default `shared`: the renderer donates a private network + IPC namespace and
@@ -225,7 +229,15 @@ start_sim() {
     # `sleep` would be a race. Xvfb forks, binds a socket and only then accepts clients; if
     # Unreal dials DISPLAY before that, it dies at startup with no usable diagnostic. xdpyinfo
     # is the readiness check the engine image now carries for exactly this reason.
-    launch="Xvfb :$DISPLAY_NUM -screen 0 ${DISPLAY_GEOM}x24 >/tmp/xvfb.log 2>&1 &
+    # -ac and the extensions are NOT decoration. docker/qgc-entrypoint.sh:37 carries the same
+    # set with a comment recording that without them a Qt/GL client dies MID-SESSION with
+    # "XIO: fatal IO error 2 on X server" -- and that it cost an afternoon to find. Three
+    # ~106 s flights are thin evidence against a failure mode that shows up late, so this
+    # carries the flags rather than betting the renderer is different. `-nolisten tcp` also
+    # matters under NET_MODE=host, where this X server would otherwise sit on the HOST's
+    # network namespace. (review, PR 49)
+    launch="Xvfb :$DISPLAY_NUM -screen 0 ${DISPLAY_GEOM}x24 \
+        -ac +extension GLX +extension RANDR +render -noreset -nolisten tcp >/tmp/xvfb.log 2>&1 &
       for i in \$(seq 1 80); do DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1 && break; sleep 0.25; done
       DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1 || { echo 'FATAL: Xvfb :$DISPLAY_NUM never came up' >&2; cat /tmp/xvfb.log >&2; exit 1; }
       export DISPLAY=:$DISPLAY_NUM
