@@ -3557,15 +3557,43 @@ drawn, and costs the simulator nothing.
   mp4 finalises, chowns the artifact back (`SIM-26`), and reports **both** grabbed and distinct
   frame counts.
 
-**Verified end to end**, not by a clean build: three `square-10m` seed-1 flights on the display
-stack, all `success, 4/4 waypoints` (106.6 / 106.1 / 105.9 s). Last run: 6984 frames grabbed,
-2946 distinct over 116.4 s.
+**Verified end to end**, not by a clean build. Seven `square-10m` flights, all `success, 4/4
+waypoints`: four proving the capture itself (106.6 / 106.1 / 105.9 / 105.9 s, last recording 7696
+grabbed / 2944 distinct over 128.3 s), then three proving the integration — `SIM_CHASE_VIDEO=1` on
+a display stack (seed 7, chase mp4 beside the MCAP), the same stack without the flag (seed 8, no
+chase file), and a **headless** stack with the flag set (seed 12, warns and skips, flight
+unaffected). The display-mode frame was checked visually against the Blocks world after the
+`:99` collision was fixed, not merely counted.
 
-**Still open:**
+**Second slice LANDED** — `run_scenario.py` integration, plus a bug it exposed:
 
-- **`run_scenario.py` integration** — start/stop the grab inside the same `try/finally` that owns
-  the bag and the landing probe, so the mp4 lands next to the MCAP named by scenario and seed.
-  Today the two are driven separately.
+- **`SIM_CHASE_VIDEO=1`** starts the grab before the flight and stops it in the same
+  `try/finally` that owns the bag and the landing probe. The mp4 lands as
+  `out/<scenario>-seed<N>-chase.mp4`, beside the MCAP and the existing RPC video, and is
+  surfaced as `chase_video` in the run JSON. **Opt-in**, unlike the RPC video: it needs
+  `--display`, and at ~63 MB/run a 40-seed gate adds ~2.5 GB.
+- **A second video, not a replacement.** `watch_video.py` records what the drone *sees*; this
+  records what it *does*. Different questions, both kept.
+- **`sim_up.sh --display` now bind-mounts `out/` into the renderer**, so the capture is written
+  straight to its final path — no staging in the container overlay, no `docker cp` of a file
+  that can be GBs. Headless renderers do not get the mount.
+- **The distinct-frame count is skipped in the gate path** (`stop --no-distinct`). The
+  `mpdecimate` pass decodes the whole file, ~10 s per capture — ~7 minutes across 40 seeds, for
+  a per-seed number nobody reads.
+
+**The bug that integration exposed — the display number was stack-global.** Every container here
+shares ONE network namespace, and an X server binds an **abstract** unix socket, which Linux
+scopes to the *netns*, not the filesystem. `docker/qgc-entrypoint.sh:9` has owned `:99` since the
+Gazebo era, so `DISPLAY=:99` inside the **renderer** resolved to **QGroundControl's** Xvfb. On a
+headless stack — where the renderer has no X server at all — the recorder captured QGC's map view
+and wrote it out as `<tag>-chase.mp4`. **A plausible-looking artifact of entirely the wrong
+thing, which is worse than a black rectangle: a black frame reads as broken, a map reads as
+evidence.** Fixed two ways, because either alone would leave the trap armed:
+
+- the renderer moved to **`:77`**, and
+- both `record_chase.sh` and `run_scenario.py` now require a **local `Xvfb` process** in the
+  renderer, not merely that `xdpyinfo` answers — because on a shared netns, "a display answers"
+  never meant "the display is ours".
 
 - **Does display mode change flight behaviour?** Three runs passed 4/4, which is not evidence of
   no effect on timing. Needs a seeded comparison against headless before display mode is used for

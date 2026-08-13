@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
-  <a class="card" href="2026-08-13-sim29-folding-capture-into-the-engine-image.html">
+  <a class="card" href="2026-08-13-sim29-the-display-number-was-stack-global.html">
     <span class="k">2026-08-13 · SIM-29 · newest</span>
+    <h3>The Chase Recorder Captured QGroundControl</h3>
+    <p>Wiring the chase capture into <code>run_scenario.py</code> was meant to be plumbing. Then the regression test — a <strong>headless</strong> stack, which should record nothing — produced an 8.2 MB mp4. <strong><code>DISPLAY=:99</code> inside the renderer was resolving to QGroundControl's X server.</strong> Every container here shares one network namespace, and an X server binds an <em>abstract</em> unix socket that Linux scopes to the <em>netns</em>, not the filesystem — so a display number is stack-global, and <code>qgc-entrypoint.sh:9</code> has owned <code>:99</code> since the Gazebo era. The renderer had no <code>Xvfb</code> process and an empty <code>/tmp/.X11-unix</code>, and <code>xdpyinfo</code> answered anyway. The saved artifact showed QGC mid-flight — "Flying / Offboard", 20.0 m, the vehicle tracking across a satellite map: <strong>a recording of a real flight, correctly timed, of entirely the wrong thing.</strong> The guard written the day before had anticipated a black rectangle, which is the benign version — <strong>a black frame reads as broken, a map reads as evidence.</strong> Fixed twice over: the renderer moved to <code>:77</code>, and both callers now require a <em>local</em> <code>Xvfb</code> process, because on a shared netns "a display answers" never meant "the display is ours".</p>
+    <div class="tags">
+      <span class="pill p-stop">recorded the wrong window</span>
+      <span class="pill p-warn">abstract sockets are netns-scoped</span>
+      <span class="pill p-chrome">:99 belonged to QGC</span>
+      <span class="pill p-ok">7 flights, 4/4 each</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-08-13-sim29-folding-capture-into-the-engine-image.html">
+    <span class="k">2026-08-13 · SIM-29 · II</span>
     <h3>Folding The Capture Into The Engine Image</h3>
     <p>The previous entry proved the chase camera can be recorded, using a throwaway image built outside the repo. One question retired it: <em>"what if we just add the new packages to the unreal container?"</em> <strong>The probe was carrying two separate confusions</strong> — it never needed its own <em>container</em> (the capture already ran inside <code>sim-unreal</code>), and it needed its own <em>image</em> only because five packages were missing. <code>xvfb</code>, <code>ffmpeg</code> and <code>x11-utils</code> now sit in the engine image's late root-only apt layer: <strong>178 MB on a 57.4 GB base, 34 s to rebuild</strong>, with the pinned-by-digest engine untouched. Xvfb turns out not to be separable at all — Unreal resolves <code>DISPLAY</code> at process start — and the 4.2% encoder cost removes any reason to split <code>ffmpeg</code> out either. The layer asserts that an X <em>server runs</em>, not that a binary exists. <strong>Running it found two bugs, both in the harness rather than the feature, both the same shape:</strong> "is the file growing" fails on a healthy capture (x264 buffers; a parked drone compresses to nothing — 48 B for four seconds, then 524 KB), and the stop path ran <code>ffprobe</code> on a host path from inside the container, printing <code>?</code> for every number while the 63 MB recording was perfectly fine.</p>
     <div class="tags">
