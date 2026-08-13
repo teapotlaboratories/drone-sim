@@ -3378,10 +3378,14 @@ never terminates.
 
 ---
 
-## `SIM-28` — the EKF origin is stale on *every* bring-up, by a systematic 9.13 m
+## `SIM-28` — the vehicle falls ~80 m during every bring-up, and PX4 latches its origin mid-fall
 
-**Status:** 🟡 **open** — found **2026-08-12** by the 40-seed gate, while looking at something
-else. Split out of `SIM-10`, whose claim it corrects.
+**Status:** 🟡 **open** — found **2026-08-12** by the 40-seed gate while looking at something
+else; mechanism identified **2026-08-13**. Split out of `SIM-10`, whose claim it corrects.
+
+**The headline number changed as this was investigated.** It presented as a systematic 9.13 m
+origin offset. That number turned out to be an artifact: the vehicle is *falling* when PX4
+samples, so 9.13 m is just where the fall had reached. The entry keeps both readings, in order.
 
 `sim_up.sh` checks the EKF origin after bring-up and restarts PX4 if it is stale. Across 40
 consecutive cold bring-ups it fired **40 times out of 40**:
@@ -3391,9 +3395,11 @@ VOID: EKF origin is STALE: ref_alt 114.16 m vs GPS 123.28 m = 9.12 m apart (tole
 offset across 40 samples: min 9.111  max 9.168  mean 9.126 m
 ```
 
-**That is not a race.** 57 mm of spread over 40 samples is a systematic offset, not a timing
-coincidence — something initialises PX4's origin against a reference about 9.13 m below the GPS
-altitude, every single time.
+**57 mm of spread over 40 samples** is what first made this look like a fixed geometric offset
+rather than a timing problem. It is neither: the vehicle is falling at a repeatable rate from a
+repeatable height, so a sample taken at a repeatable moment lands on a repeatable altitude. A
+tight distribution can mean "deterministic timing" just as easily as "constant offset", and the
+two are only distinguishable by watching the quantity move — see 2026-08-13 below.
 
 ### Why it was invisible
 
@@ -3410,14 +3416,83 @@ firing on 100% of bring-ups. It cost `SIM-10` a wrong "done".
 - A stale origin is the documented trap that once read as a control bug for a full day
   (`SIM-09`). Leaving the underlying cause in place keeps that trap loaded.
 
-### Leads
+### 2026-08-12: measured — the floor is NOT at Z=0
 
-- 9.13 m is suspiciously close to the difference between the vehicle's spawn height and the
-  Blocks ground plane. Worth checking whether PX4's origin is being taken at the *release*
-  altitude rather than the *resting* one — a spawn `Z` is a release height, and the vehicle
-  falls to whatever is beneath it.
-- Check whether the offset tracks the world: if it is a property of Blocks' ground plane it will
-  change in a different `.uproject`, and that would localise it immediately.
+Measured on a default spawn: vehicle body at rest NED `+0.582`, contact point with `Ground` at
+NED `+0.900` (the 0.32 m between them is landing gear). **The Blocks floor sits 0.9 m BELOW Unreal
+`0,0,0`.** So `Z=0` releases the vehicle 0.9 m above the floor rather than on it — worth knowing
+on its own, since `sim_up.sh` refuses a positive `Z` without `--allow-below-origin`, which makes
+`Z=0` the lowest legal spawn and it is already airborne.
+
+`ref_alt` also tracks the spawn height 1:1 — releasing 10 m higher moved it by +9.96 m:
+
+```
+spawn Z=0    : ref_alt 114.172  vs GPS 123.284  =  9.112 m apart   (stale, restart needed)
+spawn Z=-10  : ref_alt 124.130  vs GPS 123.299  =  0.831 m apart   (PASSES — no restart)
+```
+
+> **An earlier version of this section decomposed the 9.11 m into two "constants" (−7.83 m and
+> +1.87 m) and called the first one the real defect. That was wrong** — arithmetic on a moving
+> target, as the next section shows. It is recorded here rather than deleted because the mistake
+> is the instructive part: three stable-looking numbers across two configurations invited a
+> geometric explanation, and the thing they were measuring was not stationary.
+
+### 2026-08-13: what is actually happening — the vehicle FALLS during bring-up
+
+PX4 latches its origin from **GPS, not the barometer**. Measured post-repair: `ref_alt` 123.314
+matches `sensor_gps altitude_msl_m` 123.314 exactly, while `vehicle_air_data baro_alt_meter` reads
+123.249 — so baro and GPS agree to 65 mm and the barometer cannot be the source of a 9 m error.
+
+A PX4 **restart** always latches correctly: GPS reads the right altitude from its first sample.
+The fault only occurs on the **first** boot, during initial bring-up. Sampling `sensor_gps` from
+that first boot shows why:
+
+```
+gps=118.593 -> 114.261 -> 108.967 -> 103.589 -> 98.372 -> 93.332 -> 88.472
+    -> 84.152 -> 79.293 -> 73.717 -> 68.681 -> 63.286 -> ... -> 41.004
+    -> 123.288      <- snaps back
+ref_alt latched at 114.14   (the SECOND sample of that fall)
+```
+
+**The vehicle genuinely falls ~80 m in AirSim's physics during bring-up and is then reset to its
+spawn position.** PX4 boots into the middle of that fall and takes its origin from whatever
+altitude the vehicle happens to be passing through.
+
+That reframes everything above:
+
+- **9.13 m was never a meaningful quantity.** It is simply where the fall had got to when the EKF
+  initialised. The 57 mm spread across 40 runs measures how reproducible the *timing* is, not a
+  geometric offset.
+- **The "−7.85 m invariant" was an artifact** of the fall being reproducible, and the `Z=−10`
+  result likewise — spawning higher only shifts where the fall begins.
+- The existing repair works precisely because restarting PX4 *after* the fall has resolved latches
+  a settled GPS.
+
+**Same family as `SIM-21`**, where a vehicle with no collision geometry beneath it fell forever.
+Here the fall is arrested and reset rather than permanent. Whether it is related to `SIM-27` is
+open and should be held loosely — one recovers and one did not — but a stack that drops the
+vehicle 80 m during every bring-up is worth understanding before blaming a landing.
+
+### Two things this exposes about the check itself
+
+- **`Z=−10` passes by luck.** The origin is still taken mid-fall there; it just happens to land
+  within the 1 m tolerance. A scenario spawning at the right height would report a clean origin
+  while doing exactly the wrong thing.
+- **The check's reference is GPS, which is only trustworthy once the fall has resolved.** It works
+  today because the error is far outside tolerance, not because the comparison is sound.
+
+### Leads, now that the mechanism is known
+
+- **Why does the vehicle fall at all?** It is spawned 0.9 m above the floor, not 80 m. Something
+  releases it before the world's collision geometry is present, or before the pawn is placed —
+  the `SIM-21` shape. Check whether the fall depth varies with world load time.
+- **Why does it snap back?** Something resets the pose after the fall. Finding that reset is
+  probably the fastest route to the cause, since it knows when the world became ready.
+- **The real fix is ordering, not repair.** PX4 must not initialise its EKF origin until the
+  vehicle is settled. `sim_up.sh` currently achieves that by restarting PX4 afterwards, which
+  works but pays a restart on every bring-up and is two attempts deep before it VOIDs.
+- Worth re-measuring in a different `.uproject`: if the fall depth changes with the world, it is
+  load-time dependent, which would localise it immediately.
 
 ---
 

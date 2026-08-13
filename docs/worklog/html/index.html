@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>19</b></span>
-    <span>Newest <b>2026-08-12</b></span>
+    <span>Entries <b>20</b></span>
+    <span>Newest <b>2026-08-13</b></span>
   </div>
 </header>
 
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-13-sim28-the-vehicle-falls-during-bringup.html">
+    <span class="k">2026-08-13 · SIM-28 · newest</span>
+    <h3>The Vehicle Falls 80 m On Every Boot</h3>
+    <p><strong>Supersedes a conclusion in yesterday's entry.</strong> That one recorded a stale EKF origin on 40 of 40 bring-ups by a systematic 9.13 m and argued — in bold — that 57 mm of spread across 40 samples made it <em>"systematic, not a race"</em>. Wrong: <strong>a tight distribution can mean deterministic timing just as easily as constant offset</strong>, and the two are only separable by watching the quantity move. Sampling <code>sensor_gps</code> from the first PX4 boot shows the vehicle falling <code>118 → 114 → 108 → … → 41 m</code> at ~5 m per sample before snapping back to its spawn altitude — <strong>the vehicle genuinely falls ~80 m during bring-up</strong>, and PX4 latches its origin on the second sample of that fall. So 9.13 m was never an offset anyone chose; it is the gap between where the fall had reached and where the vehicle ended up. The earlier decomposition into <code>−7.85</code> and <code>+1.87</code> was arithmetic on a moving target. Same family as <code>SIM-21</code>. Also: the Blocks floor is <em>not</em> at Z=0 (it is 0.9 m below), and PX4 latches from GPS, not the barometer.</p>
+    <div class="tags">
+      <span class="pill p-stop">supersedes 2026-08-12</span>
+      <span class="pill p-warn">~80 m fall every bring-up</span>
+      <span class="pill p-chrome">floor is 0.9 m below Z=0</span>
+      <span class="pill p-ok">baro exonerated, GPS is the source</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-12-sim27-a-landing-that-never-ends.html">
-    <span class="k">2026-08-12 · SIM-27 · newest</span>
+    <span class="k">2026-08-12 · SIM-27</span>
     <h3>A Landing That Never Ends</h3>
     <p>The gate came back <strong>9/10</strong> and the failing seed reported <code>timeout in state land</code> — a descent at exactly <code>MPC_LAND_SPEED</code> to 30 m below the takeoff surface that never touched down, never disarmed, and ran out its state budget. Four days later the root cause is <em>still open</em>, and the useful output is the list of things ruled out. <strong>Two confident diagnoses were withdrawn</strong>: "it fell through the ground" died when the owner pointed out the video shows a normal landing, and the two telemetry sources cited as corroboration turned out to be <em>one</em> — every PX4 sensor derives from AirSim's physics integrator, verified down to the rangefinder, so <strong>no sensor you could add creates an independent signal</strong>. Six experiments, all negative, including 40 real <code>AUTO.LAND</code> touchdowns and 40 cold gate seeds in the exact failing configuration. The hunt found a read-and-reset RPC that would have let this ticket's own probe eat the collision witness's impacts, and review found an unmatched <code>msgid</code> that would have made the divergence detector report perfect agreement precisely when the RPC was sick. The gate now passes <strong>40/40</strong>, and the EKF origin turns out to be stale on <em>every</em> bring-up by a systematic 9.13 m.</p>
     <div class="tags">
