@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIM-28 &mdash; The Vehicle Falls 80 m On Every Boot &mdash; 2026-08-13</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-13 &middot; SIM-28</span>
+  <nav><a href="#wrong">The wrong turn</a><a href="#actual">What happens</a><a href="#reframe">Reframed</a><a href="#check">The check</a><a href="#next">Next</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-13 &middot; SIM-28 &middot; SITL only, nothing real was armed</span>
+  <h1>The Vehicle Falls<br>80 m On Every Boot</h1>
+  <p class="sub">Yesterday's worklog recorded a stale EKF origin on 40 of 40 bring-ups by a systematic 9.13 m, and concluded &mdash; in bold &mdash; that 57 mm of spread across 40 samples made it <em>"systematic, not a race"</em>. <strong>That conclusion was wrong, and this entry supersedes it.</strong> Worklogs are frozen, so the correction lives here.</p>
+  <div class="mastmeta"><span>Fall <b>~80 m</b></span><span>Latched at <b>sample 2</b></span><span>Bring-ups affected <b>40/40</b></span><span>Supersedes <b>2026-08-12</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">What 9.13 m actually was</div><div class="v">an artifact</div><div class="n">where the fall had reached when the EKF initialised</div></div>
+<div class="stat warn"><div class="k">GPS during first boot</div><div class="v">118 &rarr; 41 m</div><div class="n">~5 m per sample, then a snap back to spawn</div></div>
+<div class="stat ok"><div class="k">Origin source, settled</div><div class="v">GPS, not baro</div><div class="n">baro and GPS agree to 65 mm &mdash; baro exonerated</div></div>
+</div>
+
+<div class="toc"><span class="lbl">On this page</span>
+<ol>
+  <li><a href="#wrong">How the wrong conclusion was reached</a></li>
+  <li><a href="#actual">What actually happens</a></li>
+  <li><a href="#reframe">What it reframes</a></li>
+  <li><a href="#check">What the check does and does not prove</a></li>
+  <li><a href="#next">Next</a></li>
+</ol></div>
+
+<h2 id="wrong"><span class="secnum">01</span> How the wrong conclusion was reached</h2>
+<p>The reasoning was: a race scatters, and this does not &mdash; 9.111 to 9.168 m across 40 runs is
+57 mm of spread, so it must be a fixed geometric offset rather than a timing coincidence.</p>
+<div class="callout stop"><span class="lbl">The step that does not follow</span>
+<p><strong>A tight distribution can mean "deterministic timing" just as easily as "constant
+offset".</strong> A body falling at a repeatable rate from a repeatable height, sampled at a
+repeatable moment, lands on a repeatable altitude. The two are only distinguishable by watching
+the quantity <em>move</em> &mdash; which nothing had done yet.</p></div>
+<p>That led to two further wrong steps before the mistake surfaced:</p>
+<ul>
+<li><strong>A geometric decomposition.</strong> With AirSim's default <code>origin_geopoint</code>
+at 122 m AMSL, the 9.11 m split neatly into <code>ref_alt &minus; spawn = &minus;7.85 m</code> and
+<code>GPS &minus; body = +1.87 m</code>, both stable across a 10 m spawn change. Arithmetic on a
+moving target, presented as two constants.</li>
+<li><strong>"The &minus;7.85 m term is the real defect."</strong> It was not a term of anything.</li>
+</ul>
+
+<h2 id="actual"><span class="secnum">02</span> What actually happens</h2>
+<p>Two measurements narrowed it usefully first.</p>
+<p><strong>The Blocks floor is not at Z=0.</strong> Body at rest NED <code>+0.582</code>, contact
+with <code>Ground</code> at <code>+0.900</code> &mdash; the floor is 0.9 m <em>below</em> Unreal
+<code>0,0,0</code>, and <code>Z=0</code> releases the vehicle 0.9 m above it. That killed the tidy
+story: 0.9 m of drop cannot produce a 9.1 m origin error.</p>
+<p><strong>PX4 latches from GPS, not the barometer.</strong> Post-repair, <code>ref_alt</code>
+123.314 matches <code>sensor_gps altitude_msl_m</code> 123.314 exactly, while
+<code>vehicle_air_data baro_alt_meter</code> reads 123.249. Baro and GPS agree to 65 mm.</p>
+<p>Then the measurement that settled it. A PX4 <strong>restart</strong> always latches correctly,
+so the fault is specific to the <strong>first</strong> boot. Sampling <code>sensor_gps</code> from
+that first boot:</p>
+<pre>gps=118.593 -&gt; 114.261 -&gt; 108.967 -&gt; 103.589 -&gt; 98.372 -&gt; 93.332 -&gt; 88.472
+    -&gt; 84.152 -&gt; 79.293 -&gt; 73.717 -&gt; 68.681 -&gt; 63.286 -&gt; ... -&gt; 41.004
+    -&gt; 123.288      &lt;- snaps back to the spawn altitude
+ref_alt latched at 114.14   (the SECOND sample of that fall)</pre>
+<p>Roughly 5 m per sample, for about eighty metres, then a reset.</p>
+
+<figure>
+<svg viewBox="0 0 760 250" role="img" aria-label="Timeline of a bring-up. The vehicle is spawned 0.9 metres above the floor, then falls about eighty metres through the world while PX4 boots. PX4 samples GPS during that fall and latches its origin at 114 metres. The pose is then reset to the spawn altitude of 123 metres, leaving the origin 9 metres stale for the rest of the session unless PX4 is restarted.">
+  <defs><marker id="a28" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker>
+  <marker id="a28r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#e5484d"/></marker></defs>
+  <line x1="60" y1="40" x2="60" y2="210" stroke="currentColor" stroke-width="1"/>
+  <text x="52" y="44" font-size="10.5" text-anchor="end" fill="currentColor">123 m</text>
+  <text x="52" y="212" font-size="10.5" text-anchor="end" fill="currentColor">41 m</text>
+  <text x="52" y="106" font-size="10.5" text-anchor="end" fill="#e5484d">114 m</text>
+  <path d="M 70 44 L 300 205" stroke="currentColor" stroke-width="2" fill="none"/>
+  <text x="196" y="140" font-size="11" fill="currentColor" transform="rotate(35 196 140)">~5 m per sample</text>
+  <circle cx="90" cy="58" r="4" fill="#e5484d"/>
+  <line x1="90" y1="102" x2="90" y2="66" stroke="#e5484d" stroke-width="1.5" marker-end="url(#a28r)"/>
+  <text x="98" y="112" font-size="11" fill="#e5484d" font-weight="700">PX4 latches ref_alt here</text>
+  <text x="98" y="128" font-size="10.5" fill="#e5474d" fill-opacity="0.85">the second sample of the fall</text>
+  <path d="M 300 205 C 340 205, 340 46, 386 46" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="6 4" marker-end="url(#a28)"/>
+  <text x="344" y="126" font-size="11" text-anchor="middle" fill="currentColor">reset</text>
+  <line x1="386" y1="46" x2="700" y2="46" stroke="currentColor" stroke-width="2"/>
+  <text x="543" y="36" font-size="11" text-anchor="middle" fill="currentColor">settled at the spawn altitude</text>
+  <line x1="386" y1="102" x2="700" y2="102" stroke="#e5484d" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <text x="543" y="118" font-size="11" text-anchor="middle" fill="#e5484d">origin stays here &mdash; 9.13 m stale</text>
+  <text x="60" y="238" font-size="10.5" fill="currentColor">bring-up</text>
+  <text x="700" y="238" font-size="10.5" text-anchor="end" fill="currentColor">flight</text>
+</svg>
+<figcaption>The 9.13 m is not an offset anyone chose &mdash; it is the gap between where the fall
+had reached when PX4 sampled and where the vehicle ended up after the reset.</figcaption>
+</figure>
+
+<h2 id="reframe"><span class="secnum">03</span> What it reframes</h2>
+<div class="tw"><table>
+<thead><tr><th>yesterday</th><th>today</th></tr></thead>
+<tbody>
+<tr><td>a systematic 9.13 m offset</td><td>where the fall had reached at EKF init</td></tr>
+<tr><td>57 mm spread proves it is not a race</td><td>57 mm spread proves the <em>timing</em> is reproducible</td></tr>
+<tr><td><code>&minus;7.85 m</code> is the real defect</td><td>an artifact of a reproducible fall</td></tr>
+<tr><td><code>Z=&minus;10</code> "passes"</td><td>still latches mid-fall; the error merely lands inside tolerance</td></tr>
+</tbody></table></div>
+<p>The existing repair works for a reason that is now obvious: restarting PX4 <em>after</em> the
+fall has resolved latches a settled GPS.</p>
+<p><strong>Same family as <code>SIM-21</code></strong>, where a vehicle with no collision geometry
+beneath it fell forever; here the fall is arrested and reset. Whether it relates to
+<code>SIM-27</code> is open and should be held loosely &mdash; one recovers, one did not &mdash; but
+a stack that drops the vehicle 80 m on every bring-up is worth understanding before blaming a
+landing.</p>
+
+<h2 id="check"><span class="secnum">04</span> What the check does and does not prove</h2>
+<p><code>sim_up.sh</code> compares <code>ref_alt</code> against GPS, and GPS is only trustworthy
+once the fall has resolved. It works today because the error is far outside the 1 m tolerance, not
+because the comparison is sound. A configuration where the sampled altitude happened to land
+within tolerance would report a clean origin while doing exactly the wrong thing &mdash; which is
+what <code>Z=&minus;10</code> does.</p>
+
+<h2 id="next"><span class="secnum">05</span> Next</h2>
+<ul>
+<li><strong>Why does it fall at all?</strong> It is spawned 0.9 m above the floor. Something
+releases it before the world's collision geometry is present &mdash; the <code>SIM-21</code> shape.
+Does the fall depth vary with world load time?</li>
+<li><strong>What resets it?</strong> Whatever performs that snap-back knows when the world became
+ready, which is probably the fastest route to the cause.</li>
+<li><strong>The fix is ordering, not repair.</strong> PX4 must not initialise its origin until the
+vehicle is settled; restarting it afterwards costs a restart on every bring-up and is two attempts
+from a VOID.</li>
+</ul>
+<div class="callout"><span class="lbl">The lesson, and it is the same one as the rest of this week</span>
+<p>Yesterday's error was not a bad measurement &mdash; the 40 samples were real and the spread was
+real. It was a <em>conclusion drawn from a quantity nobody had watched move</em>. "It is too
+consistent to be timing" felt like evidence and was an assumption.</p></div>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
