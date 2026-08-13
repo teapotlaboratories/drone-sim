@@ -89,7 +89,14 @@ RUN set -eux; \
     xvfb_pid=$!; \
     for i in $(seq 1 40); do DISPLAY=:98 xdpyinfo >/dev/null 2>&1 && break; sleep 0.25; done; \
     DISPLAY=:98 xdpyinfo | grep -q "dimensions:.*320x240"; \
+    # WAIT for it, then clear its lock. Killing without reaping lets the layer commit while
+    # Xvfb is still tearing down, baking /tmp/.X98-lock and /tmp/.X11-unix/X98 into the image
+    # -- after which any run using DISPLAY_NUM=98 dies with "Server is already active for
+    # display 98". docker/qgc-entrypoint.sh:28-34 documents that exact trap, reached from the
+    # other direction (a restarting container), and works around it the same way. \
     kill "$xvfb_pid"; \
+    wait "$xvfb_pid" 2>/dev/null || true; \
+    rm -f /tmp/.X98-lock /tmp/.X11-unix/X98; \
     ls -d /home/ue4/UnrealEngine/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/*/ \
       | grep -q clang; \
     test -f /home/ue4/UnrealEngine/Engine/Build/Build.version

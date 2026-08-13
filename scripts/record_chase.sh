@@ -25,7 +25,12 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SIM=${SIM:-sim-unreal}
+# Accept BOTH `99` and `:99`. docker/qgc-entrypoint.sh:9 reads this same variable name as
+# `${DISPLAY_NUM:-:99}` -- with the colon -- so an operator following the repo's existing
+# script would otherwise produce `Xvfb ::99` and a bring-up that fails 20 s later. Normalise
+# once, here, and prepend the colon at every use site. (review, PR 49)
 DISPLAY_NUM=${DISPLAY_NUM:-99}
+DISPLAY_NUM=${DISPLAY_NUM#:}
 FPS=${FPS:-60}
 CRF=${CRF:-23}
 IN_CONTAINER_MP4=/tmp/chase.mp4
@@ -56,18 +61,34 @@ usage: record_chase.sh start [--out PATH.mp4]
 
   start   begin grabbing the renderer's screen. Default output out/chase-<UTC>.mp4.
   stop    finalise the recording, copy it out, and report BOTH grabbed and distinct frames.
-  status  is a recording running, and is its file growing.
+  status  is a recording running, and how many frames it has ingested.
 
 Environment: SIM, DISPLAY_NUM, FPS (60), CRF (23), MAX_SECONDS (1800).
 EOF
 }
 
-require_display_mode() {
-  docker inspect "$SIM" >/dev/null 2>&1 || die "container '$SIM' is not running — bring the stack up first"
-  # Assert the SCREEN, not the container. A stack brought up WITHOUT --display runs the same
-  # image and the same plugin; the only difference is whether anything was ever drawn to a
-  # surface. Without this check the grab would succeed and record a black rectangle, which is
-  # indistinguishable from a broken renderer at review time.
+# `docker inspect` SUCCEEDS for a stopped container, so it cannot answer "is it running".
+# Getting this wrong sent a dead renderer down the display check below, which then blamed the
+# missing screen and told the operator to re-run with --display -- a diagnostic naming the
+# wrong cause, which this repo treats as a bug in its own right. (review, PR 49)
+require_container() {
+  local running
+  running=$(docker inspect -f '{{.State.Running}}' "$SIM" 2>/dev/null || echo "absent")
+  [ "$running" = "true" ] \
+    || die "container '$SIM' is $running — bring the stack up first (./scripts/sim_up.sh --display)"
+}
+
+# Only STARTING needs a screen. A stack brought up WITHOUT --display runs the same image and
+# the same plugin; the only difference is whether anything was ever drawn to a surface, and
+# without this check the grab succeeds and records a black rectangle -- indistinguishable
+# from a broken renderer at review time.
+#
+# STOPPING deliberately does NOT call this. Finalising a recording that is already complete
+# must not require a live X screen: if Xvfb or the engine dies after the flight, ffmpeg exits
+# on the read error and still writes the trailer, and demanding a display here would strand a
+# finished mp4 inside the container. (review, PR 49)
+require_display() {
+  require_container
   docker exec "$SIM" bash -lc "DISPLAY=:$DISPLAY_NUM xdpyinfo >/dev/null 2>&1" \
     || die "no X display :$DISPLAY_NUM in '$SIM' — bring the stack up with: ./scripts/sim_up.sh --display"
 }
@@ -76,7 +97,10 @@ cmd_start() {
   local out=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --out)   out="${2:-}"; shift 2 ;;
+      # `shift 2` with only one argument left returns 1, and under `set -e` the script exits
+      # having printed NOTHING -- no usage, no message. Guard the arity first. (review, PR 49)
+      --out)   [ $# -ge 2 ] || { usage >&2; die "--out needs a value"; }
+               out="$2"; shift 2 ;;
       --out=*) out="${1#*=}"; shift ;;
       *)       usage >&2; die "unknown argument: $1" ;;
     esac
@@ -84,7 +108,7 @@ cmd_start() {
   [ -n "$out" ] || out="$REPO/out/chase-$(date -u +%Y%m%dT%H%M%SZ).mp4"
   mkdir -p "$(dirname "$out")" "$REPO/out"
 
-  require_display_mode
+  require_display
   [ -f "$STATE" ] && die "a recording is already running (state: $STATE) — stop it first"
   docker exec "$SIM" bash -lc 'pgrep -x ffmpeg >/dev/null' \
     && die "ffmpeg is already running inside '$SIM' — stop it before starting another"
@@ -120,9 +144,18 @@ cmd_start() {
     docker exec "$SIM" bash -lc 'cat /tmp/chase-ffmpeg.log' >&2 || true
     die "ffmpeg exited immediately — nothing is being recorded"
   fi
-  if [ -z "$f2" ] || [ "$f2" -le "${f1:-0}" ] 2>/dev/null; then
+  # Validate that these are NUMBERS rather than redirecting the error away. `[ "$f2" -le 0 ]`
+  # on non-numeric input exits 2, which reads as FALSE -- i.e. "frames are advancing" -- so a
+  # garbled counter would PASS the readiness gate. `_progress_frames` runs `bash -l` in the
+  # container, so any profile or motd output lands on stdout ahead of the number and produces
+  # exactly that. (review, PR 49)
+  if ! [[ "$f1" =~ ^[0-9]+$ ]] || ! [[ "$f2" =~ ^[0-9]+$ ]]; then
     _abort_capture
-    die "ffmpeg is running but no frames are being ingested (${f1:-none} -> ${f2:-none})"
+    die "could not read ffmpeg's frame counter (got '${f1:-}' then '${f2:-}') — nothing verified"
+  fi
+  if [ "$f2" -le "$f1" ]; then
+    _abort_capture
+    die "ffmpeg is running but no frames are being ingested ($f1 -> $f2)"
   fi
 
   printf '%s\n' "$out" > "$STATE"
@@ -132,7 +165,21 @@ cmd_start() {
 cmd_stop() {
   [ -f "$STATE" ] || die "no recording in progress (no $STATE)"
   local out; out=$(cat "$STATE")
-  require_display_mode
+  # Container, NOT display: see require_display's comment. A finished recording must be
+  # retrievable even if the screen has gone.
+  require_container
+
+  # A recording whose container was torn down and re-upped leaves the state file pointing at
+  # an mp4 that no longer exists. Without this branch `docker cp` fails, `set -e` exits BEFORE
+  # the state file is removed, and the tool wedges permanently: every later `start` refuses
+  # with "a recording is already running" and every later `stop` fails the same way -- while
+  # `status` tells the operator to "run stop to clean up", which is the one path that cannot
+  # work. Detect it, say so, and clear the state. (review, PR 49)
+  if ! docker exec "$SIM" bash -lc "test -f $IN_CONTAINER_MP4" 2>/dev/null; then
+    rm -f "$STATE"
+    docker exec "$SIM" bash -lc "rm -f $PROGRESS" 2>/dev/null || true
+    die "no recording found at $IN_CONTAINER_MP4 in '$SIM' — the stack was probably restarted mid-recording. State cleared; '$out' was never written."
+  fi
 
   # SIGINT, never SIGKILL. ffmpeg writes the moov atom on clean shutdown; killed, the mp4 is
   # unplayable and the whole flight is gone.
@@ -173,6 +220,13 @@ cmd_stop() {
 
   log "saved $out"
   log "  duration        ${dur} s"
+  # ffmpeg's own -t cap ends the capture without telling anyone: `stop` then finds no process,
+  # takes the `|| true` path, and copies a truncated file whose reported duration reads as the
+  # whole session. A 40-minute flight would silently lose its tail. (review, PR 49)
+  if [ -n "${dur:-}" ] && awk -v d="${dur:-0}" -v m="$MAX_SECONDS" 'BEGIN{exit !(d >= m - 2)}'; then
+    log "  WARNING: this hit the MAX_SECONDS=${MAX_SECONDS}s cap — the recording is TRUNCATED."
+    log "           Re-run with a larger MAX_SECONDS to capture a session this long."
+  fi
   log "  frames grabbed  ${grabbed}   <- x11grab's own clock; NOT the render rate"
   if [ -n "${distinct:-}" ] && [ "${dur%%.*}" -gt 0 ] 2>/dev/null; then
     log "  frames distinct ${distinct}   ($(awk -v n="$distinct" -v d="$dur" 'BEGIN{printf "%.1f", n/d}') fps averaged over the WHOLE file)"
