@@ -48,7 +48,12 @@ LIMITS = {
     # offboard position setpoints, which is what this harness flies.           (review, PR 53)
     "velocity_xy_max_mps":   ("MPC_XY_VEL_MAX",),
     "velocity_up_max_mps":   ("MPC_Z_VEL_MAX_UP",),
-    "velocity_down_max_mps": ("MPC_Z_VEL_MAX_DN",),
+    # MPC_LAND_SPEED too, or the key cannot do what its name says. The LANDING descent is
+    # floored by MPC_LAND_SPEED (default 0.7, min 0.6), not by MPC_Z_VEL_MAX_DN -- measured:
+    # asking for 0.6 produced 0.689 m/s, which is MPC_LAND_SPEED's default and not a coincidence.
+    # Setting only the max would leave `velocity_down_max_mps` unable to slow the one descent
+    # every mission performs.
+    "velocity_down_max_mps": ("MPC_Z_VEL_MAX_DN", "MPC_LAND_SPEED"),
     "accel_horizontal_mps2": ("MPC_ACC_HOR",),
     "jerk_max_mps3":         ("MPC_JERK_MAX",),
     "yaw_rate_max_dps":      ("MPC_YAWRAUTO_MAX", "MC_YAWRATE_MAX"),
