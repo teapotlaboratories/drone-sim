@@ -3681,16 +3681,21 @@ recorded.
   removes the race rather than surviving it, and needs no RPC polling or arbitrary dwell. Cost: the
   AirSim plugin must be rebuilt **per world tree** (each `.uproject` carries a real copy, not a
   symlink), and CitySample is a 113 GB A2 project that compiles from `Source/`.
-- **The interim — hold in `sim_up.sh`, no rebuild.** `simPause` *is* bound over RPC
-  (`RpcLibServerBase.cpp:103`). Pause on bring-up, dwell, release, then **verify the vehicle is
-  resting and repair if not** — the same verify-and-repair shape the script already uses for the
-  EKF origin. Pause is preferable to the pose-hold proven above, which pins position while velocity
-  keeps accumulating (`vz` was already 8.585 m/s at release, costing ~2 m of drop).
+- **The interim — SHIPPED, and it is the pose-hold, not `simPause`.** `ensure_grounded` calls
+  `reset()` first (which returns the vehicle to its `BeginPlay` spawn with zero velocity), then
+  pins it at *that* pose for `STREAM_HOLD_S` while cells load, then verifies and retries. Resetting
+  first is what makes the hold pose and the final pose the same by construction —
+  `PawnSimApi::resetImplementation` teleports to `state_.start_location`, **not** to wherever the
+  vehicle was being held, so holding first and resetting last streamed one cell and dropped the
+  pawn into another (`review, PR 51`).
 
-**Unverified assumption to test before shipping the interim:** that **UE keeps streaming while
-AirSim is paused**. `simPause` stops AirSim's physics loop, not the UE game thread, so it *should* —
-but that is reasoning, not a measurement, and this exact distinction has already been wrong twice
-this week.
+**`simPause` was considered and NOT used.** It is bound over RPC (`RpcLibServerBase.cpp:103`) and
+would avoid velocity accumulating during the hold, but it rests on an unverified assumption — that
+**UE keeps streaming while AirSim is paused**. `simPause` stops AirSim's physics loop rather than
+the UE game thread, so it *should*, but that is reasoning and not a measurement. It also runs into
+this project's recorded trap that pausing interacts badly with capture (`never simPause before
+simGetImages`). The pose-hold needs no such assumption, and `reset()` removes the velocity problem
+that made pause attractive.
 
 **Done means a success rate, not a success.** Cold bring-ups on CitySample scored the way the flight
 gate scores: N runs, judged by **resting z**, not by whether the level loaded. One hold working is
