@@ -3708,8 +3708,39 @@ not a fix.
 
 ## SIM-31 — Scenarios that state their world, their pose, and their flight envelope
 
-**Status:** 🔵 **open, designed 2026-08-13, nothing built.** Feasibility checked against the actual
-build rather than assumed — see "verified before designing" below.
+**Status:** 🟡 **two of three slices landed 2026-08-13.** Flight envelope and origin/pose are
+built and flown; **GPS waypoints are still open**.
+
+| Slice | State |
+|---|---|
+| Flight envelope (`limits:`) | ✅ `scripts/apply_px4_params.py`, applied before arming, read back, recorded |
+| Origin GPS + spawn pose | ✅ `apply_spawn.py` gains `Pitch`/`Roll` and `OriginGeopoint`; `sim_up.sh --origin` |
+| GPS waypoints | 🔵 open — the only piece needing controller changes |
+
+**Measured, and it settles the frame question.** A scenario declaring
+`origin_geopoint: 37.4123, -121.995, 50.0 m` produced a PX4 EKF reference of
+`37.4123278, -121.9948484, 51.28 m` — **13.8 m horizontally and 1.28 m vertically away from the
+declared origin.** So converting a GPS waypoint against `OriginGeopoint` instead of
+`ref_lat`/`ref_lon` would land it ~14 m off, an error shaped exactly like a control bug. The
+design asserted this; it is now a measurement. **What the 13.4 m east is made of — level offset
+from the world origin, GPS init bias, or both — is not yet explained.**
+
+**Envelope, measured on CitySample, same seed:**
+
+| | waypoint errors (m) | wall |
+|---|---|---|
+| unlimited (12 m/s) | 0.762 / 0.756 / 0.763 / 0.761 | 112.0 s |
+| `velocity_xy_max_mps: 0.5` | **0.060 / 0.062 / 0.066 / 0.061** | 137.4 s |
+
+An order of magnitude tighter — which means the baseline's ~0.76 m is largely approach speed, not
+controller quality. It also proved that **the envelope and the time budget are one decision**: at
+the baseline's `state_timeout_s: 60` the slow run failed 3/4 with `timeout in state waypoints`
+while tracking beautifully, because the budget covers the whole sequence and 40 m at 0.5 m/s needs
+~88 s. `scenarios/square-10m-slow.yaml` carries both; the baseline is untouched so its numbers stay
+comparable.
+
+Feasibility was checked against the actual build rather than assumed — see "verified before
+designing" below.
 
 Today a scenario can say where to fly (`waypoints_enu`) and how tightly to score it. It cannot say
 **where on Earth the world is**, **where the vehicle starts**, or **how fast it may fly**. All three
