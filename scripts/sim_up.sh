@@ -423,6 +423,36 @@ def resting(need=3):
     # that says "not moving" about the exact condition being repaired.
     return False, z, vz
 
+# IS THE LEVEL ACTUALLY TICKING? Ask it, do not infer it.                      (SIM-10)
+#
+# "Not moving" and "not simulating" look identical from outside, which is the trap this
+# function shipped with once already. Previously the workaround was to run after
+# wait_for_sim_link and use PX4's connection as the proof -- but that forces PX4 to start
+# BEFORE the vehicle is known to be grounded, which is the ordering SIM-10 wants gone.
+#
+# So probe it: displace the vehicle and see whether physics responds. If the level is live it
+# moves (falls, or falls and lands). If nothing is ticking it stays exactly where it was put.
+# Costs a 2 m drop on an already-grounded vehicle, which is harmless.
+def sim_is_live(timeout_s=180.0):
+    t_end = time.time() + timeout_s
+    while time.time() < t_end:
+        pose, _ = call("simGetVehiclePose", vehicle)
+        lifted = {"position": dict(pose["position"]), "orientation": dict(pose["orientation"])}
+        lifted["position"]["z_val"] = pose["position"]["z_val"] - 2.0
+        call("simSetVehiclePose", lifted, True, vehicle)
+        z0, _, _ = kin()
+        time.sleep(0.75)
+        z1, _, _ = kin()
+        if abs(z1 - z0) > 0.05:
+            return True
+        print("  level not ticking yet (vehicle did not move when displaced) -- waiting", flush=True)
+        time.sleep(5.0)
+    return False
+
+if not sim_is_live():
+    print("the level never started ticking -- physics never ran")
+    sys.exit(EXIT_FAIL)
+
 ok, z, vz = resting()
 if ok:
     print("on ground at z=%+.3f m" % z)
@@ -467,11 +497,17 @@ PY
   rc=$?
   case "$rc" in
     0)  : ;;
-    10) log "vehicle was repaired onto the ground; restarting PX4 so it does not keep an EKF \
-built from a falling vehicle"
-        docker restart sim-px4 >/dev/null
-        sleep 20
-        wait_for_fmu ;;
+    10) # Only meaningful if PX4 is already up. In the normal ordering this function runs
+        # BEFORE PX4 starts, so a repair costs nothing -- PX4's first EKF init then happens
+        # over a vehicle that is already on the ground, which is the entire point of SIM-10.
+        if docker inspect -f '{{.State.Running}}' sim-px4 >/dev/null 2>&1; then
+          log "vehicle repaired onto the ground; restarting PX4 so it does not keep an EKF built from a falling vehicle"
+          docker restart sim-px4 >/dev/null
+          sleep 20
+          wait_for_fmu
+        else
+          log "vehicle repaired onto the ground before PX4 started -- no restart needed"
+        fi ;;
     *)  die "vehicle never reached ground -- see SIM-30 (World Partition streaming race)" ;;
   esac
 }
@@ -723,6 +759,33 @@ teardown
 start_sim
 wait_for_settled_vehicle
 
+# SIM-10: PUT THE VEHICLE ON THE GROUND *BEFORE* PX4 EXISTS.
+#
+# This used to run after wait_for_sim_link, using PX4's connection to the renderer as the proof
+# that the level was ticking -- which meant PX4 had already booted and latched an EKF origin
+# from a falling vehicle, and the origin then had to be REPAIRED by restarting it. SIM-28
+# measured that origin stale on 40 of 40 cold bring-ups.
+#
+# ensure_grounded now proves liveness itself, by displacing the vehicle and checking that
+# physics responds, so it no longer needs PX4 to have started. PX4's FIRST EKF init therefore
+# happens over a vehicle that is already at rest on the ground, which is what SIM-10 asked for:
+# "the real fix is ordering, not repair".
+#
+# verify_origin below stays as the safety net. It should now be measuring, not fixing.
+# Compared NUMERICALLY, not as a string: `!= "0"` left STREAM_HOLD_S=0.0 (or "00") enabled,
+# and with hold_s=0.0 the hold loop is skipped while reset() still fires once per attempt --
+# so "disabling" it silently reset the vehicle three times instead of doing nothing. A
+# non-numeric value used to reach python and die as "vehicle never reached ground".
+#
+# (An earlier comment here claimed `[ ... ] && ensure_grounded` would exit under `set -e`.
+# That is wrong -- bash does not exit when the first command of an && list fails, verified
+# directly -- and it has been removed rather than left as false evidence.)   (review, PR 51)
+if awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v+0 > 0 && v ~ /^[0-9.]+$/)}' 2>/dev/null; then
+  ensure_grounded
+elif ! awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v ~ /^[0-9.]+$/)}' 2>/dev/null; then
+  die "STREAM_HOLD_S must be a number (got '$STREAM_HOLD_S'); use 0 to disable the hold"
+fi
+
 log "starting the companion (agent + ROS 2), PX4 and QGC"
 
 # THE COMPANION CONTAINER GOES UP FIRST, and that ordering is load-bearing.
@@ -813,26 +876,6 @@ join sim-qgc  drone-sim/qgc:v1.16.0
 wait_for_workspace
 wait_for_sim_link
 
-# SIM-30: only meaningful HERE, after the renderer link proves the level is live.
-#
-# The first version of this ran right after wait_for_settled_vehicle and was USELESS: at that
-# point CitySample has not begun ticking, so the vehicle is motionless, and "motionless" passes
-# every is-it-resting test you can write from outside. It reported "on ground" on a vehicle that
-# had not started falling yet, then the level came up and it fell 1.5 km.
-#
-# Compared NUMERICALLY, not as a string: `!= "0"` left STREAM_HOLD_S=0.0 (or "00") enabled,
-# and with hold_s=0.0 the hold loop is skipped while reset() still fires once per attempt --
-# so "disabling" it silently reset the vehicle three times instead of doing nothing. A
-# non-numeric value used to reach python and die as "vehicle never reached ground".
-#
-# (An earlier comment here claimed `[ ... ] && ensure_grounded` would exit under `set -e`.
-# That is wrong -- bash does not exit when the first command of an && list fails, verified
-# directly -- and it has been removed rather than left as false evidence.)   (review, PR 51)
-if awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v+0 > 0 && v ~ /^[0-9.]+$/)}' 2>/dev/null; then
-  ensure_grounded
-elif ! awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v ~ /^[0-9.]+$/)}' 2>/dev/null; then
-  die "STREAM_HOLD_S must be a number (got '$STREAM_HOLD_S'); use 0 to disable the hold"
-fi
 wait_for_fmu
 
 # The wait above is a best effort, not a proof. Verify, and if the origin is still stale,

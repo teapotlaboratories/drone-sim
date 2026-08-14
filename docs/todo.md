@@ -3488,9 +3488,29 @@ vehicle 80 m during every bring-up is worth understanding before blaming a landi
   the `SIM-21` shape. Check whether the fall depth varies with world load time.
 - **Why does it snap back?** Something resets the pose after the fall. Finding that reset is
   probably the fastest route to the cause, since it knows when the world became ready.
-- **The real fix is ordering, not repair.** PX4 must not initialise its EKF origin until the
-  vehicle is settled. `sim_up.sh` currently achieves that by restarting PX4 afterwards, which
-  works but pays a restart on every bring-up and is two attempts deep before it VOIDs.
+- **The real fix is ordering, not repair — DONE 2026-08-13.** `ensure_grounded` now runs
+  **before** the companion and PX4 start, so PX4's *first* EKF init happens over a vehicle
+  already at rest on the ground. No restart is paid, and `verify_origin` becomes a safety net
+  that measures rather than fixes.
+
+  **What unblocked it.** The step used to need PX4's connection to the renderer as its proof
+  that the level was ticking — which is precisely what forced PX4 to boot first. It now proves
+  liveness itself: **displace the vehicle and check that physics responds.** "Not moving" and
+  "not simulating" are indistinguishable from outside, and that ambiguity is what made the
+  earlier placement useless; a positive probe removes it without needing PX4 at all.
+
+  | Configuration | Cold bring-ups | Stale origin | PX4 restarts |
+  |---|---|---|---|
+  | `SIM-28`, settle check dead | 40 | **40 of 40** | 40 |
+  | settle check live, grounded *after* PX4 | 3 | 0 of 3 | 0 |
+  | **grounded *before* PX4 (this change)** | **4 Blocks + 1 CitySample** | **0 of 5** | **0** |
+
+  Blocks bring-up also drops from ~85 s to **45 s**, because the PX4-restart path is gone.
+  CitySample: grounded at `z=+0.754` before PX4 existed, origin sane first try,
+  `square-10m` 4/4 waypoints in 113.0 s with the chase camera recorded.
+
+  **Still not a closed `SIM-28`.** Five runs against a forty-run measurement. The 40-seed gate
+  is what would settle it, and it has not been run against this ordering.
 - Worth re-measuring in a different `.uproject`: if the fall depth changes with the world, it is
   load-time dependent, which would localise it immediately.
 
