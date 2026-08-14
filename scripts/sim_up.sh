@@ -144,7 +144,7 @@ usage: sim_up.sh [--world PATH.uproject] [--settings PATH.json]
                         Off by default: headless is the gate's path. (SIM-29)
 
 Environment equivalents: SPAWN, SPAWN_VEHICLE, WORLD, SETTINGS_FILE, SPAWN_ALLOW_BELOW,
-DISPLAY_MODE, DISPLAY_NUM, DISPLAY_GEOM.
+DISPLAY_MODE, DISPLAY_NUM, DISPLAY_GEOM, STREAM_HOLD_S, STREAM_HOLD_TRIES.
 EOF
 }
 
@@ -349,68 +349,131 @@ join() {  # join(name, image, cmd...)
 # is useless; the vehicle has to be PUT BACK and KEPT there while the cells load.
 ensure_grounded() {
   docker cp "$REPO/scripts/airsim_rpc_client.py" "$SIM:/tmp/airsim_rpc_client.py" >/dev/null
-  # `docker exec` WITHOUT -i does not attach stdin, so a heredoc fed to `python3 -` is
-  # DISCARDED: python reads EOF, executes nothing, and exits 0 -- the check silently passes
-  # without ever running. This bit both this function and wait_for_settled_vehicle below,
-  # which is why the settle wait never printed its "settled at z=..." line and why it
-  # "passed" on a CitySample vehicle that had not begun falling yet.            (SIM-30)
-  docker exec -i "$SIM" python3 - "$STREAM_HOLD_S" "$STREAM_HOLD_TRIES" <<'PY' || die "vehicle never reached ground -- see SIM-30 (World Partition streaming race)"
-import sys, time
+  docker exec -i "$SIM" python3 - "$STREAM_HOLD_S" "$STREAM_HOLD_TRIES" "${SPAWN_VEHICLE:-PX4}" <<'PY'
+import socket, sys, time
 sys.path.insert(0, "/tmp")
 from airsim_rpc_client import Rpc
 
-hold_s, tries = float(sys.argv[1]), int(sys.argv[2])
+hold_s, tries, vehicle = float(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+
+# EXIT CODES: 0 = already on ground, nothing done. 10 = repaired (the caller must restart PX4,
+# because it has been fed HIL sensor data from a falling vehicle). 1 = could not reach ground.
+EXIT_OK, EXIT_REPAIRED, EXIT_FAIL = 0, 10, 1
+
 rpc = Rpc()
 
-def state():
-    k = rpc.call("simGetGroundTruthKinematics", "PX4")
-    return k["position"]["z_val"], k["linear_velocity"]["z_val"]
+# EVERY RPC RETRIES, and a timeout is NOT fatal.                             (review, PR 51)
+#
+# Rpc() uses a 30 s socket timeout, and the whole reason this function exists is that World
+# Partition blocks the game thread for tens of seconds -- measured GenerateStreaming 15.4 s,
+# WP init 28.5 s. A call that straddles that window raises socket.timeout, and treating it as
+# an error would abort bring-up with "vehicle never reached ground" on a stack whose only sin
+# was being busy. Before this change neither of these blocks ran at all, so this is a NEWLY
+# LIVE abort path, and it would fire preferentially on exactly the heavy worlds it targets.
+def call(method, *a, tries_=6):
+    global rpc
+    for i in range(tries_):
+        t0 = time.time()
+        try:
+            return rpc.call(method, *a), time.time() - t0
+        except (socket.timeout, OSError, ConnectionError) as exc:
+            print("  rpc %s slow/failed (%s) -- retrying %d/%d" % (method, type(exc).__name__, i + 1, tries_), flush=True)
+            try:
+                rpc = Rpc()
+            except Exception:
+                pass
+            time.sleep(2)
+    raise RuntimeError("RPC %s did not answer after %d attempts" % (method, tries_))
 
-def resting():
-    # A motionless vehicle is NOT proof of ground. Before the level ticks, vz is 0 and z is
-    # perfectly stable -- which is why the first version of this function passed on CitySample
-    # every time and the vehicle then fell 1.5 km. Running after wait_for_sim_link is what makes
-    # the reading meaningful; these thresholds only decide resting-vs-falling once it is.
-    z0, _ = state()
-    time.sleep(1.0)
-    z1, vz = state()
-    return abs(vz) < 0.10 and abs(z1 - z0) < 0.05, z1, vz
+def kin():
+    k, dt = call("simGetGroundTruthKinematics", vehicle)
+    return k["position"]["z_val"], k["linear_velocity"]["z_val"], dt
+
+# "Not moving" is not "on the ground" -- it is also what a sim that is not ticking looks like,
+# which is why the first version of this reported success on a CitySample vehicle that had not
+# begun falling. There is no monotonic sim clock on the RPC surface (checked: only
+# simContinueForTime and simSetTimeOfDay), so this cannot be settled directly. Two proxies:
+#
+#   - THREE consecutive stable samples, not one. A game-thread hitch has to span ~3 s to fool it.
+#   - REJECT a sample whose RPC round-trip was slow. A stalled game thread shows up as latency,
+#     so a fast round trip is evidence the sim was actually running when it answered.
+#
+# This is a mitigation, not a proof, and it is written down as one.
+SLOW_RPC_S = 0.5
+def resting(need=3):
+    last = None
+    stable = 0
+    z = vz = float("nan")
+    for _ in range(need * 3):
+        z, vz, dt = kin()
+        if dt > SLOW_RPC_S:          # the sim was busy; the reading proves nothing
+            stable, last = 0, None
+            time.sleep(1.0)
+            continue
+        if last is not None and abs(vz) < 0.10 and abs(z - last) < 0.05:
+            stable += 1
+            if stable >= need:
+                return True, z, vz
+        else:
+            stable = 0
+        last = z
+        time.sleep(1.0)
+    # Report the LAST MEASURED vz, not a placeholder. The first version returned 0.0 here, so a
+    # vehicle falling at terminal velocity was announced as "z=-135.5 vz=+0.00" -- a diagnostic
+    # that says "not moving" about the exact condition being repaired.
+    return False, z, vz
 
 ok, z, vz = resting()
 if ok:
     print("on ground at z=%+.3f m" % z)
-    sys.exit(0)
-
-# Capture where it BELONGS before doing anything: the pose AirSim spawned it at, which is what
-# settings.json asked for. Falling has already moved it, so x/y are still right but z is not.
-pose = rpc.call("simGetVehiclePose", "PX4")
-spawn = {"position": {"x_val": pose["position"]["x_val"],
-                      "y_val": pose["position"]["y_val"],
-                      "z_val": -3.0},
-         "orientation": pose["orientation"]}
+    sys.exit(EXIT_OK)
 
 for attempt in range(1, tries + 1):
-    print("not on ground (z=%+.1f vz=%+.2f) -- holding at spawn for %.0fs so streaming can "
+    print("not on ground (z=%+.1f vz=%+.2f) -- resetting and holding %.0fs so streaming can "
           "catch up (attempt %d/%d)" % (z, vz, hold_s, attempt, tries), flush=True)
+
+    # RESET FIRST, THEN HOLD WHERE IT LANDS -- the order matters.        (review, PR 51)
+    #
+    # reset() does NOT return the vehicle to wherever we were holding it. PawnSimApi.cpp:455
+    # sets state_ = initial_state_ and teleports to state_.start_location, the pose captured at
+    # BeginPlay. The first version held the vehicle at its CURRENT x/y (already drifted by a
+    # 1.5 km fall) and then called reset() at the end -- so it streamed the cells under one
+    # location and dropped the pawn into another, which may still be unloaded. Every attempt
+    # repeated the same mistake.
+    #
+    # Resetting first makes the hold pose and the final pose the same by construction, and it
+    # also removes the need to guess a spawn Z: the earlier version hardcoded z=-3.0 and
+    # ignored --spawn entirely, which on `--spawn 100,200,-40` pinned the vehicle 37 m below
+    # where it was asked to be.
+    call("reset")
+    time.sleep(2.0)
+    pose, _ = call("simGetVehiclePose", vehicle)
+    hold = {"position": dict(pose["position"]), "orientation": dict(pose["orientation"])}
+
     t0 = time.time()
     while time.time() - t0 < hold_s:
-        # Pinning the POSE keeps the streaming source parked over the cells we need, which is
-        # the whole point. It does not stop velocity accumulating, so the reset below is what
-        # actually makes the release clean.
-        rpc.call("simSetVehiclePose", spawn, True, "PX4")
+        call("simSetVehiclePose", hold, True, vehicle)
         time.sleep(0.2)
-    # reset() returns the vehicle to its spawn WITH ZERO VELOCITY. Releasing from a pose-hold
-    # alone drops it at whatever speed it had built up (measured 8.585 m/s, ~2 m of drop).
-    rpc.call("reset")
+
     time.sleep(3.0)
     ok, z, vz = resting()
     if ok:
         print("on ground at z=%+.3f m after %d hold(s)" % (z, attempt))
-        sys.exit(0)
+        sys.exit(EXIT_REPAIRED)
 
 print("still not on ground after %d holds (z=%+.1f vz=%+.2f)" % (tries, z, vz))
-sys.exit(1)
+sys.exit(EXIT_FAIL)
 PY
+  rc=$?
+  case "$rc" in
+    0)  : ;;
+    10) log "vehicle was repaired onto the ground; restarting PX4 so it does not keep an EKF \
+built from a falling vehicle"
+        docker restart sim-px4 >/dev/null
+        sleep 20
+        wait_for_fmu ;;
+    *)  die "vehicle never reached ground -- see SIM-30 (World Partition streaming race)" ;;
+  esac
 }
 
 wait_for_settled_vehicle() {
@@ -418,10 +481,22 @@ wait_for_settled_vehicle() {
   docker cp "$REPO/scripts/airsim_rpc_client.py" "$SIM:/tmp/airsim_rpc_client.py" >/dev/null
   # `docker exec` WITHOUT -i does not attach stdin, so a heredoc fed to `python3 -` is
   # DISCARDED: python reads EOF, executes nothing, and exits 0 -- the check silently passes
-  # without ever running. This bit both this function and wait_for_settled_vehicle below,
-  # which is why the settle wait never printed its "settled at z=..." line and why it
-  # "passed" on a CitySample vehicle that had not begun falling yet.            (SIM-30)
-  docker exec -i "$SIM" python3 - "$SETTLE_SAMPLES" "$SETTLE_EPS" <<'PY' || die "vehicle never settled"
+  # without ever running. That is why this wait never printed its own "settled at z=..." line
+  # in any bring-up, and why it "passed" on a CitySample vehicle that had not begun falling
+  # yet. ensure_grounded above copied the same pattern and inherited the same fault. (SIM-30)
+  # ADVISORY, NOT FATAL -- and that is a change this check's own repair made necessary.
+  #
+  # While the heredoc was being discarded this wait always "passed", so bring-up always
+  # continued. The moment it started working it began doing its job on CitySample and killing
+  # the run: a World Partition vehicle really is still moving at the deadline, because it is
+  # falling through a level whose cells have not loaded. Dying here aborts a stack that
+  # ensure_grounded (after wait_for_sim_link, where the level is actually live) can repair --
+  # and did, in the same session that found this.
+  #
+  # So this stays the cheap early signal and ensure_grounded is the authoritative gate. If the
+  # vehicle cannot be put on the ground, THAT is where bring-up dies, with a diagnosis naming
+  # the streaming race rather than a generic "never settled".               (review, PR 51)
+  docker exec -i "$SIM" python3 - "$SETTLE_SAMPLES" "$SETTLE_EPS" <<'PY' || log "vehicle not settled yet -- continuing; ensure_grounded will verify and repair after the level is live"
 import sys, time
 sys.path.insert(0, "/tmp")
 need, eps = int(sys.argv[1]), float(sys.argv[2])
@@ -745,9 +820,19 @@ wait_for_sim_link
 # every is-it-resting test you can write from outside. It reported "on ground" on a vehicle that
 # had not started falling yet, then the level came up and it fell 1.5 km.
 #
-# `[ ... ] && ensure_grounded` would also EXIT under `set -e` when the hold is disabled -- a
-# false test returns 1, and a bare failing command at top level ends the script.
-if [ "$STREAM_HOLD_S" != "0" ]; then ensure_grounded; fi
+# Compared NUMERICALLY, not as a string: `!= "0"` left STREAM_HOLD_S=0.0 (or "00") enabled,
+# and with hold_s=0.0 the hold loop is skipped while reset() still fires once per attempt --
+# so "disabling" it silently reset the vehicle three times instead of doing nothing. A
+# non-numeric value used to reach python and die as "vehicle never reached ground".
+#
+# (An earlier comment here claimed `[ ... ] && ensure_grounded` would exit under `set -e`.
+# That is wrong -- bash does not exit when the first command of an && list fails, verified
+# directly -- and it has been removed rather than left as false evidence.)   (review, PR 51)
+if awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v+0 > 0 && v ~ /^[0-9.]+$/)}' 2>/dev/null; then
+  ensure_grounded
+elif ! awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v ~ /^[0-9.]+$/)}' 2>/dev/null; then
+  die "STREAM_HOLD_S must be a number (got '$STREAM_HOLD_S'); use 0 to disable the hold"
+fi
 wait_for_fmu
 
 # The wait above is a best effort, not a proof. Verify, and if the origin is still stale,
