@@ -19,6 +19,20 @@ Everything here comes from `/fmu/out/vehicle_local_position`, which the scenario
     horizontal accel  d/dt of that speed, from the message timestamps
     yaw rate          d/dt of heading, unwrapped across the +/-pi seam
 
+NO SINGLE STATISTIC IS RIGHT FOR EVERY LIMIT, which is why both are printed.
+
+    SUSTAINED (p95) suits a PHASE -- a climb, a descent, a cruise. The peak there is a
+    transition overshoot: asking for 0.6 m/s descent gave a 0.688 peak lasting 1.8 s while the
+    sustained rate was 0.572.
+
+    PEAK suits a MANOEUVRE OF FIXED SIZE -- a turn. Measured on a 180 deg yaw: unlimited gave
+    p95 4.5 / peak 31.7, and limiting to 10 deg/s gave p95 10.2 / peak 15.3. The sustained
+    figure went UP under the limit, because a slower turn spends far longer turning, so a larger
+    share of the flight sits at the bound. The peak halved, which is the real effect.
+
+    So the verdict column is computed from the sustained value and is meaningful for phases; for
+    a manoeuvre, read the peaks against each other. A verdict is not a substitute for looking.
+
 READ THE COMPARISON HONESTLY. A limit is an upper bound: measuring UNDER it proves nothing on its
 own, because a gentle mission may never reach the bound. The useful signal is the pair -- the same
 mission flown limited and unlimited -- and a measurement that EXCEEDS its limit is a real failure.

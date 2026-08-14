@@ -1,0 +1,133 @@
+# Baseline scenario: take off, fly a 10 m square, land.
+#
+# This is the mission the original exit criterion named — "takes off, flies a 4-waypoint
+# square, lands, SR=100% over 10 seeded runs"
+# (docs/history/reference/02_development_plan.md:56).
+#
+# Shape follows that plan's scenario format, `{world, seed, spawn, goal, instruction}`
+# (docs/history/reference/02_development_plan.md:191), adapted here: `goal` is a waypoint
+# list rather than a single point, and `instruction` is absent because nothing in this repo
+# consumes a natural-language goal.
+name: yaw-180
+description: >-
+  The one scenario that produces a large, sustained YAW. Exists because
+  `yaw_rate_max_dps` could not be verified by any waypoint mission: offboard_control calls
+  `_publish_setpoint(self.target_enu)` and never passes a yaw, so `yaw_enu` defaults to 0.0
+  for every setpoint and the commanded heading is constant for the whole flight. The only
+  yaw demand available is therefore the SPAWN heading — start facing 180 deg and the vehicle
+  must turn all the way to 0.
+
+# Unused by the current runner. `scripts/sim_up.sh --world PATH.uproject` selects the Unreal
+# world, and `scripts/run_scenario.py` passes `--world` through from its own flag rather than
+# reading it here. Kept as a placeholder for when the scenario owns the world again.
+# The world this scenario's premise depends on. It is READ now -- it used to be inert, so
+# "an empty world, no obstacles by design" was an intention nothing enforced.
+world: vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject
+
+mission:
+  # 20 m, not 10 m. At 10 m this scenario's own premise -- "an empty world, no obstacles by
+  # design" -- was false: the mission is a square RELATIVE TO THE SPAWN, so spawn jitter walks
+  # it across the map, and seed 2 of the first real gate run put it through two Blocks cubes.
+  # It scored 0.820 m of waypoint error, INSIDE tolerance, and failed only because the
+  # collision witness saw the impacts. 20 m is what the park tour flies a wider circuit at
+  # with zero collisions.
+  takeoff_altitude_m: 20.0
+  # ENU, relative to HOME (where the EKF initialised), NOT world coordinates. See
+  # docs/conventions.md §3. A square starting East, returning to the start corner
+  # so the landing point is the takeoff point.
+  waypoints_enu:
+    - [10.0,  0.0, 20.0]
+    - [10.0, 10.0, 20.0]
+    - [ 0.0, 10.0, 20.0]
+    - [ 0.0,  0.0, 20.0]
+
+# What each run records to MCAP. Declared here rather than hard-coded in the runner,
+# because what is worth recording is a property of the SCENARIO: a scenario with obstacles
+# will want depth and the planner's trajectory, and that should not require editing the
+# harness.
+#
+# /mission/* is what makes a bag self-describing. Without it a failed seed shows the vehicle
+# in the wrong place and nothing about which waypoint the controller was aiming at — and
+# since runs are not reproducible, that bag is the only evidence the failure leaves.
+record_topics:
+  - /fmu/out/vehicle_local_position
+  - /fmu/out/vehicle_status_v1
+  # SIM-27. The seed-5 failure was `timeout in state land`, and the ONE topic that says why PX4
+  # did not consider itself landed was not being recorded -- so the bag could show the descent
+  # and not the land detector's own view of it. Cheap (a few Hz) and it is the first thing
+  # anyone will want next time a landing does not terminate.
+  - /fmu/out/vehicle_land_detected
+  - /mission/status
+  - /mission/result
+
+tolerances:
+  accept_radius_m: 1.0    # a waypoint counts as reached inside this radius...
+  hold_seconds: 2.0       # ...and only after settling there, so a fly-through does not score
+  # A 180 deg turn at 10 deg/s is 18 s on its own, before the square is flown.
+  state_timeout_s: 180.0
+
+# Spawn facing due SOUTH-ish while the controller commands 0 -- a 180 deg turn.      (SIM-31)
+spawn:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  yaw_deg: 180.0
+  pitch_deg: 0.0
+  roll_deg: 0.0
+
+limits:
+  # MEASURED, and the result is not the shape you would guess:
+  #
+  #                    sustained (p95)   peak
+  #   unlimited              4.5        31.7 deg/s
+  #   yaw_rate_max_dps: 10  10.2        15.3 deg/s
+  #
+  # The limit halves the PEAK, which is the real effect. The SUSTAINED figure goes UP, because
+  # a slower turn spends far longer turning and a larger share of the flight sits at the bound.
+  # For a manoeuvre of fixed size the peak is the informative statistic; for a phase (climb,
+  # descent, cruise) it is the sustained value. check_envelope.py prints both for this reason.
+  yaw_rate_max_dps: 10.0
+
+# WHAT THE SEED ACTUALLY CONTROLS — read this before trusting a success rate.
+#
+# A SEED MOVES THE SPAWN POSE AND NOTHING ELSE. `scripts/run_scenario.py` reads exactly two
+# keys from the block below — spawn_xy_jitter_m and spawn_yaw_jitter_rad — and applies them
+# through `sim_up.sh --spawn`. Ten seeded runs are therefore closer to ten repeats. Still
+# worth running, because flaky failures surface under repetition, but DO NOT describe a gate
+# run as covering varied conditions.
+#
+# It also does NOT give a deterministic replay: this stack is not bit-reproducible, measured
+# directly — two back-to-back runs with identical configuration produced waypoint errors of
+# [0.225, 0.104, 0.154, 0.204] and [0.118, 0.076, 0.158, 0.187]. Anything claiming
+# seed-exact trajectory reproduction here would be wrong.
+seeded:
+  # Spawn pose, applied as `sim_up.sh --spawn X,Y,0,YAW` (metres, NED; Z negative is up).
+  #
+  # HONEST LIMITATION: in an empty world this varies almost nothing the controller can
+  # see. PX4's local frame origin is set wherever the EKF initialises, so the mission —
+  # which is relative to home — is unchanged; only the EKF initialisation transient and
+  # ground contact differ. Measured on the retired Gazebo harness: spawning at (7, -4) put
+  # the model there while the controller still reported home ENU (-0.03, -0.02).
+  #
+  # It becomes load-bearing once obstacles sit at fixed world coordinates and the spawn
+  # point decides the problem the planner faces.
+  # ZERO on purpose. The whole scenario is the size of one turn; jittering the start heading
+  # would make the yaw demand differ per seed and the measurement incomparable between runs.
+  spawn_xy_jitter_m: 0.0
+  spawn_yaw_jitter_rad: 0.0
+
+# NOT SEEDED — the honest gap, tracked as `SIM-07` in docs/todo.md.
+#
+# WIND was seeded once, and is not any more. The retired Gazebo harness sampled speed in
+# [0, 3] m/s with a uniformly random heading and applied it through a generated world +
+# model overlay; that generator was deleted with the Gazebo stack, and Cosys-AirSim's own
+# wind API (simSetWind) is not wired in. The measurements are kept because they say what
+# wind is worth: at 3 m/s waypoint errors were 0.634, 0.541, 0.06, 0.298 — the upwind legs
+# cost an order of magnitude more than the downwind one, which is the signature you want.
+# And the bound was load-bearing: at 8 m/s the DISARMED vehicle was blown 416 m across the
+# world before it could arm, the EKF gave up (xy_valid false) and the run failed in
+# wait_for_fcu — a harness failure, not a controller failure. Whatever re-wires wind here
+# inherits both numbers.
+#
+# SENSOR NOISE is the other genuinely stochastic element, and it has never been controlled
+# on any stack this repo has run. The variation between runs is real but not seeded.
