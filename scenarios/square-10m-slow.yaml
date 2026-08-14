@@ -84,7 +84,10 @@ tolerances:
 # envelope that was never applied. The values that actually took are recorded as
 # `applied_limits` in the run JSON -- the applied ones, not the requested ones.
 limits:
-  velocity_xy_max_mps: 0.5      # MPC_XY_VEL_MAX and MPC_XY_CRUISE
+  # MPC_XY_VEL_MAX only. MPC_XY_CRUISE is deliberately NOT set -- its declared range is
+  # [3.0, 20.0], so it cannot express a slow envelope, and writing 0.5 into it stored a value
+  # PX4 treats as out of range while the read-back "confirmed" it.
+  velocity_xy_max_mps: 0.5
 
 # WHAT THE SEED ACTUALLY CONTROLS — read this before trusting a success rate.
 #
