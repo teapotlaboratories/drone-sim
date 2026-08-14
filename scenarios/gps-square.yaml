@@ -1,0 +1,38 @@
+name: gps-square
+description: 'A 10 m square expressed in GPS coordinates instead of local ENU. Exists
+  because PX4 has no global setpoint message: lat/lon must be converted to a local
+  coordinate, and the reference for that conversion is PX4''s own EKF origin, never
+  AirSim''s OriginGeopoint (measured 13.8 m apart). SIM-31.'
+world: vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject
+record_topics:
+- /fmu/out/vehicle_local_position
+- /fmu/out/vehicle_status_v1
+- /fmu/out/vehicle_land_detected
+- /mission/status
+- /mission/result
+tolerances:
+  accept_radius_m: 1.0
+  hold_seconds: 2.0
+  state_timeout_s: 180.0
+seeded:
+  spawn_xy_jitter_m: 0.0
+  spawn_yaw_jitter_rad: 0.0
+mission:
+  takeoff_altitude_m: 20.0
+  waypoints_gps:
+  - lat: 37.4123278
+    lon: -121.9947352
+    alt_m: 71.28
+  - lat: 37.4124177
+    lon: -121.9947352
+    alt_m: 71.28
+  - lat: 37.4124177
+    lon: -121.9948484
+    alt_m: 71.28
+  - lat: 37.4123278
+    lon: -121.9948484
+    alt_m: 71.28
+origin_geopoint:
+  latitude: 37.4123
+  longitude: -121.995
+  altitude_m: 50.0
