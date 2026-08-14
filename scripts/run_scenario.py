@@ -70,6 +70,31 @@ def dexec(*args: str) -> list[str]:
 
 
 RECORD_CHASE = REPO / "scripts" / "record_chase.sh"
+APPLY_PARAMS = REPO / "scripts" / "apply_px4_params.py"
+
+
+def apply_limits(limits: dict, tag: str) -> dict:
+    """Put the scenario's flight envelope into PX4 before anything flies.        (SIM-31)
+
+    FATAL ON FAILURE, unlike the chase recording. A capture that fails costs a video; an
+    envelope that fails to apply produces a run whose numbers describe a completely different
+    aircraft, reported under a scenario name that claims otherwise. That is worse than no run.
+
+    Returns the parameters actually read back, which the caller records as provenance -- the
+    APPLIED values, not the requested ones.
+    """
+    if not limits:
+        return {}
+    out = REPO / "out" / f"{tag}-limits.json"
+    r = sh([sys.executable, str(APPLY_PARAMS), "--limits", json.dumps(limits),
+            "--out", str(out)], timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError("flight envelope not applied:\n" + (r.stdout or "") + (r.stderr or ""))
+    print((r.stdout or "").rstrip())
+    try:
+        return json.loads(out.read_text())
+    except Exception:
+        return {}
 
 
 def chase_available() -> bool:
@@ -253,7 +278,7 @@ def resolve_world(scenario: dict, cli_world: str) -> str:
     return str(p)
 
 
-def restart_stack(variant: dict, world: str = "", settings: str = "") -> None:
+def restart_stack(variant: dict, scenario: dict, world: str = "", settings: str = "") -> None:
     """Cold-start the whole simulator at the seed's spawn pose.
 
     `sim_up.sh` is the ONLY supported bring-up: it waits for the vehicle to settle before
@@ -269,11 +294,28 @@ def restart_stack(variant: dict, world: str = "", settings: str = "") -> None:
     # in this repo assumes. Converting in one place, next to the units comment, because a
     # silent radians/degrees mix-up yields a vehicle facing the wrong way and a plausible,
     # wrong, waypoint error.
-    spawn = (f"{variant['spawn_x']},{variant['spawn_y']},0,"
-             f"{round(math.degrees(variant['spawn_yaw']), 3)}")
+    # SIM-31: the scenario may declare a BASE pose, and the seed jitters around it rather than
+    # replacing it. Keeping both means a scenario can start on a rooftop, or tilted, without
+    # giving up seeded variation -- and a gate over such a scenario still varies what it varied
+    # before. z/pitch/roll are not seeded, so they come through untouched.
+    base = scenario.get("spawn", {}) or {}
+    spawn = ",".join(str(v) for v in (
+        round(float(base.get("x", 0.0)) + variant["spawn_x"], 3),
+        round(float(base.get("y", 0.0)) + variant["spawn_y"], 3),
+        float(base.get("z", 0.0)),
+        round(float(base.get("yaw_deg", 0.0)) + math.degrees(variant["spawn_yaw"]), 3),
+        float(base.get("pitch_deg", 0.0)),
+        float(base.get("roll_deg", 0.0)),
+    ))
     # --spawn=VALUE for the same reason sim_up.sh relays it that way: a negative X is common
     # and a bare "-3.656,..." reads as a flag to anything using argparse downstream.
     cmd = [str(SIM_UP), f"--spawn={spawn}"]
+    # Where the world sits on Earth. Passed as LAT,LON,ALT because sim_up.sh relays it verbatim
+    # to apply_spawn.py, which is the one place that validates it.
+    origin = scenario.get("origin_geopoint") or {}
+    if origin:
+        cmd += [f"--origin={origin['latitude']},{origin['longitude']},"
+                f"{origin.get('altitude_m', 0.0)}"]
     if world:
         cmd += ["--world", world]
     if settings:
@@ -295,6 +337,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
     """
     mission = scenario.get("mission", {})
     tol = scenario.get("tolerances", {})
+    limits = scenario.get("limits", {}) or {}
     flat: list[float] = []
     for wp in mission.get("waypoints_enu", []):
         flat.extend(float(v) for v in wp)
@@ -334,6 +377,10 @@ def run_flight(scenario: dict, seed: int) -> dict:
 
     # Baseline the renderer's drop counter BEFORE anything flies, so what is reported is this
     # flight's drops and not the container's lifetime total. See readback_drops().
+    # BEFORE the recorders start and well before anything arms. A refusal here should cost a
+    # bring-up, not a flight that has to be thrown away afterwards.
+    applied_limits = apply_limits(limits, tag)
+
     drops_before = readback_drops()
 
     # VIDEO, on by default. Started before the flight and stopped after, so the recording
@@ -523,6 +570,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
         res["lidar_readback_drops"] = drops
         res["probe_written"] = probe_written
         res["chase_video"] = str(chase_mp4) if (chase_on and chase_mp4.exists()) else None
+        res["applied_limits"] = applied_limits or None
         res["max_pose_split_m"] = max_dz
         return res
     # Fall back to the log line, so a missing file does not erase the evidence.
@@ -532,6 +580,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
         res["lidar_readback_drops"] = drops
         res["probe_written"] = probe_written
         res["chase_video"] = str(chase_mp4) if (chase_on and chase_mp4.exists()) else None
+        res["applied_limits"] = applied_limits or None
         res["max_pose_split_m"] = max_dz
         return res
     return {"outcome": "failure",
@@ -539,6 +588,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
             "lidar_readback_drops": drops,
             "probe_written": probe_written,
             "chase_video": str(chase_mp4) if (chase_on and chase_mp4.exists()) else None,
+            "applied_limits": applied_limits or None,
             "max_pose_split_m": max_dz,
             "stdout_tail": (proc.stdout or "")[-800:]}
 
@@ -583,7 +633,7 @@ def main() -> int:
         print("stack    : reusing (spawn pose NOT applied)")
     else:
         print("stack    : cold-starting via sim_up.sh")
-        restart_stack(variant, world, a.settings)
+        restart_stack(variant, scenario, world, a.settings)
 
     result = run_flight(scenario, a.seed)
     result.update({

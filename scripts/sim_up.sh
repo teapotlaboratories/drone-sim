@@ -41,6 +41,10 @@ STREAM_HOLD_TRIES=${STREAM_HOLD_TRIES:-3}
 SPAWN=${SPAWN:-}
 SPAWN_VEHICLE=${SPAWN_VEHICLE:-}
 SPAWN_ALLOW_BELOW=${SPAWN_ALLOW_BELOW:-}
+# SIM-31: where the world sits on Earth, as LAT,LON,ALT. Written into AirSim's OriginGeopoint,
+# which the synthesised GPS derives from -- and therefore, indirectly, what PX4's EKF origin
+# latches. Empty means AirSim's own default.
+ORIGIN=${ORIGIN:-}
 WORLD=${WORLD:-}                        # .uproject to load; default is the vendored Blocks
 
 # SIM-29: give the engine a screen so the chase camera can be recorded. AirSim's `ViewMode`
@@ -139,11 +143,13 @@ usage: sim_up.sh [--world PATH.uproject] [--settings PATH.json]
   --vehicle NAME        required only when settings.json defines several vehicles.
   --world PATH          .uproject to load (default: the vendored Blocks environment).
   --allow-below-origin  permit a positive Z (i.e. genuinely below the origin).
+  --origin LAT,LON,ALT  where the world sits on Earth (AirSim OriginGeopoint). The simulated
+                        GPS derives from it, so PX4's EKF origin follows it.      (SIM-31)
   --display             run the renderer on an Xvfb screen instead of -RenderOffScreen, so
                         AirSim's chase camera can be recorded with scripts/record_chase.sh.
                         Off by default: headless is the gate's path. (SIM-29)
 
-Environment equivalents: SPAWN, SPAWN_VEHICLE, WORLD, SETTINGS_FILE, SPAWN_ALLOW_BELOW,
+Environment equivalents: SPAWN, SPAWN_VEHICLE, WORLD, SETTINGS_FILE, SPAWN_ALLOW_BELOW, ORIGIN,
 DISPLAY_MODE, DISPLAY_NUM, DISPLAY_GEOM, STREAM_HOLD_S, STREAM_HOLD_TRIES.
 EOF
 }
@@ -159,6 +165,8 @@ while [ $# -gt 0 ]; do
     --world)              WORLD="${2:-}";         shift 2 ;;
     --world=*)            WORLD="${1#*=}";        shift ;;
     --allow-below-origin) SPAWN_ALLOW_BELOW=1;    shift ;;
+    --origin)             ORIGIN="${2:-}";        shift 2 ;;
+    --origin=*)           ORIGIN="${1#*=}";       shift ;;
     --display)            DISPLAY_MODE=1;         shift ;;
     -h|--help)            usage; exit 0 ;;
     *)                    usage >&2; die "unknown argument: $1" ;;
@@ -175,14 +183,14 @@ BASE_SETTINGS="${SETTINGS_FILE:-$REPO/sim/ue5/settings.json}"
 # the container's fuse-overlayfs — "remount-ro: operation not permitted"), and copying keeps the
 # committed artifact untouched whichever source is used.
 SETTINGS="$BASE_SETTINGS"
-if [ -n "$SPAWN" ] || [ "$BASE_SETTINGS" != "$REPO/sim/ue5/settings.json" ]; then
+if [ -n "$SPAWN" ] || [ -n "$ORIGIN" ] || [ "$BASE_SETTINGS" != "$REPO/sim/ue5/settings.json" ]; then
   RUN_SETTINGS="$REPO/sim/ue5/.settings.run.json"
   cp "$BASE_SETTINGS" "$RUN_SETTINGS"
   chmod 644 "$RUN_SETTINGS"
   SETTINGS="$RUN_SETTINGS"
   [ "$BASE_SETTINGS" != "$REPO/sim/ue5/settings.json" ] && log "settings: $BASE_SETTINGS"
 fi
-if [ -n "$SPAWN" ]; then
+if [ -n "$SPAWN" ] || [ -n "$ORIGIN" ]; then
   # Deliberately NOT mktemp/$TMPDIR. /tmp is on the container's fuse-overlayfs, and a read-only
   # bind mount from there is refused by the daemon:
   #   remount-ro /var/lib/docker/fuse-overlayfs/.../settings.json: operation not permitted
@@ -193,7 +201,10 @@ if [ -n "$SPAWN" ]; then
   #   apply_spawn.py: error: argument --spawn: expected one argument
   # This is why the flight gate had never completed a single seed -- the --reuse path always
   # spawns at 0,0,0, so every test took the one route where the bug cannot fire (SIM-07).
-  args=(--settings "$SETTINGS" --out "$SETTINGS" "--spawn=$SPAWN")
+  # An origin with no spawn still has to go through apply_spawn, so the spawn defaults to the
+  # no-op 0,0,0 rather than the flag becoming optional -- one path that always validates.
+  args=(--settings "$SETTINGS" --out "$SETTINGS" "--spawn=${SPAWN:-0,0,0}")
+  [ -n "$ORIGIN" ]            && args+=("--origin=$ORIGIN")
   [ -n "$SPAWN_VEHICLE" ]     && args+=(--vehicle "$SPAWN_VEHICLE")
   [ -n "$SPAWN_ALLOW_BELOW" ] && args+=(--allow-below-origin)
   # A bad spawn must ABORT here. Falling through to the committed settings would start the

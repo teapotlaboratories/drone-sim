@@ -50,13 +50,18 @@ def parse_spawn(text: str) -> dict:
         raise SpawnError("spawn is empty; expected X,Y,Z or X,Y,Z,YAW (metres, NED)")
 
     parts = [p.strip() for p in str(text).split(",")]
-    if len(parts) not in (3, 4):
+    if len(parts) not in (3, 4, 6):
         raise SpawnError(
-            f"spawn needs 3 or 4 comma-separated numbers, got {len(parts)}: {text!r}\n"
-            f"       expected X,Y,Z or X,Y,Z,YAW  (metres, NED; Z negative is UP)"
+            f"spawn needs 3, 4 or 6 comma-separated numbers, got {len(parts)}: {text!r}\n"
+            f"       expected X,Y,Z | X,Y,Z,YAW | X,Y,Z,YAW,PITCH,ROLL\n"
+            f"       (metres NED, Z negative is UP; angles in DEGREES)"
         )
 
-    names = ("X", "Y", "Z", "Yaw")
+    # Pitch and Roll are AirSim settings keys in their own right -- the header above quotes
+    # createRotationSetting reading "Yaw" "Pitch" "Roll" -- they were simply never plumbed.
+    # A scenario that wants the vehicle to start tilted (a sloped rooftop, a failed-landing
+    # attitude) could not say so.                                                    (SIM-31)
+    names = ("X", "Y", "Z", "Yaw", "Pitch", "Roll")
     vals = {}
     for name, raw in zip(names, parts):
         try:
@@ -68,6 +73,38 @@ def parse_spawn(text: str) -> dict:
             raise SpawnError(f"spawn component {name} must be finite, got {raw!r}")
         vals[name] = v
     return vals
+
+
+def parse_origin(text: str | None) -> dict | None:
+    """LAT,LON,ALT -> AirSim's OriginGeopoint, or None if not requested.          (SIM-31)
+
+    This is where the world sits on Earth. AirSim synthesises the GPS sensor from it, and PX4's
+    EKF then latches its origin from that GPS -- so this value reaches the flight stack, it just
+    reaches it INDIRECTLY. Anything converting lat/lon to a local setpoint must use PX4's own
+    reference (`ref_lat`/`ref_lon` on vehicle_local_position), never this, because the two differ
+    by whatever the EKF latched. SIM-28 measured that gap at 9.13 m on 40 of 40 bring-ups.
+    """
+    if not text:
+        return None
+    parts = [p.strip() for p in str(text).split(",")]
+    if len(parts) != 3:
+        raise SpawnError(f"origin needs LAT,LON,ALT, got {len(parts)}: {text!r}")
+    out = {}
+    for name, raw, lo, hi in (("Latitude", parts[0], -90.0, 90.0),
+                              ("Longitude", parts[1], -180.0, 180.0),
+                              ("Altitude", parts[2], -500.0, 9000.0)):
+        try:
+            v = float(raw)
+        except ValueError:
+            raise SpawnError(f"origin component {name} is not a number: {raw!r}") from None
+        if v != v or v in (float("inf"), float("-inf")):
+            raise SpawnError(f"origin component {name} must be finite, got {raw!r}")
+        # Bounds, because a swapped lat/lon is silent otherwise: the world simply sits somewhere
+        # else on Earth and every GPS number in the run is quietly wrong.
+        if not (lo <= v <= hi):
+            raise SpawnError(f"origin {name} out of range [{lo}, {hi}]: {v}")
+        out[name] = v
+    return out
 
 
 def check_altitude(vals: dict, allow_below_origin: bool = False) -> None:
@@ -112,6 +149,13 @@ def apply_spawn(doc: dict, vals: dict, vehicle: str | None = None) -> dict:
     return doc
 
 
+def apply_origin(doc: dict, origin: dict | None) -> dict:
+    """Set OriginGeopoint at the top level, where AirSim reads it."""
+    if origin is not None:
+        doc["OriginGeopoint"] = origin
+    return doc
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -122,6 +166,8 @@ def main() -> int:
     ap.add_argument("--vehicle", help="vehicle name; required only if several are defined")
     ap.add_argument("--allow-below-origin", action="store_true",
                     help="permit a positive Z (NED: below the origin)")
+    ap.add_argument("--origin", default="",
+                    help="LAT,LON,ALT for OriginGeopoint -- where the world sits on Earth")
     a = ap.parse_args()
 
     try:
@@ -130,6 +176,7 @@ def main() -> int:
         src = Path(a.settings)
         doc = json.loads(strip_jsonc(src.read_text(encoding="utf-8")))
         doc = apply_spawn(doc, vals, a.vehicle)
+        doc = apply_origin(doc, parse_origin(a.origin))
     except SpawnError as e:
         print(f"\033[31m[spawn] FATAL:\033[0m {e}", file=sys.stderr)
         return 2
@@ -144,6 +191,10 @@ def main() -> int:
 
     where = ", ".join(f"{k}={v:g}" for k, v in vals.items())
     print(f"\033[36m[spawn]\033[0m {where}  ->  {out}")
+    if a.origin:
+        o = doc["OriginGeopoint"]
+        print(f"\033[36m[spawn]\033[0m origin {o['Latitude']:.6f}, {o['Longitude']:.6f}, "
+              f"{o['Altitude']:g} m AMSL")
     if vals["Z"] < 0:
         print(f"\033[36m[spawn]\033[0m that is {abs(vals['Z']):g} m above the origin (NED)")
     return 0
