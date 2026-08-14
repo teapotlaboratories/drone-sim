@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scenarios With An Envelope</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-13 &middot; SIM-31</span>
+  <nav><a href="#worth">What it is worth</a><a href="#budget">One decision</a><a href="#gate">The gate broke</a><a href="#claim">The claim undermined</a><a href="#origin">13.8 m</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-13 &middot; SIM-31 &middot; SITL only, nothing real was armed</span>
+  <h1>Scenarios That State<br>Their Own Envelope</h1>
+  <p class="sub">A scenario could say <em>where</em> to fly and how tightly to score it &mdash; not how fast the aircraft may fly getting there. <strong>Capping horizontal speed cut waypoint error by an order of magnitude</strong>, and the review found the same change had silently broken the flight gate.</p>
+  <div class="mastmeta"><span>Error <b>0.76 &rarr; 0.06 m</b></span><span>Review findings <b>11</b></span><span>Gate <b>broken, then fixed</b></span><span>Slices <b>2 of 3</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Same seed, capped at 0.5 m/s</div><div class="v">0.06 m</div><div class="n">against 0.76 m unlimited &mdash; an order of magnitude</div></div>
+<div class="stat stop"><div class="k">What the review found first</div><div class="v">gate dead</div><div class="n">a positional argument rebound every call in run_gate.py</div></div>
+<div class="stat warn"><div class="k">Read-back proves</div><div class="v">stored, not legal</div><div class="n"><code>param set</code> neither clamps nor rejects</div></div>
+</div>
+
+<h2 id="worth"><span class="secnum">01</span> What the envelope is worth</h2>
+<div class="tw"><table>
+<thead><tr><th>Same seed, same mission</th><th class="mono">waypoint errors (m)</th><th class="mono">wall</th></tr></thead>
+<tbody>
+<tr><th>unlimited (12 m/s)</th><td class="mono">0.762 / 0.756 / 0.763 / 0.761</td><td class="mono">112.0 s</td></tr>
+<tr><th><code>velocity_xy_max_mps: 0.5</code></th><td class="mono"><strong>0.060 / 0.062 / 0.066 / 0.061</strong></td><td class="mono">137.4 s</td></tr>
+</tbody>
+</table></div>
+<div class="callout"><span class="lbl">Worth saying plainly</span>
+<p><strong>The baseline's ~0.76 m error is largely approach speed, not controller quality.</strong>
+Every gate number this project has quoted was measured at 12 m/s.</p></div>
+
+<h2 id="budget"><span class="secnum">02</span> The envelope and the time budget are one decision</h2>
+<p>At the baseline's <code>state_timeout_s: 60</code> the slow run failed <strong>3 of 4</strong>
+with <code>timeout in state waypoints</code> &mdash; while tracking beautifully. The budget covers
+the <em>whole</em> sequence, and 40 m at 0.5 m/s needs ~88 s of flying. Nothing was wrong with the
+aircraft; the scenario had not been given time to be slow in.</p>
+<p>Limits live in PX4, not in our controller: <code>offboard_control</code> sends <strong>position</strong>
+setpoints and PX4's position controller turns those into velocity and acceleration. A limit
+enforced on our side would be one the autopilot does not know about.</p>
+
+<h2 id="gate"><span class="secnum">03</span> The review&rsquo;s first finding: the gate could not run</h2>
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="Adding scenario as the second positional parameter of restart_stack rebound every argument at run_gate's call sites: scenario received the world path, world received the settings, and the gate died on seed one.">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--stop)"/></marker></defs>
+  <text class="axl" x="30" y="30">run_gate.py CALL SITE, UNCHANGED</text>
+  <rect class="n-box" x="30" y="46" width="240" height="40"/><text class="nid" x="150" y="71" text-anchor="middle">variant</text>
+  <rect class="n-box" x="290" y="46" width="240" height="40"/><text class="nid" x="410" y="71" text-anchor="middle">world (a path string)</text>
+  <rect class="n-box" x="550" y="46" width="240" height="40"/><text class="nid" x="670" y="71" text-anchor="middle">a.settings</text>
+
+  <line class="e-b" x1="150" y1="90" x2="150" y2="140" marker-end="url(#a)"/>
+  <line class="e-b" x1="410" y1="90" x2="410" y2="140" marker-end="url(#a)"/>
+  <line class="e-b" x1="670" y1="90" x2="670" y2="140" marker-end="url(#a)"/>
+
+  <text class="axl" x="30" y="164">NEW SIGNATURE &mdash; scenario inserted SECOND</text>
+  <rect class="n-box" x="30" y="176" width="240" height="40"/><text class="nid" x="150" y="201" text-anchor="middle">variant</text>
+  <rect class="n-b" x="290" y="176" width="240" height="40"/><text class="nid" x="410" y="201" text-anchor="middle">scenario &larr; gets a STRING</text>
+  <rect class="n-b" x="550" y="176" width="240" height="40"/><text class="nid" x="670" y="201" text-anchor="middle">world &larr; gets the settings</text>
+  <text class="nlb" x="30" y="238" fill="var(--stop)">scenario.get("spawn") &rarr; AttributeError: &apos;str&apos; object has no attribute &apos;get&apos; &mdash; the gate died on seed 1.</text>
+</svg>
+<figcaption>Invisible because every verification went through run_scenario.py.</figcaption>
+</figure>
+<div class="callout stop"><span class="lbl">The lesson, not the patch</span>
+<p><strong>The gate is the thing that scores this project, and it had been broken by a change that
+never touched it.</strong> The parameter is now keyword-only, so the same mistake cannot recur
+positionally.</p></div>
+<p>Five more were real: a harness fault was being <strong>scored as a flight failure</strong>
+(a misspelled limit key would have reported <em>"SR 0%, control failure"</em> for runs that never
+left the ground); <strong>limits leaked across runs</strong> on a reused stack, so the baseline
+would have flown at 0.5 m/s while recording <code>applied_limits: null</code>; a stopped PX4
+<strong>read as a missing parameter</strong>; an origin-only run <strong>rewrote a declared
+vehicle pose</strong> back to the PlayerStart; and omitting <code>altitude_m</code> would have
+<strong>moved the world 122 m</strong>, because AirSim overrides only the keys present.</p>
+
+<h2 id="claim"><span class="secnum">04</span> The finding that undermined the central claim</h2>
+<p>The applier was built on <em>&ldquo;read it back, because <code>px4-param set</code> on an
+unknown name is not an error&rdquo;</em>. True &mdash; but a read-back proves the value is
+<strong>stored</strong>, not that PX4 considers it <strong>legal</strong>. <code>param set</code>
+neither clamps nor rejects.</p>
+<pre>MPC_XY_CRUISE   min=3.0   max=20.0   default=5.0     <span class="c"># and we were writing 0.5</span></pre>
+<p>The read-back dutifully &ldquo;confirmed&rdquo; a number PX4 itself treats as out of range. Two
+changes: validate against <code>parameters.json</code>, which ships inside the image and is the
+authority; and <strong>drop <code>MPC_XY_CRUISE</code> entirely</strong>, since
+<code>MPC_XY_VEL_MAX</code> is the cap that acts on offboard position setpoints. Re-flown after:
+errors 0.063 / 0.063 / 0.058 / 0.056, unchanged. <strong>It had never been the operative limit.</strong></p>
+
+<h2 id="origin"><span class="secnum">05</span> The measurement that decides the remaining slice</h2>
+<div class="tw"><table>
+<thead><tr><th></th><th class="mono">latitude</th><th class="mono">longitude</th><th class="mono">altitude</th></tr></thead>
+<tbody>
+<tr><th>declared <code>OriginGeopoint</code></th><td class="mono">37.412300</td><td class="mono">&minus;121.995000</td><td class="mono">50.0 m</td></tr>
+<tr><th>PX4 EKF <code>ref_*</code></th><td class="mono">37.4123278</td><td class="mono">&minus;121.9948484</td><td class="mono">51.28 m</td></tr>
+<tr><th>separation</th><td class="mono" colspan="2"><strong>13.8 m horizontal</strong></td><td class="mono">+1.28 m</td></tr>
+</tbody>
+</table></div>
+<p>A GPS waypoint converted against <code>OriginGeopoint</code> instead of
+<code>ref_lat</code>/<code>ref_lon</code> would land ~14 m off &mdash; an error shaped exactly like
+a control bug. The design asserted this; it is a measurement now.</p>
+<div class="callout warn"><span class="lbl">Unexplained, and recorded as such</span>
+<p><strong>What the 13.4 m east is made of &mdash; level offset from the world origin, GPS init
+bias, or both &mdash; is not known.</strong> Slice three depends on knowing, so it is written down
+rather than rounded away.</p></div>
+
+<h3>Verification</h3>
+<ul>
+<li>Flight gate, 2 seeds, Blocks: <strong>2/2, 100%</strong> &mdash; the critical break, gone.</li>
+<li>CitySample <code>square-10m-slow</code>: 4/4, envelope printed, read back and recorded.</li>
+<li>Blocks with a declared origin and 45&deg; yaw: 4/4, origin confirmed in the run-time settings
+<em>and</em> in PX4's own <code>ref_lat</code>/<code>ref_lon</code>.</li>
+<li>Negative tests: unknown limit key refused; <code>accel_horizontal_mps2: 1.0</code> refused
+against <code>MPC_ACC_HOR</code>'s declared minimum of 2.0; origin-only run leaves a declared pose
+at <code>10/20/-50</code>.</li>
+</ul>
+<div class="callout"><span class="lbl">Still open</span>
+<p>GPS waypoints &mdash; the slice that touches the controller. <strong>Five of the six limit keys
+have never been flown</strong>, only set and read back. And the 13.4 m.</p></div>
+
+<footer>
+  <span>Worklog &middot; 2026-08-13 &middot; SIM-31</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

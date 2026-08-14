@@ -162,7 +162,11 @@ def main() -> int:
     )
     ap.add_argument("--settings", required=True, help="source settings.json (never modified)")
     ap.add_argument("--out", required=True, help="where to write the run-time copy")
-    ap.add_argument("--spawn", required=True, help="X,Y,Z or X,Y,Z,YAW (metres, NED)")
+    # OPTIONAL. `--origin` alone must not touch the vehicle pose: apply_spawn does
+    # vehicles[name].update(vals), so passing a "no-op" 0,0,0 would rewrite a settings file that
+    # deliberately placed the vehicle at, say, Z=-50 back to the PlayerStart -- the terrain
+    # burial this script's own header exists to prevent.                       (review, PR 53)
+    ap.add_argument("--spawn", help="X,Y,Z | X,Y,Z,YAW | X,Y,Z,YAW,PITCH,ROLL (metres NED, degrees)")
     ap.add_argument("--vehicle", help="vehicle name; required only if several are defined")
     ap.add_argument("--allow-below-origin", action="store_true",
                     help="permit a positive Z (NED: below the origin)")
@@ -171,11 +175,15 @@ def main() -> int:
     a = ap.parse_args()
 
     try:
-        vals = parse_spawn(a.spawn)
-        check_altitude(vals, a.allow_below_origin)
+        if not a.spawn and not a.origin:
+            raise SpawnError("nothing to do: give --spawn, --origin, or both")
+        vals = parse_spawn(a.spawn) if a.spawn else {}
+        if vals:
+            check_altitude(vals, a.allow_below_origin)
         src = Path(a.settings)
         doc = json.loads(strip_jsonc(src.read_text(encoding="utf-8")))
-        doc = apply_spawn(doc, vals, a.vehicle)
+        if vals:
+            doc = apply_spawn(doc, vals, a.vehicle)
         doc = apply_origin(doc, parse_origin(a.origin))
     except SpawnError as e:
         print(f"\033[31m[spawn] FATAL:\033[0m {e}", file=sys.stderr)
@@ -189,13 +197,16 @@ def main() -> int:
     out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     out.chmod(0o644)  # mounted read-only into the simulator container
 
-    where = ", ".join(f"{k}={v:g}" for k, v in vals.items())
-    print(f"\033[36m[spawn]\033[0m {where}  ->  {out}")
+    if vals:
+        where = ", ".join(f"{k}={v:g}" for k, v in vals.items())
+        print(f"\033[36m[spawn]\033[0m {where}  ->  {out}")
+    else:
+        print(f"\033[36m[spawn]\033[0m vehicle pose left as the settings file declares  ->  {out}")
     if a.origin:
         o = doc["OriginGeopoint"]
         print(f"\033[36m[spawn]\033[0m origin {o['Latitude']:.6f}, {o['Longitude']:.6f}, "
               f"{o['Altitude']:g} m AMSL")
-    if vals["Z"] < 0:
+    if vals and vals["Z"] < 0:
         print(f"\033[36m[spawn]\033[0m that is {abs(vals['Z']):g} m above the origin (NED)")
     return 0
 

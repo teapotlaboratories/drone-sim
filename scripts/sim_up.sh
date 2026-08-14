@@ -201,9 +201,11 @@ if [ -n "$SPAWN" ] || [ -n "$ORIGIN" ]; then
   #   apply_spawn.py: error: argument --spawn: expected one argument
   # This is why the flight gate had never completed a single seed -- the --reuse path always
   # spawns at 0,0,0, so every test took the one route where the bug cannot fire (SIM-07).
-  # An origin with no spawn still has to go through apply_spawn, so the spawn defaults to the
-  # no-op 0,0,0 rather than the flag becoming optional -- one path that always validates.
-  args=(--settings "$SETTINGS" --out "$SETTINGS" "--spawn=${SPAWN:-0,0,0}")
+  # --spawn is passed ONLY when one was asked for. It is not a harmless default: apply_spawn
+  # updates the vehicle block, so an origin-only run would rewrite a settings file's declared
+  # pose back to 0,0,0.                                                        (review, PR 53)
+  args=(--settings "$SETTINGS" --out "$SETTINGS")
+  [ -n "$SPAWN" ]             && args+=("--spawn=$SPAWN")
   [ -n "$ORIGIN" ]            && args+=("--origin=$ORIGIN")
   [ -n "$SPAWN_VEHICLE" ]     && args+=(--vehicle "$SPAWN_VEHICLE")
   [ -n "$SPAWN_ALLOW_BELOW" ] && args+=(--allow-below-origin)
