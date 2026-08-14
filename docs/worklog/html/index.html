@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-13-sim31-scenarios-with-an-envelope.html">
+    <span class="k">2026-08-13 · SIM-31 · newest</span>
+    <h3>Scenarios That State Their Own Envelope</h3>
+    <p>A scenario could say <em>where</em> to fly and how tightly to score it — not how fast the aircraft may fly getting there. Capping horizontal speed to 0.5 m/s cut waypoint error from <strong>0.76 m to 0.06 m on the same seed</strong>, which says the baseline's error is largely <em>approach speed</em> rather than controller quality — and every gate number this project has quoted was measured at 12 m/s. It also showed the envelope and the time budget are one decision: at the baseline's 60 s the slow run failed 3/4 with <code>timeout in state waypoints</code> while tracking beautifully. <strong>Then the review found the same change had silently broken the flight gate</strong> — inserting a parameter <em>positionally</em> rebound every argument at <code>run_gate.py</code>'s call sites, and it died on seed 1; invisible because every verification had gone through <code>run_scenario.py</code>. Also: a harness fault was being scored as a flight failure, limits leaked across runs on a reused stack, and the central "read it back" claim was <strong>wrong in a way that mattered</strong> — a read-back proves a value is stored, not legal, and <code>MPC_XY_CRUISE</code> was being written 0.5 against a declared minimum of 3.0.</p>
+    <div class="tags">
+      <span class="pill p-ok">0.76 m → 0.06 m</span>
+      <span class="pill p-stop">the gate could not run</span>
+      <span class="pill p-warn">stored ≠ legal</span>
+      <span class="pill p-chrome">origin gap 13.8 m</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-13-sim29-the-display-number-was-stack-global.html">
-    <span class="k">2026-08-13 · SIM-29 · newest</span>
+    <span class="k">2026-08-13 · SIM-29</span>
     <h3>The Chase Recorder Captured QGroundControl</h3>
     <p>Wiring the chase capture into <code>run_scenario.py</code> was meant to be plumbing. Then the regression test — a <strong>headless</strong> stack, which should record nothing — produced an 8.2 MB mp4. <strong><code>DISPLAY=:99</code> inside the renderer was resolving to QGroundControl's X server.</strong> Every container here shares one network namespace, and an X server binds an <em>abstract</em> unix socket that Linux scopes to the <em>netns</em>, not the filesystem — so a display number is stack-global, and <code>qgc-entrypoint.sh:9</code> has owned <code>:99</code> since the Gazebo era. The renderer had no <code>Xvfb</code> process and an empty <code>/tmp/.X11-unix</code>, and <code>xdpyinfo</code> answered anyway. The saved artifact showed QGC mid-flight — "Flying / Offboard", 20.0 m, the vehicle tracking across a satellite map: <strong>a recording of a real flight, correctly timed, of entirely the wrong thing.</strong> The guard written the day before had anticipated a black rectangle, which is the benign version — <strong>a black frame reads as broken, a map reads as evidence.</strong> Fixed twice over: the renderer moved to <code>:77</code>, and both callers now require a <em>local</em> <code>Xvfb</code> process, because on a shared netns "a display answers" never meant "the display is ours".</p>
     <div class="tags">

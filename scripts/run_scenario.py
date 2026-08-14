@@ -73,6 +73,17 @@ RECORD_CHASE = REPO / "scripts" / "record_chase.sh"
 APPLY_PARAMS = REPO / "scripts" / "apply_px4_params.py"
 
 
+class EnvelopeError(RuntimeError):
+    """The scenario's flight envelope could not be applied.                      (SIM-31)
+
+    ITS OWN TYPE ON PURPOSE, so a gate can tell a HARNESS fault from a FLIGHT one. run_gate.py
+    catches every exception from a run as `outcome: failure` -- correct for a crashed flight,
+    wrong here: a misspelled limit key or a stopped sim-px4 would produce N consecutive FAILs
+    and a report reading "SR 0%, control failure" for runs where the aircraft never left the
+    ground. That is exactly the VOID-is-not-FAIL distinction SIM-10 exists to protect.
+    """
+
+
 def apply_limits(limits: dict, tag: str) -> dict:
     """Put the scenario's flight envelope into PX4 before anything flies.        (SIM-31)
 
@@ -83,13 +94,13 @@ def apply_limits(limits: dict, tag: str) -> dict:
     Returns the parameters actually read back, which the caller records as provenance -- the
     APPLIED values, not the requested ones.
     """
-    if not limits:
-        return {}
+    # CALLED EVEN WHEN EMPTY, so a reused stack is reset rather than inheriting the previous
+    # scenario's envelope.                                                     (review, PR 53)
     out = REPO / "out" / f"{tag}-limits.json"
     r = sh([sys.executable, str(APPLY_PARAMS), "--limits", json.dumps(limits),
             "--out", str(out)], timeout=300)
     if r.returncode != 0:
-        raise RuntimeError("flight envelope not applied:\n" + (r.stdout or "") + (r.stderr or ""))
+        raise EnvelopeError("flight envelope not applied:\n" + (r.stdout or "") + (r.stderr or ""))
     print((r.stdout or "").rstrip())
     try:
         return json.loads(out.read_text())
@@ -278,7 +289,8 @@ def resolve_world(scenario: dict, cli_world: str) -> str:
     return str(p)
 
 
-def restart_stack(variant: dict, scenario: dict, world: str = "", settings: str = "") -> None:
+def restart_stack(variant: dict, world: str = "", settings: str = "", *,
+                  scenario: dict | None = None) -> None:
     """Cold-start the whole simulator at the seed's spawn pose.
 
     `sim_up.sh` is the ONLY supported bring-up: it waits for the vehicle to settle before
@@ -298,7 +310,17 @@ def restart_stack(variant: dict, scenario: dict, world: str = "", settings: str 
     # replacing it. Keeping both means a scenario can start on a rooftop, or tilted, without
     # giving up seeded variation -- and a gate over such a scenario still varies what it varied
     # before. z/pitch/roll are not seeded, so they come through untouched.
-    base = scenario.get("spawn", {}) or {}
+    # KEYWORD-ONLY above, and defaulted here. Inserting `scenario` as the second POSITIONAL
+    # parameter silently rebound every argument in run_gate.py's two call sites -- `scenario`
+    # received the world path, and the gate died on seed 1 with
+    # `'str' object has no attribute 'get'`. It was invisible because this PR was verified
+    # entirely through run_scenario.py.                                       (review, PR 53)
+    sc = scenario or {}
+    base = sc.get("spawn", {}) or {}
+    if not isinstance(base, dict):
+        raise ValueError("scenario `spawn:` must be a mapping (x/y/z/yaw_deg/...), got "
+                         f"{type(base).__name__} -- the {{world, seed, spawn, goal}} shape "
+                         "quoted at the top of the scenario files is not what this reads")
     spawn = ",".join(str(v) for v in (
         round(float(base.get("x", 0.0)) + variant["spawn_x"], 3),
         round(float(base.get("y", 0.0)) + variant["spawn_y"], 3),
@@ -312,10 +334,19 @@ def restart_stack(variant: dict, scenario: dict, world: str = "", settings: str 
     cmd = [str(SIM_UP), f"--spawn={spawn}"]
     # Where the world sits on Earth. Passed as LAT,LON,ALT because sim_up.sh relays it verbatim
     # to apply_spawn.py, which is the one place that validates it.
-    origin = scenario.get("origin_geopoint") or {}
+    origin = sc.get("origin_geopoint") or {}
     if origin:
-        cmd += [f"--origin={origin['latitude']},{origin['longitude']},"
-                f"{origin.get('altitude_m', 0.0)}"]
+        # ALL THREE KEYS REQUIRED, and no default for altitude.                (review, PR 53)
+        #
+        # AirSim's own default OriginGeopoint is (47.641468, -122.140165, 122) and it overrides
+        # only the keys present in the JSON. Substituting 0.0 for a missing altitude would
+        # therefore move the world's GPS reference by ~122 m without anyone asking -- shifting
+        # ref_alt and every GPS altitude in the run. Missing is an error, not a default.
+        missing = [k for k in ("latitude", "longitude", "altitude_m") if k not in origin]
+        if missing:
+            raise ValueError(f"origin_geopoint is missing {', '.join(missing)} -- give all three "
+                             "(latitude, longitude, altitude_m); there is deliberately no default")
+        cmd += [f"--origin={origin['latitude']},{origin['longitude']},{origin['altitude_m']}"]
     if world:
         cmd += ["--world", world]
     if settings:
@@ -325,7 +356,7 @@ def restart_stack(variant: dict, scenario: dict, world: str = "", settings: str 
         raise RuntimeError(f"sim_up.sh failed (exit {r.returncode}) — stack not flyable")
 
 
-def run_flight(scenario: dict, seed: int) -> dict:
+def run_flight(scenario: dict, seed: int, world: str = "") -> dict:
     """Fly one seeded mission and return its result.
 
     ARTIFACTS ALWAYS GO TO <repo>/out, and that is not configurable. `sim_up.sh` bind-mounts
@@ -380,6 +411,17 @@ def run_flight(scenario: dict, seed: int) -> dict:
     # BEFORE the recorders start and well before anything arms. A refusal here should cost a
     # bring-up, not a flight that has to be thrown away afterwards.
     applied_limits = apply_limits(limits, tag)
+
+    # PROVENANCE: what this run actually flew in, not what the scenario hoped for. Without it a
+    # result file cannot say which world it used, where on Earth that world was, or where the
+    # vehicle started -- and SIM-31's own "done means" asks for all three. The world is passed
+    # in rather than re-read, because with --no-restart the scenario's `world:` is resolved and
+    # then never applied.                                                      (review, PR 53)
+    provenance = {
+        "world": world or None,
+        "origin_geopoint": scenario.get("origin_geopoint") or None,
+        "spawn_declared": scenario.get("spawn") or None,
+    }
 
     drops_before = readback_drops()
 
@@ -472,7 +514,16 @@ def run_flight(scenario: dict, seed: int) -> dict:
         cmd = dexec("bash", "-lc",
                     "cd /ros2_ws && . install/setup.bash && "
                     "ros2 run control offboard_control --ros-args " + " ".join(args))
-        proc = sh(cmd, timeout=600)
+        # DERIVED FROM THE SCENARIO, not a fixed 600.                        (review, PR 53)
+        #
+        # `state_timeout_s` became a scenario-tunable number the moment envelopes did -- a
+        # slower aircraft needs a larger budget. A fixed cap means a scenario author raising it
+        # can cross the harness timeout, and when THAT fires first the controller never writes
+        # its result file: the diagnosable `timeout in state land` (the known SIM-27 mode) is
+        # replaced by `runner raised: Command ... timed out`. Four states plus slack, floored at
+        # the old value so nothing gets shorter.
+        ctl_timeout = max(600, int(float(tol.get("state_timeout_s", 60.0)) * 4 + 120))
+        proc = sh(cmd, timeout=ctl_timeout)
     finally:
         sh(dexec("bash", "-lc", "pkill -INT -f '[r]os2 bag record' || true"), timeout=60)
         # The probe stops HERE, not after the happy path. `sh(cmd, timeout=600)` raising
@@ -571,6 +622,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
         res["probe_written"] = probe_written
         res["chase_video"] = str(chase_mp4) if (chase_on and chase_mp4.exists()) else None
         res["applied_limits"] = applied_limits or None
+        res.update(provenance)
         res["max_pose_split_m"] = max_dz
         return res
     # Fall back to the log line, so a missing file does not erase the evidence.
@@ -581,6 +633,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
         res["probe_written"] = probe_written
         res["chase_video"] = str(chase_mp4) if (chase_on and chase_mp4.exists()) else None
         res["applied_limits"] = applied_limits or None
+        res.update(provenance)
         res["max_pose_split_m"] = max_dz
         return res
     return {"outcome": "failure",
@@ -589,6 +642,7 @@ def run_flight(scenario: dict, seed: int) -> dict:
             "probe_written": probe_written,
             "chase_video": str(chase_mp4) if (chase_on and chase_mp4.exists()) else None,
             "applied_limits": applied_limits or None,
+            **provenance,
             "max_pose_split_m": max_dz,
             "stdout_tail": (proc.stdout or "")[-800:]}
 
@@ -633,9 +687,9 @@ def main() -> int:
         print("stack    : reusing (spawn pose NOT applied)")
     else:
         print("stack    : cold-starting via sim_up.sh")
-        restart_stack(variant, scenario, world, a.settings)
+        restart_stack(variant, world, a.settings, scenario=scenario)
 
-    result = run_flight(scenario, a.seed)
+    result = run_flight(scenario, a.seed, world)
     result.update({
         "scenario": scenario.get("name"),
         "seed": a.seed,

@@ -287,14 +287,14 @@ def main() -> int:
         # which is the whole reason --reuse is not a gate run.
         print("bringing up a single stack for all runs (spawn pose never applied)...")
         rs.restart_stack({"spawn_x": 0.0, "spawn_y": 0.0, "spawn_yaw": 0.0},
-                         world, a.settings)
+                         world, a.settings, scenario=scenario)
 
     runs, started = [], time.time()
     for i, seed in enumerate(seeds, 1):
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
         if not a.reuse:
-            rs.restart_stack(variant, world, a.settings)
+            rs.restart_stack(variant, world, a.settings, scenario=scenario)
         # Assert the stack is measurable BEFORE flying it. A stale EKF origin makes the
         # vehicle report an altitude tens of metres wrong; the run would look like a control
         # failure and would be indistinguishable from one in the report (SIM-10).
@@ -306,7 +306,14 @@ def main() -> int:
         else:
             witness = cw.start()
             try:
-                result = rs.run_flight(scenario, seed)
+                result = rs.run_flight(scenario, seed, world)
+            except rs.EnvelopeError as exc:
+                # NOT a flight failure. The scenario's envelope could not be applied, so the
+                # aircraft was never given the configuration this gate claims to be testing.
+                # Scoring it would report "SR 0%, control failure" for a harness fault.
+                #                                                              (review, PR 53)
+                sys.exit(f"\nABORTING THE GATE: {exc}\n"
+                         "No run is scored -- this is a configuration fault, not a flight result.")
             except Exception as exc:                  # a crashed run is a failed run,
                 result = {"outcome": "failure",       # never an aborted gate
                           "failure_reason": f"runner raised: {exc}"}

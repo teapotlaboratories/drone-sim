@@ -10,9 +10,10 @@
 # consumes a natural-language goal.
 name: square-10m-slow
 description: >-
-  square-10m flown inside a reduced flight envelope. Same mission, same tolerances; the
-  aircraft is simply not allowed to go fast. Exists to exercise `limits:` (SIM-31) and to
-  make the point that a scenario's envelope and its time budget are one decision.
+  square-10m flown inside a reduced flight envelope. Same mission and same accept radius;
+  the aircraft is not allowed to go fast, and its state budget is four times larger BECAUSE
+  of that. Exists to exercise `limits:` (SIM-31) and to make the point that a scenario's
+  envelope and its time budget are one decision, not two.
 
 # Unused by the current runner. `scripts/sim_up.sh --world PATH.uproject` selects the Unreal
 # world, and `scripts/run_scenario.py` passes `--world` through from its own flag rather than
