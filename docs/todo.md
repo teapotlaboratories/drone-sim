@@ -3608,6 +3608,191 @@ evidence.** Fixed two ways, because either alone would leave the trap armed:
 
 ---
 
+## SIM-30 — Hold the vehicle until World Partition streaming completes
+
+**Status:** 🟡 **partly landed 2026-08-13 — and it uncovered something larger.** `sim_up.sh` gains
+`ensure_grounded` (env `STREAM_HOLD_S`, `STREAM_HOLD_TRIES`), which runs **after**
+`wait_for_sim_link` and holds the vehicle at spawn until cells load. But the headline is not the
+hold:
+
+**THE SETTLE CHECK HAD NEVER RUN — TWO INDEPENDENT FAULTS, BOTH SILENT.**
+
+1. **`docker exec` without `-i` does not attach stdin**, so the heredoc feeding `python3 -` was
+   discarded: python read EOF, executed nothing, exited 0. The `|| die` could never fire. This hit
+   `wait_for_settled_vehicle` (pre-existing) and the first version of `ensure_grounded` (copied
+   from it). The tell was there all along — the script never printed its own `settled at z=…`
+   line, and nobody noticed a check that only ever succeeds.
+2. **`msgpack` was not installed in the engine image**, so once `-i` was added the check died with
+   `ModuleNotFoundError`. It could not have worked even if stdin had been attached.
+
+Fixed: `-i` at both call sites, `python3-msgpack` in `docker/unreal.Dockerfile` with an import
+assertion in the layer.
+
+**The consequence reaches `SIM-28` and `SIM-10`.** The settle wait exists to stop PX4 initialising
+its EKF origin before the vehicle settles. It never ran. With it running:
+
+| | stale EKF origin |
+|---|---|
+| `SIM-28`, 40 cold seeds, settle check dead | **40 of 40** |
+| Blocks, 3 cold bring-ups, settle check live | **0 of 3** |
+| CitySample, cold, settle check live | **0 of 1** (sane first try, no PX4 restart) |
+
+**Three runs is not forty.** This is a strong mechanism plus a small sample, not a closed ticket —
+re-run the 40-seed gate before claiming `SIM-28`. But it explains why "the settle-wait alone was
+NOT sufficient" was recorded there: it was never *tried*.
+
+**Original evidence for the hold itself:** one successful hand-run; documented baseline 2 of 3.
+
+**This finishes what `patches/cosys-airsim/0005` deliberately left open.** That patch registers the
+vehicle pawn as a World Partition streaming source, which is what makes cells load at all — and
+its own closing line names the remaining work:
+
+> A proper fix has to hold the vehicle until streaming around it completes rather than racing it.
+
+**The race.** Cell streaming takes seconds (`GenerateStreaming` measured 7–22 s upstream, **15.4 s**
+here with WorldPartition init at **28.5 s**, the slow end because the 113 GB world is on the
+spinning 7 TB disk). The vehicle begins falling on the first physics tick. If it passes the ground
+plane before the cells beneath it activate, the run is lost.
+
+**What is new, and why retrying is not enough.** After **seven minutes** of falling, teleporting the
+vehicle back to the origin *still* found no ground. **The streaming source follows the pawn** — a
+falling vehicle loads empty cells 1.5 km beneath the city while the origin it needs unloads. So the
+race is **unrecoverable once lost**: waiting cannot fix a run, only a fresh bring-up can. Bring-up
+attempts on CitySample this session: **3 fell, 0 flew** before intervention.
+
+**Proven by hand:** re-setting the pose to the spawn every 0.2 s for 45 s, then releasing:
+
+```
+released -- watching:
+  t= 0s  z=  -1.3001  vz=  8.585
+  t= 1s  z=   0.7566  vz=  0.000      <- resting on the ground
+```
+
+PX4 was then restarted, the origin came up sane (`ref_alt 122.932 vs GPS 122.932`), and
+`square-10m` flew **4/4 waypoints** (errors 0.796 / 0.761 / 0.778 / 0.775 m) with the chase camera
+recorded.
+
+**Two ways to build it.**
+
+- **The proper fix — gate physics in the plugin.** Extend `0005`: in `AFlyingPawn::BeginPlay`, after
+  enabling the streaming source, keep the pawn inert until streaming around it completes, then
+  release. UE exposes `UWorldPartitionSubsystem::IsStreamingCompleted()`; **the plugin currently
+  calls nothing like it** — grepped, there is no streaming-completion check anywhere in it. This
+  removes the race rather than surviving it, and needs no RPC polling or arbitrary dwell. Cost: the
+  AirSim plugin must be rebuilt **per world tree** (each `.uproject` carries a real copy, not a
+  symlink), and CitySample is a 113 GB A2 project that compiles from `Source/`.
+- **The interim — hold in `sim_up.sh`, no rebuild.** `simPause` *is* bound over RPC
+  (`RpcLibServerBase.cpp:103`). Pause on bring-up, dwell, release, then **verify the vehicle is
+  resting and repair if not** — the same verify-and-repair shape the script already uses for the
+  EKF origin. Pause is preferable to the pose-hold proven above, which pins position while velocity
+  keeps accumulating (`vz` was already 8.585 m/s at release, costing ~2 m of drop).
+
+**Unverified assumption to test before shipping the interim:** that **UE keeps streaming while
+AirSim is paused**. `simPause` stops AirSim's physics loop, not the UE game thread, so it *should* —
+but that is reasoning, not a measurement, and this exact distinction has already been wrong twice
+this week.
+
+**Done means a success rate, not a success.** Cold bring-ups on CitySample scored the way the flight
+gate scores: N runs, judged by **resting z**, not by whether the level loaded. One hold working is
+not a fix.
+
+**Also found while investigating:** `worlds/BlocksBuild` on the 7 TB drive carries a plugin copy
+**without** `0005` — a stale per-world build, same family as the plugin-shadowing trap.
+
+---
+
+## SIM-31 — Scenarios that state their world, their pose, and their flight envelope
+
+**Status:** 🔵 **open, designed 2026-08-13, nothing built.** Feasibility checked against the actual
+build rather than assumed — see "verified before designing" below.
+
+Today a scenario can say where to fly (`waypoints_enu`) and how tightly to score it. It cannot say
+**where on Earth the world is**, **where the vehicle starts**, or **how fast it may fly**. All three
+are currently either CLI-only, hard-coded, or absent — so two runs of "the same scenario" can differ
+in ways the scenario file does not record.
+
+**Scope, as five capabilities:**
+
+| Capability | Today | Work |
+|---|---|---|
+| Origin GPS | `OriginGeopoint` is a real `settings.json` key, currently `null` | plumb it — `sim_up.sh` already rewrites a run-time settings copy for `--spawn` |
+| GPS waypoints | **no global setpoint exists in PX4's uORB API** | convert lat/lon → local NED in the controller |
+| Initial pose | `--spawn X,Y,Z,YAW`, CLI-only, no pitch/roll | move into the scenario, add pitch/roll |
+| Acceleration limits | **nothing** — no PX4 parameter is set anywhere in this repo | `MPC_ACC_HOR`, `MPC_JERK_MAX` |
+| Velocity limits, linear + angular | **nothing** | `MPC_XY_VEL_MAX`, `MPC_Z_VEL_MAX_UP/DN`, `MPC_YAWRAUTO_MAX`, `MC_YAWRATE_MAX` |
+
+**Verified before designing, against the images that actually run:**
+
+- All six parameter names exist in this PX4 v1.16.0 build
+  (`build/px4_sitl_default/src/lib/parameters/px4_parameters.hpp`).
+- The **`px4-param` shim is present**, so a running SITL instance can be reconfigured after boot —
+  PX4 starts as `./bin/px4 -s etc/init.d-posix/rcS -d`, with no interactive console.
+- `OriginGeopoint` is absent from `sim/ue5/settings.json` (reads `null`), and the `PX4` vehicle
+  block carries **no** `X`/`Y`/`Z`/`Yaw` keys — the spawn is injected at run time by `sim_up.sh`.
+
+**THE FRAME TRAP, which is the one thing to get right.** `OriginGeopoint` tells *AirSim* where the
+world sits on Earth; PX4's simulated GPS derives from it; PX4's **EKF origin** then latches from that
+GPS at init. They are linked but **not interchangeable**. A GPS waypoint must be converted using
+**PX4's own reference** (`ref_lat`/`ref_lon`/`ref_alt` on `/fmu/out/vehicle_local_position`), never
+using `OriginGeopoint` directly — the two differ by whatever the EKF latched, which `SIM-28` has
+already shown can be metres off and, before this week's settle-check fix, was wrong on 40 of 40
+bring-ups. Converting against the wrong reference produces a waypoint error that looks like a
+control problem.
+
+**Proposed scenario schema** — every key optional, absent means today's behaviour:
+
+```yaml
+origin_geopoint:            # where the world sits on Earth (AirSim OriginGeopoint)
+  latitude: 47.641468
+  longitude: -122.140165
+  altitude_m: 122.0
+
+spawn:                      # vehicle initial pose. NED metres; Z NEGATIVE is up
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  yaw_deg: 0.0
+  pitch_deg: 0.0            # new -- --spawn cannot express these
+  roll_deg: 0.0
+
+mission:
+  waypoints_gps:            # alternative to waypoints_enu, converted via the EKF origin
+    - {lat: 47.641500, lon: -122.140100, alt_m: 20.0}
+
+limits:                     # PX4 params, applied after boot and BEFORE arming
+  velocity_xy_max_mps:    5.0     # MPC_XY_VEL_MAX
+  velocity_up_max_mps:    3.0     # MPC_Z_VEL_MAX_UP
+  velocity_down_max_mps:  1.5     # MPC_Z_VEL_MAX_DN
+  accel_horizontal_mps2:  3.0     # MPC_ACC_HOR
+  jerk_max_mps3:          8.0     # MPC_JERK_MAX
+  yaw_rate_max_dps:      45.0     # MPC_YAWRAUTO_MAX and MC_YAWRATE_MAX
+```
+
+**Limits belong in PX4, not in our controller.** The controller sends position setpoints and PX4's
+position controller enforces the envelope. Clamping our own setpoints instead would be a limit the
+autopilot does not know about — it would still plan and accelerate as if unbounded, and the number
+in the scenario would describe the harness rather than the aircraft.
+
+**READ BACK EVERY PARAMETER SET.** `px4-param set` on a misspelled name is not an error, and a
+scenario that silently failed to apply its envelope would report a flight it never flew. Set, then
+`px4-param show`, then fail loudly on mismatch — the same standard `docker/unreal.Dockerfile` uses
+for asserting its own layers.
+
+**Provenance, and a defect this fixes.** The run JSON must record what was actually applied: origin,
+spawn, limits, and **the world**. Today it records `scenario: square-10m` and nothing else about the
+environment — so the City Sample flights of 2026-08-13 produced result files that do not say they
+were flown in City Sample, under a scenario whose `world:` key says Blocks and whose description
+says "an empty world, no obstacles by design". `resolve_world()`'s own docstring warns about exactly
+this ("a run could silently contradict its own scenario and the report would not mention it"), and
+`--no-restart` walks straight through the warning: the world is resolved and then never applied.
+
+**Done means:** a scenario declaring all five, flown, with the run JSON showing the applied values;
+a deliberately bad parameter name failing the run rather than being ignored; and a measured
+difference — a low `velocity_xy_max_mps` must produce a visibly slower flight, or the knob is
+decorative.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:

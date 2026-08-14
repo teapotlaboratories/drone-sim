@@ -318,6 +318,28 @@ confirm the actual flight/behaviour, not just the unit you touched. Bugs live in
 no green component-level check will show.
 
 - **Flight / control / perception behaviour → fly it and capture the evidence.**
+  - **RECORD THE CHASE CAMERA ON EVERY FLIGHT TEST, AND HAND THE OPERATOR A COMMAND THEY
+    CAN RUN THEMSELVES.** *(added 2026-08-13)* Bring the stack up with `--display` and set
+    `SIM_CHASE_VIDEO=1` so the run writes `out/<scenario>-seed<N>-chase.mp4` alongside the
+    MCAP, and **quote the exact command in the report** — not a description of it, not a
+    paraphrase, the literal lines that reproduce the run:
+
+    ```bash
+    ./scripts/sim_up.sh --display                        # add --world PATH.uproject for your own map
+    SIM_CHASE_VIDEO=1 python3 scripts/run_scenario.py \
+        scenarios/square-10m.yaml --seed 1 --outdir out/<name> --no-restart
+    ```
+
+    **Why this is a rule and not a nicety.** Every vehicle camera is mounted *on* the
+    aircraft, so the one object under test is the one object never in frame — and this
+    project has twice reached a *confident wrong conclusion* that only the video overturned
+    (`SIM-27`'s "it fell through the ground", withdrawn when the operator watched the
+    landing). Numbers describe a flight; the chase view shows it. **A flight test reported
+    without a watchable artifact is asking the reader to take the numbers on trust.**
+
+    A run that cannot record it — a headless stack, a world without a display — must **say
+    so explicitly** rather than quietly omit it. `run_scenario.py` already prints that
+    warning; repeat it in the report.
   - Run a **seeded scenario** (`scripts/run_scenario.py`, which drives `sim_up.sh`
     directly) and assert the outcome — takeoff, waypoint square, collision-free traversal,
     land — as a **success rate over N seeded runs**, not a single lucky pass. Record a

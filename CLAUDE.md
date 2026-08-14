@@ -37,7 +37,12 @@ in [`.ai/AGENTS.md`](.ai/AGENTS.md).
 5. **Verify by running it, end to end — a correct component is not a working flight.** The
    aircraft (sim or real) is the only real client: bring the stack up with
    `./scripts/sim_up.sh`, exercise the full ROS 2 graph on a seeded scenario, and record the
-   evidence (MCAP, metrics, measured rates) — not just the unit you touched. A seed sets the
+   evidence (MCAP, metrics, measured rates) — not just the unit you touched.
+   **Every flight test records the chase camera and reports a command the operator can run
+   themselves** *(added 2026-08-13)*: `./scripts/sim_up.sh --display` then
+   `SIM_CHASE_VIDEO=1 python3 scripts/run_scenario.py … --no-restart`, quoted literally in
+   the report. Vehicle cameras can never show the aircraft, and this project has twice been
+   wrong in a way only the video caught. If a run cannot record it, say so — do not omit it. A seed sets the
    **spawn pose only**, so a gate run is not "varied conditions"; `run_gate.py`'s **VOID ≠
    FAIL** scoring is load-bearing. If you can't verify, say so and name the blocker.
 6. **Reproducible as Docker is a project goal** *(added 2026-07-29)* — a fresh machine

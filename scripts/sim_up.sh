@@ -28,6 +28,9 @@ SIM=sim-unreal
 SETTLE_SAMPLES=${SETTLE_SAMPLES:-5}     # consecutive stable ground-truth reads required
 SETTLE_EPS=${SETTLE_EPS:-0.05}          # metres of movement tolerated between reads
 ORIGIN_RETRIES=${ORIGIN_RETRIES:-2}     # PX4 restarts allowed before giving up
+STREAM_HOLD_S=${STREAM_HOLD_S:-30}      # SIM-30: seconds to pin the vehicle at spawn so World
+                                        # Partition cells can load under it (0 disables the hold)
+STREAM_HOLD_TRIES=${STREAM_HOLD_TRIES:-3}
 
 # SIM-13: where to put the vehicle. AirSim spawns at a level's PlayerStart and falls back to world
 # ORIGIN when there isn't one -- and an arbitrary world has no obligation to put usable ground
@@ -327,10 +330,98 @@ join() {  # join(name, image, cmd...)
 # Wait until AirSim answers RPC *and* the vehicle has stopped moving. Answering RPC is not
 # enough: the sim serves RPC while the level is still settling the vehicle onto geometry,
 # which is exactly the window in which PX4 must NOT initialise.
+# SIM-30: make sure the vehicle is actually ON GROUND, and repair it if not.
+#
+# WHY THIS IS SEPARATE FROM wait_for_settled_vehicle. That check asks whether `z` has stopped
+# CHANGING, which a vehicle answers "yes" to in two very different situations: resting on
+# geometry, and sitting motionless because the world has not started ticking yet. On Epic's
+# CitySample the second happens every time -- the settle check passed on all three bring-ups
+# this was written for, and the vehicle then fell 1.5 km once physics ran.
+#
+# THE RACE (SIM-30, and see patches/cosys-airsim/0005). World Partition only activates cells
+# around a registered streaming source; patch 0005 makes the vehicle one. But streaming takes
+# seconds -- GenerateStreaming measured 15.4 s here, WorldPartition init 28.5 s -- and the
+# vehicle starts falling on the first tick. Lose that race and there is no ground under it.
+#
+# AND IT IS UNRECOVERABLE BY WAITING. The streaming source FOLLOWS the pawn, so a falling
+# vehicle loads empty cells beneath the city while the origin unloads. Measured: after seven
+# minutes of falling, teleporting back to the origin still found no ground. Retrying the read
+# is useless; the vehicle has to be PUT BACK and KEPT there while the cells load.
+ensure_grounded() {
+  docker cp "$REPO/scripts/airsim_rpc_client.py" "$SIM:/tmp/airsim_rpc_client.py" >/dev/null
+  # `docker exec` WITHOUT -i does not attach stdin, so a heredoc fed to `python3 -` is
+  # DISCARDED: python reads EOF, executes nothing, and exits 0 -- the check silently passes
+  # without ever running. This bit both this function and wait_for_settled_vehicle below,
+  # which is why the settle wait never printed its "settled at z=..." line and why it
+  # "passed" on a CitySample vehicle that had not begun falling yet.            (SIM-30)
+  docker exec -i "$SIM" python3 - "$STREAM_HOLD_S" "$STREAM_HOLD_TRIES" <<'PY' || die "vehicle never reached ground -- see SIM-30 (World Partition streaming race)"
+import sys, time
+sys.path.insert(0, "/tmp")
+from airsim_rpc_client import Rpc
+
+hold_s, tries = float(sys.argv[1]), int(sys.argv[2])
+rpc = Rpc()
+
+def state():
+    k = rpc.call("simGetGroundTruthKinematics", "PX4")
+    return k["position"]["z_val"], k["linear_velocity"]["z_val"]
+
+def resting():
+    # A motionless vehicle is NOT proof of ground. Before the level ticks, vz is 0 and z is
+    # perfectly stable -- which is why the first version of this function passed on CitySample
+    # every time and the vehicle then fell 1.5 km. Running after wait_for_sim_link is what makes
+    # the reading meaningful; these thresholds only decide resting-vs-falling once it is.
+    z0, _ = state()
+    time.sleep(1.0)
+    z1, vz = state()
+    return abs(vz) < 0.10 and abs(z1 - z0) < 0.05, z1, vz
+
+ok, z, vz = resting()
+if ok:
+    print("on ground at z=%+.3f m" % z)
+    sys.exit(0)
+
+# Capture where it BELONGS before doing anything: the pose AirSim spawned it at, which is what
+# settings.json asked for. Falling has already moved it, so x/y are still right but z is not.
+pose = rpc.call("simGetVehiclePose", "PX4")
+spawn = {"position": {"x_val": pose["position"]["x_val"],
+                      "y_val": pose["position"]["y_val"],
+                      "z_val": -3.0},
+         "orientation": pose["orientation"]}
+
+for attempt in range(1, tries + 1):
+    print("not on ground (z=%+.1f vz=%+.2f) -- holding at spawn for %.0fs so streaming can "
+          "catch up (attempt %d/%d)" % (z, vz, hold_s, attempt, tries), flush=True)
+    t0 = time.time()
+    while time.time() - t0 < hold_s:
+        # Pinning the POSE keeps the streaming source parked over the cells we need, which is
+        # the whole point. It does not stop velocity accumulating, so the reset below is what
+        # actually makes the release clean.
+        rpc.call("simSetVehiclePose", spawn, True, "PX4")
+        time.sleep(0.2)
+    # reset() returns the vehicle to its spawn WITH ZERO VELOCITY. Releasing from a pose-hold
+    # alone drops it at whatever speed it had built up (measured 8.585 m/s, ~2 m of drop).
+    rpc.call("reset")
+    time.sleep(3.0)
+    ok, z, vz = resting()
+    if ok:
+        print("on ground at z=%+.3f m after %d hold(s)" % (z, attempt))
+        sys.exit(0)
+
+print("still not on ground after %d holds (z=%+.1f vz=%+.2f)" % (tries, z, vz))
+sys.exit(1)
+PY
+}
+
 wait_for_settled_vehicle() {
   log "waiting for the vehicle to settle (${SETTLE_SAMPLES} reads within ${SETTLE_EPS} m)"
   docker cp "$REPO/scripts/airsim_rpc_client.py" "$SIM:/tmp/airsim_rpc_client.py" >/dev/null
-  docker exec "$SIM" python3 - "$SETTLE_SAMPLES" "$SETTLE_EPS" <<'PY' || die "vehicle never settled"
+  # `docker exec` WITHOUT -i does not attach stdin, so a heredoc fed to `python3 -` is
+  # DISCARDED: python reads EOF, executes nothing, and exits 0 -- the check silently passes
+  # without ever running. This bit both this function and wait_for_settled_vehicle below,
+  # which is why the settle wait never printed its "settled at z=..." line and why it
+  # "passed" on a CitySample vehicle that had not begun falling yet.            (SIM-30)
+  docker exec -i "$SIM" python3 - "$SETTLE_SAMPLES" "$SETTLE_EPS" <<'PY' || die "vehicle never settled"
 import sys, time
 sys.path.insert(0, "/tmp")
 need, eps = int(sys.argv[1]), float(sys.argv[2])
@@ -646,6 +737,17 @@ join sim-qgc  drone-sim/qgc:v1.16.0
 #   3. EKF establishes a finite origin    -- seconds once sensors flow
 wait_for_workspace
 wait_for_sim_link
+
+# SIM-30: only meaningful HERE, after the renderer link proves the level is live.
+#
+# The first version of this ran right after wait_for_settled_vehicle and was USELESS: at that
+# point CitySample has not begun ticking, so the vehicle is motionless, and "motionless" passes
+# every is-it-resting test you can write from outside. It reported "on ground" on a vehicle that
+# had not started falling yet, then the level came up and it fell 1.5 km.
+#
+# `[ ... ] && ensure_grounded` would also EXIT under `set -e` when the hold is disabled -- a
+# false test returns 1, and a bare failing command at top level ends the script.
+if [ "$STREAM_HOLD_S" != "0" ]; then ensure_grounded; fi
 wait_for_fmu
 
 # The wait above is a best effort, not a proof. Verify, and if the origin is still stale,
