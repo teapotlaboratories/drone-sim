@@ -73,6 +73,53 @@ RECORD_CHASE = REPO / "scripts" / "record_chase.sh"
 APPLY_PARAMS = REPO / "scripts" / "apply_px4_params.py"
 
 
+# PX4's own projection constant. Matching the autopilot's sphere rather than picking a "better"
+# ellipsoid is deliberate: the target frame IS PX4's, so any disagreement in Earth model shows up
+# as a position error the aircraft cannot see.
+EARTH_RADIUS_M = 6371000.0
+
+
+def gps_to_enu(lat: float, lon: float, alt_m: float, ref: dict) -> tuple[float, float, float]:
+    """Convert a GPS point to local ENU, using PX4's OWN reference and projection.  (SIM-31)
+
+    THE REFERENCE MUST BE PX4'S EKF ORIGIN, never AirSim's OriginGeopoint. Measured on this
+    stack, the two sit 13.8 m apart horizontally; converting against the declared origin would
+    put every waypoint ~14 m off, and that error looks exactly like a control failure.
+
+    The maths is PX4's azimuthal equidistant projection (MapProjection::project), reproduced so
+    the harness lands on the same local coordinate the autopilot would compute for the same
+    latitude and longitude -- not merely a close one.
+
+    ALTITUDE IS RELATIVE TO ref_alt, which is AMSL. `alt_m` is therefore an absolute altitude,
+    and the ENU z it produces is height above the EKF origin, which is what the controller's
+    waypoints already mean.
+    """
+    lat_r, lon_r = math.radians(lat), math.radians(lon)
+    ref_lat_r, ref_lon_r = math.radians(ref["ref_lat"]), math.radians(ref["ref_lon"])
+    sin_lat, cos_lat = math.sin(lat_r), math.cos(lat_r)
+    ref_sin_lat, ref_cos_lat = math.sin(ref_lat_r), math.cos(ref_lat_r)
+    cos_d_lon = math.cos(lon_r - ref_lon_r)
+    arg = max(-1.0, min(1.0, ref_sin_lat * sin_lat + ref_cos_lat * cos_lat * cos_d_lon))
+    c = math.acos(arg)
+    k = 1.0 if abs(c) < 1e-12 else c / math.sin(c)
+    north = k * (ref_cos_lat * sin_lat - ref_sin_lat * cos_lat * cos_d_lon) * EARTH_RADIUS_M
+    east = k * cos_lat * math.sin(lon_r - ref_lon_r) * EARTH_RADIUS_M
+    # ENU, which is what the scenario's waypoints_enu already speak.
+    return (east, north, alt_m - ref["ref_alt"])
+
+
+def read_ekf_ref() -> dict:
+    """The EKF origin from the running stack, or raise."""
+    sh(["docker", "cp", str(REPO / "scripts" / "check_ekf_origin.py"),
+        f"{ROS2}:/tmp/check_ekf_origin.py"], timeout=60)
+    r = sh(dexec("bash", "-lc",
+                 "cd /ros2_ws && . install/setup.bash && "
+                 "python3 /tmp/check_ekf_origin.py --print-ref"), timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError("could not read PX4's EKF origin: " + (r.stderr or r.stdout or ""))
+    return json.loads((r.stdout or "").strip().splitlines()[-1])
+
+
 class EnvelopeError(RuntimeError):
     """The scenario's flight envelope could not be applied.                      (SIM-31)
 
@@ -377,8 +424,37 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     mission = scenario.get("mission", {})
     tol = scenario.get("tolerances", {})
     limits = scenario.get("limits", {}) or {}
+    # GPS WAYPOINTS ARE CONVERTED HERE, ONCE, BEFORE THE FLIGHT.                  (SIM-31)
+    #
+    # PX4 has no global setpoint message -- GotoSetpoint is local NED and VehicleGlobalPosition
+    # is an estimate OUTPUT, not a command -- so a lat/lon has to become a local coordinate
+    # somewhere. Doing it here rather than in offboard_control keeps the flight code unchanged
+    # and puts the conversion next to the provenance that records it.
+    #
+    # THE CONVERSION IS PINNED AT ONE MOMENT. If PX4 re-initialises its EKF origin mid-flight
+    # the converted waypoints go stale, because they were computed against the old reference.
+    # That is acceptable for a single sortie and would not be for a long one; it is written down
+    # rather than guarded, because a guard nobody has seen fire is not evidence either.
+    gps_wps = mission.get("waypoints_gps") or []
+    ekf_ref = None
+    if gps_wps:
+        if mission.get("waypoints_enu"):
+            raise ValueError("scenario declares BOTH waypoints_enu and waypoints_gps -- "
+                             "give one; there is no defined precedence and guessing would "
+                             "silently fly the wrong mission")
+        ekf_ref = read_ekf_ref()
+        enu_from_gps = [gps_to_enu(float(w["lat"]), float(w["lon"]), float(w["alt_m"]), ekf_ref)
+                        for w in gps_wps]
+        print(f"  GPS waypoints converted against the EKF origin "
+              f"({ekf_ref['ref_lat']:.7f}, {ekf_ref['ref_lon']:.7f}, {ekf_ref['ref_alt']:.2f} m)")
+        for w, e in zip(gps_wps, enu_from_gps):
+            print(f"    {w['lat']:.7f}, {w['lon']:.7f}, {w['alt_m']:g} m  ->  "
+                  f"E {e[0]:+.2f}  N {e[1]:+.2f}  U {e[2]:+.2f}")
+    else:
+        enu_from_gps = []
+
     flat: list[float] = []
-    for wp in mission.get("waypoints_enu", []):
+    for wp in (enu_from_gps or mission.get("waypoints_enu", [])):
         flat.extend(float(v) for v in wp)
 
     tag = f"{scenario.get('name', 'scenario')}-seed{seed}"
@@ -431,6 +507,11 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     # away, contradicts.                                                       (review, PR 53)
     provenance = {
         "provenance_applied": stack_restarted,
+        # Both halves, so a result can be re-derived: what was asked for in GPS, what it became
+        # locally, and the reference that connected them.
+        "waypoints_gps": gps_wps or None,
+        "ekf_ref": ekf_ref,
+        "waypoints_enu_flown": [list(e) for e in enu_from_gps] or None,
         "world": (world or None) if stack_restarted else None,
         "origin_geopoint": (scenario.get("origin_geopoint") or None) if stack_restarted else None,
         "spawn_declared": (scenario.get("spawn") or None) if stack_restarted else None,

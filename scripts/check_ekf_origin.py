@@ -31,6 +31,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import subprocess
 import sys
@@ -95,6 +96,28 @@ def _echo_field(topic: str, field: str, timeout_s: int) -> float | None:
     return None
 
 
+def print_ref(timeout_s: int) -> int:
+    """Emit the EKF origin as JSON, for anything converting GPS to local.        (SIM-31)
+
+    THIS is the reference a GPS waypoint must be converted against -- not AirSim's
+    OriginGeopoint. Measured on this stack: a declared origin of 37.412300, -121.995000, 50.0 m
+    produced an EKF reference of 37.4123278, -121.9948484, 51.28 m -- 13.8 m away horizontally.
+    Converting against the declared value would put every waypoint ~14 m off, and the error
+    would look exactly like a control failure.
+
+    It lives here because the BEST_EFFORT QoS handling this file already needed is the same
+    handling any other reader would otherwise duplicate.
+    """
+    ref = {name: _echo_field("/fmu/out/vehicle_local_position", name, timeout_s)
+           for name in ("ref_lat", "ref_lon", "ref_alt")}
+    missing = [k for k, v in ref.items() if v is None or not math.isfinite(v)]
+    if missing:
+        print(f"EKF reference not available: {', '.join(missing)}", file=sys.stderr)
+        return 1
+    print(json.dumps(ref))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Assert PX4's EKF origin agrees with GPS (SIM-10). "
@@ -104,7 +127,12 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=20,
                     help="seconds to wait for each topic sample (default: %(default)s)")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--print-ref", action="store_true",
+                    help="print the EKF origin as JSON instead of checking it (SIM-31)")
     args = ap.parse_args()
+
+    if args.print_ref:
+        return print_ref(args.timeout)
 
     ref_alt = _echo_field("/fmu/out/vehicle_local_position", "ref_alt", args.timeout)
     gps_alt = _echo_field("/fmu/out/vehicle_gps_position", "altitude_msl_m", args.timeout)

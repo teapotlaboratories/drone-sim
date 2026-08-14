@@ -3715,7 +3715,24 @@ built and flown; **GPS waypoints are still open**.
 |---|---|
 | Flight envelope (`limits:`) | ✅ `scripts/apply_px4_params.py`, applied before arming, read back, recorded |
 | Origin GPS + spawn pose | ✅ `apply_spawn.py` gains `Pitch`/`Roll` and `OriginGeopoint`; `sim_up.sh --origin` |
-| GPS waypoints | 🔵 open — the only piece needing controller changes |
+| GPS waypoints | ✅ converted host-side against PX4's EKF origin — **no controller change needed** |
+
+**All three slices are in.** GPS waypoints turned out not to need the controller at all: PX4 has no
+global setpoint message, so a lat/lon has to become a local coordinate somewhere, and doing it in
+`run_scenario.py` — once, before the flight — keeps the flight code untouched and puts the
+conversion next to the provenance that records it. The maths is PX4's own azimuthal equidistant
+projection (`MapProjection::project`) reproduced against its own sphere constant, so the harness
+lands on the coordinate the autopilot would compute, not merely a close one.
+
+**Verified by round trip:** a 10 m square expressed as four GPS coordinates converted back to
+exactly `[10,0,20] [10,10,20] [0,10,20] [0,0,20]` and flew **4/4 waypoints**, errors 0.801 / 0.769
+/ 0.789 / 0.783 m — indistinguishable from the same square declared in ENU. The run JSON records
+`waypoints_gps`, `ekf_ref` and `waypoints_enu_flown`, so a result can be re-derived rather than
+trusted.
+
+**Known limitation, written down rather than guarded:** the conversion is pinned at one moment. If
+PX4 re-initialises its EKF origin mid-flight the converted waypoints are stale, because they were
+computed against the old reference. Acceptable for a single sortie, not for a long one.
 
 **Measured, and it settles the frame question.** A scenario declaring
 `origin_geopoint: 37.4123, -121.995, 50.0 m` produced a PX4 EKF reference of
