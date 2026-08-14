@@ -12,6 +12,13 @@
 #   already in dev-slim         : make unzip zip gcc g++ git curl python3 tar patch pkg-config
 #   MISSING, added here         : cmake rsync wget
 #
+# python3-msgpack is here for a check that was DEAD ON ARRIVAL. sim_up.sh's settle-wait talks
+# to AirSim over msgpack-RPC from inside this container, and the module was never installed --
+# so the check raised ModuleNotFoundError the moment it was actually fed its script, and had
+# been silently passing before that because `docker exec` without -i discards the heredoc
+# entirely. Two independent faults, both invisible, in the step that is supposed to stop PX4
+# initialising before the vehicle settles.                                          (SIM-30)
+#
 # THE SECOND GROUP — xvfb, ffmpeg, x11-utils — exists for SIM-29, recording the chase
 # camera. `ViewMode` defaults to `FlyWithMe`, so AirSim's chase view renders on every run;
 # `-RenderOffScreen` is the only reason nobody can read it. Give the engine an Xvfb display
@@ -64,6 +71,7 @@ RUN apt-get update \
       xvfb \
       ffmpeg \
       x11-utils \
+      python3-msgpack \
  && rm -rf /var/lib/apt/lists/*
 
 # Assert the ARTIFACTS, not that the script reached its end (D-01). A build script's own
@@ -73,6 +81,7 @@ RUN set -eux; \
     command -v cmake; command -v rsync; command -v wget; \
     test -x "$(command -v cmake)"; \
     command -v Xvfb; command -v ffmpeg; command -v xdpyinfo; \
+    python3 -c 'import msgpack; print("msgpack", msgpack.version)'; \
     # Assert the ENCODER, not just the binary. An ffmpeg without libx264 installs happily and
     # then fails at the one job it is here for, at the end of a long flight. Written to a file
     # and grepped rather than piped into `grep -q`: grep exits on its first match, closes the
