@@ -64,6 +64,17 @@ class Px4Unreachable(RuntimeError):
     """`docker exec` into PX4 failed -- which is NOT the same as a parameter not existing."""
 
 
+# Parameters that are a COMMANDED RATE rather than a ceiling. A `*_max_*` scenario key must be
+# able to LOWER these and never to raise them, so the value written is min(requested, default).
+#
+# MPC_LAND_SPEED is "Landing descend rate": @min 0.6, NO @max, default 0.7 -- it is the rate
+# AUTO.LAND actually commands. Writing a permissive ceiling straight into it inverts the meaning
+# of the key: `velocity_down_max_mps: 4.0` is legal (MPC_Z_VEL_MAX_DN's max is 4.0) and would
+# have COMMANDED a 4 m/s touchdown. The range guard could not catch it, because the only bound
+# checked came from the other parameter in the pair.                           (review, PR 53)
+SETPOINT_NOT_CEILING = {"MPC_LAND_SPEED"}
+
+
 def _px4(cmd: str, timeout: int = 60) -> subprocess.CompletedProcess:
     r = subprocess.run(["docker", "exec", PX4, "bash", "-lc", f"cd {BUILD} && {cmd}"],
                        capture_output=True, text=True, timeout=timeout)
@@ -88,9 +99,17 @@ def param_ranges() -> dict:
     r = _px4(f"cat {BUILD}/parameters.json")
     try:
         doc = json.loads(r.stdout)
-    except json.JSONDecodeError:
-        return {}
-    return {p["name"]: p for p in doc.get("parameters", [])}
+    except json.JSONDecodeError as exc:
+        # FATAL, not {}. Returning an empty map degrades every guard in this file at once:
+        # apply() finds no min/max and skips all range validation, and reset_defaults() finds no
+        # defaults and restores nothing while still printing that it did. The run would then fly
+        # out-of-range values that the read-back "confirms" -- the exact MPC_XY_CRUISE failure
+        # this metadata was introduced to prevent.                             (review, PR 53)
+        raise Px4Unreachable(f"cannot parse {BUILD}/parameters.json: {exc}") from None
+    params = {p["name"]: p for p in doc.get("parameters", [])}
+    if not params:
+        raise Px4Unreachable(f"{BUILD}/parameters.json contains no parameters")
+    return params
 
 
 def read_param(name: str) -> float | None:
@@ -130,10 +149,15 @@ def apply(limits: dict, tol: float = 1e-3) -> dict:
             if read_param(param) is None:
                 bad.append(f"{param}: not a parameter in this PX4 build (from '{key}')")
                 continue
-            _px4(f"./bin/px4-param set {param} {float(value)}")
+            want = float(value)
+            if param in SETPOINT_NOT_CEILING:
+                default = meta.get("default")
+                if default is not None:
+                    want = min(want, float(default))
+            _px4(f"./bin/px4-param set {param} {want}")
             got = read_param(param)
-            if got is None or abs(got - float(value)) > tol:
-                bad.append(f"{param}: asked {value}, reads {got}")
+            if got is None or abs(got - want) > tol:
+                bad.append(f"{param}: asked {want}, reads {got}")
             else:
                 applied[param] = got
     if bad:
@@ -180,6 +204,12 @@ def main() -> int:
         print("no limits declared; restored PX4 defaults for the managed parameters")
         for param, value in sorted(restored.items()):
             print(f"  {param} = {value}")
+        # WRITE THE FILE EVEN THOUGH NOTHING WAS APPLIED. Returning early left whatever a
+        # previous run had put at this exact path, and the caller read it -- so a run flown with
+        # no envelope reported the PREVIOUS run's envelope in its result JSON. (review, PR 53)
+        if a.out:
+            with open(a.out, "w") as fh:
+                json.dump({}, fh)
         return 0
 
     applied = apply(limits)

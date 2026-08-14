@@ -97,6 +97,9 @@ def apply_limits(limits: dict, tag: str) -> dict:
     # CALLED EVEN WHEN EMPTY, so a reused stack is reset rather than inheriting the previous
     # scenario's envelope.                                                     (review, PR 53)
     out = REPO / "out" / f"{tag}-limits.json"
+    # CLEARED FIRST, for the same reason the bag and result file are cleared twenty lines below:
+    # a stale artifact at a predictable path is read as this run's evidence. (review, PR 53)
+    out.unlink(missing_ok=True)
     r = sh([sys.executable, str(APPLY_PARAMS), "--limits", json.dumps(limits),
             "--out", str(out)], timeout=300)
     if r.returncode != 0:
@@ -321,14 +324,19 @@ def restart_stack(variant: dict, world: str = "", settings: str = "", *,
         raise ValueError("scenario `spawn:` must be a mapping (x/y/z/yaw_deg/...), got "
                          f"{type(base).__name__} -- the {{world, seed, spawn, goal}} shape "
                          "quoted at the top of the scenario files is not what this reads")
-    spawn = ",".join(str(v) for v in (
+    parts = [
         round(float(base.get("x", 0.0)) + variant["spawn_x"], 3),
         round(float(base.get("y", 0.0)) + variant["spawn_y"], 3),
         float(base.get("z", 0.0)),
         round(float(base.get("yaw_deg", 0.0)) + math.degrees(variant["spawn_yaw"]), 3),
-        float(base.get("pitch_deg", 0.0)),
-        float(base.get("roll_deg", 0.0)),
-    ))
+    ]
+    # PITCH AND ROLL ONLY WHEN DECLARED. apply_spawn does vehicles[name].update(vals), so
+    # emitting a "harmless" 0.0 would silently reset a settings.json that deliberately declares
+    # `"Pitch": 10`. That is the footgun already fixed one level down for --spawn itself, and it
+    # reappears here if the string is always six components.                   (review, PR 53)
+    if "pitch_deg" in base or "roll_deg" in base:
+        parts += [float(base.get("pitch_deg", 0.0)), float(base.get("roll_deg", 0.0))]
+    spawn = ",".join(str(v) for v in parts)
     # --spawn=VALUE for the same reason sim_up.sh relays it that way: a negative X is common
     # and a bare "-3.656,..." reads as a flag to anything using argparse downstream.
     cmd = [str(SIM_UP), f"--spawn={spawn}"]
@@ -356,7 +364,7 @@ def restart_stack(variant: dict, world: str = "", settings: str = "", *,
         raise RuntimeError(f"sim_up.sh failed (exit {r.returncode}) — stack not flyable")
 
 
-def run_flight(scenario: dict, seed: int, world: str = "") -> dict:
+def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool = True) -> dict:
     """Fly one seeded mission and return its result.
 
     ARTIFACTS ALWAYS GO TO <repo>/out, and that is not configurable. `sim_up.sh` bind-mounts
@@ -417,10 +425,15 @@ def run_flight(scenario: dict, seed: int, world: str = "") -> dict:
     # vehicle started -- and SIM-31's own "done means" asks for all three. The world is passed
     # in rather than re-read, because with --no-restart the scenario's `world:` is resolved and
     # then never applied.                                                      (review, PR 53)
+    # ONLY WHAT WAS ACTUALLY APPLIED. Under --no-restart the stack is reused and restart_stack
+    # never runs, so the scenario's world, origin and spawn reached nothing. Recording them
+    # anyway would put a claim in the result JSON that `spawn_pose_applied: false`, three lines
+    # away, contradicts.                                                       (review, PR 53)
     provenance = {
-        "world": world or None,
-        "origin_geopoint": scenario.get("origin_geopoint") or None,
-        "spawn_declared": scenario.get("spawn") or None,
+        "provenance_applied": stack_restarted,
+        "world": (world or None) if stack_restarted else None,
+        "origin_geopoint": (scenario.get("origin_geopoint") or None) if stack_restarted else None,
+        "spawn_declared": (scenario.get("spawn") or None) if stack_restarted else None,
     }
 
     drops_before = readback_drops()
@@ -522,7 +535,13 @@ def run_flight(scenario: dict, seed: int, world: str = "") -> dict:
         # its result file: the diagnosable `timeout in state land` (the known SIM-27 mode) is
         # replaced by `runner raised: Command ... timed out`. Four states plus slack, floored at
         # the old value so nothing gets shorter.
-        ctl_timeout = max(600, int(float(tol.get("state_timeout_s", 60.0)) * 4 + 120))
+        # SEVEN states, not four: offboard_control runs WAIT_FOR_FCU, STREAM_SETPOINTS,
+        # REQUEST_OFFBOARD, ARM, TAKEOFF, WAYPOINTS and LAND, each with its own budget. Sizing
+        # the cap for four reinstates the masking this line exists to prevent -- the harness
+        # timeout fires first, the controller never writes its result file, and a diagnosable
+        # `timeout in state land` becomes `runner raised: Command ... timed out`.
+        #                                                                      (review, PR 53)
+        ctl_timeout = max(600, int(float(tol.get("state_timeout_s", 60.0)) * 7 + 120))
         proc = sh(cmd, timeout=ctl_timeout)
     finally:
         sh(dexec("bash", "-lc", "pkill -INT -f '[r]os2 bag record' || true"), timeout=60)
@@ -689,7 +708,7 @@ def main() -> int:
         print("stack    : cold-starting via sim_up.sh")
         restart_stack(variant, world, a.settings, scenario=scenario)
 
-    result = run_flight(scenario, a.seed, world)
+    result = run_flight(scenario, a.seed, world, stack_restarted=not a.no_restart)
     result.update({
         "scenario": scenario.get("name"),
         "seed": a.seed,

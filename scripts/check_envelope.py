@@ -72,8 +72,11 @@ def read_series(path: str) -> list:
     while r.has_next():
         _, data, t = r.read_next()
         m = deserialize_message(data, VehicleLocalPosition)
-        out.append((t * 1e-9, m.vx, m.vy, m.vz, m.heading,
-                    bool(m.xy_valid), bool(m.heading_good_for_control)))
+        # m.timestamp, not the bag's receive time. DDS delivery jitter and batching would
+        # otherwise land straight in the dt divisor of every derivative below. (review, PR 53)
+        out.append((m.timestamp * 1e-6, m.vx, m.vy, m.vz, m.heading,
+                    bool(m.v_xy_valid), bool(m.v_z_valid),
+                    bool(m.heading_good_for_control)))
     return out
 
 
@@ -101,15 +104,20 @@ def measure(series: list) -> dict:
     # peak calls that a violation; judging on the sustained value calls it what it is.
     vals = {"climb": [], "descent": [], "speed": [], "accel": [], "yawrate": []}
     n_used = n_total = 0
-    for i, (t, vx, vy, vz, h, xy_ok, hdg_ok) in enumerate(series):
+    for i, (t, vx, vy, vz, h, vxy_ok, vz_ok, hdg_ok) in enumerate(series):
         n_total += 1
-        if not xy_ok:
+        # v_xy_valid / v_z_valid, not xy_valid. The earlier version gated VELOCITY samples on
+        # the POSITION estimate's flag, and gated vz on nothing at all -- so a window where PX4
+        # vouched for position but disowned velocity still contributed numbers. (review, PR 53)
+        if not (vxy_ok or vz_ok):
             continue
         n_used += 1
         s = math.hypot(vx, vy)
-        vals['speed'].append(s)
-        vals['climb'].append(-vz)        # NED: negative vz is UP
-        vals['descent'].append(vz)
+        if vxy_ok:
+            vals['speed'].append(s)
+        if vz_ok:
+            vals['climb'].append(-vz)    # NED: negative vz is UP
+            vals['descent'].append(vz)
 
         # Find the earliest sample at least WINDOW_S back, and difference against that.
         j = i
@@ -117,11 +125,17 @@ def measure(series: list) -> dict:
             j -= 1
         if j == i:
             continue
-        t0, vx0, vy0, _, h0, xy0, hdg0 = series[j]
+        t0, vx0, vy0, _, h0, vxy0, _vz0, hdg0 = series[j]
         dt = t - t0
-        if not (0.05 < dt < 1.0) or not xy0:
+        if not (0.05 < dt < 1.0):
             continue
-        vals['accel'].append(abs(s - math.hypot(vx0, vy0)) / dt)
+        if vxy_ok and vxy0:
+            # THE VECTOR, not the change in speed. MPC_ACC_HOR bounds the acceleration vector's
+            # magnitude, and |v| - |v0| is blind to direction: a 90-degree corner flown at
+            # constant speed has large real horizontal acceleration and measured ~0 here -- so
+            # the check read "within" on exactly the manoeuvre most likely to breach it.
+            #                                                                  (review, PR 53)
+            vals['accel'].append(math.hypot(vx - vx0, vy - vy0) / dt)
         if hdg_ok and hdg0:
             dh = h - h0
             while dh > math.pi:
@@ -135,6 +149,12 @@ def measure(series: list) -> dict:
         xs = sorted(xs)
         return xs[min(len(xs) - 1, int(0.95 * len(xs)))]
 
+    # NOTHING USABLE IS NOT COMPLIANCE. With every list empty, p95 and max both return 0.0 and
+    # the dict is still non-empty -- so main() skipped its guard, printed 0.000 against every
+    # limit and called each one "within". A run with no usable data reported as a run that
+    # respected its envelope.                                                  (review, PR 53)
+    if n_used == 0 or not any(vals.values()):
+        return {}
     out = {k: (p95(v), max(v) if v else 0.0) for k, v in vals.items()}
     out["_samples"] = f"{n_used}/{n_total} used"
     return out

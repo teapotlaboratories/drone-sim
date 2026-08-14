@@ -285,7 +285,9 @@ def main() -> int:
     if a.reuse:
         # One stack, seed-independent defaults, left up. The spawn pose is never applied,
         # which is the whole reason --reuse is not a gate run.
-        print("bringing up a single stack for all runs (spawn pose never applied)...")
+        # "the seed's jitter", not "the spawn pose": a scenario declaring `spawn:` DOES get its
+        # base pose and origin applied to this single stack now.               (review, PR 53)
+        print("bringing up a single stack for all runs (the seed's pose jitter is never applied)...")
         rs.restart_stack({"spawn_x": 0.0, "spawn_y": 0.0, "spawn_yaw": 0.0},
                          world, a.settings, scenario=scenario)
 
@@ -306,8 +308,16 @@ def main() -> int:
         else:
             witness = cw.start()
             try:
-                result = rs.run_flight(scenario, seed, world)
+                result = rs.run_flight(scenario, seed, world, stack_restarted=not a.reuse)
             except rs.EnvelopeError as exc:
+                # Stop the observer before leaving. It was started with `docker exec -d`, so
+                # exiting here would leave watch_collisions.py running in the sim container with
+                # no gate report to explain it.                                (review, PR 53)
+                if witness:
+                    try:
+                        cw.stop_and_score()
+                    except Exception:
+                        pass
                 # NOT a flight failure. The scenario's envelope could not be applied, so the
                 # aircraft was never given the configuration this gate claims to be testing.
                 # Scoring it would report "SR 0%, control failure" for a harness fault.
