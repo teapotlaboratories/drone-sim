@@ -108,12 +108,46 @@ def print_ref(timeout_s: int) -> int:
     It lives here because the BEST_EFFORT QoS handling this file already needed is the same
     handling any other reader would otherwise duplicate.
     """
-    ref = {name: _echo_field("/fmu/out/vehicle_local_position", name, timeout_s)
-           for name in ("ref_lat", "ref_lon", "ref_alt")}
-    missing = [k for k, v in ref.items() if v is None or not math.isfinite(v)]
+    # ONE MESSAGE, not one echo per field. Three `--field` echoes are three different messages
+    # and therefore not a consistent snapshot -- and they cost 3x the advertised timeout, so a
+    # caller's outer timeout could fire first and surface as an opaque TimeoutExpired.
+    #                                                                          (review, PR 54)
+    cmd = ["ros2", "topic", "echo", "--qos-reliability", "best_effort",
+           "--qos-durability", "volatile", "--once", "/fmu/out/vehicle_local_position"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s).stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        print("EKF reference not available: no message", file=sys.stderr)
+        return 1
+    msg = {}
+    for line in out.splitlines():
+        if ":" not in line or line.startswith("-"):
+            continue
+        k, _, v = line.partition(":")
+        try:
+            msg[k.strip()] = float(v.strip())
+        except ValueError:
+            msg[k.strip()] = v.strip()
+
+    ref = {k: msg.get(k) for k in ("ref_lat", "ref_lon", "ref_alt", "x", "y")}
+    missing = [k for k, v in ref.items()
+               if not isinstance(v, float) or not math.isfinite(v)]
     if missing:
         print(f"EKF reference not available: {', '.join(missing)}", file=sys.stderr)
         return 1
+
+    # THE STALENESS CHECK IS NOT OPTIONAL HERE EITHER.                         (review, PR 54)
+    #
+    # print_ref used to accept any finite origin, so the documented SIM-09 case -- ref_alt
+    # 88.113 against a GPS altitude of 123.280 -- would have been handed out as the conversion
+    # reference, putting every GPS waypoint 35 m out and commanding the aircraft toward the
+    # ground. A reference this file refuses to certify must not be usable through a side door.
+    gps_alt = _echo_field("/fmu/out/vehicle_gps_position", "altitude_msl_m", timeout_s)
+    ok, reason = origin_is_sane(ref["ref_alt"], gps_alt, DEFAULT_TOLERANCE_M)
+    if not ok:
+        print(f"refusing to hand out an unvalidated origin: {reason}", file=sys.stderr)
+        return 1
+
     print(json.dumps(ref))
     return 0
 

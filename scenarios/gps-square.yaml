@@ -19,6 +19,12 @@ seeded:
   spawn_yaw_jitter_rad: 0.0
 mission:
   takeoff_altitude_m: 20.0
+  # alt_m IS AMSL (metres above mean sea level), matching PX4's ref_alt.            (SIM-31)
+  #
+  # NOT the ellipsoidal height a GNSS receiver usually reports. In the Bay Area the geoid
+  # separation is about -32 m, so pasting a raw receiver altitude here would command the
+  # aircraft ~32 m off vertically with nothing in the run looking wrong. The conversion is
+  # `alt_m - ref_alt`, so what reaches the controller is height above the EKF origin.
   waypoints_gps:
   - lat: 37.4123278
     lon: -121.9947352

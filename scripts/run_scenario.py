@@ -78,6 +78,10 @@ APPLY_PARAMS = REPO / "scripts" / "apply_px4_params.py"
 # as a position error the aircraft cannot see.
 EARTH_RADIUS_M = 6371000.0
 
+# How far a converted GPS waypoint may be from the vehicle before the harness calls it a
+# mistake rather than a mission. Generous for anything this scenario format is used for.
+GPS_WAYPOINT_MAX_M = float(os.environ.get("GPS_WAYPOINT_MAX_M", 2000.0))
+
 
 def gps_to_enu(lat: float, lon: float, alt_m: float, ref: dict) -> tuple[float, float, float]:
     """Convert a GPS point to local ENU, using PX4's OWN reference and projection.  (SIM-31)
@@ -104,8 +108,33 @@ def gps_to_enu(lat: float, lon: float, alt_m: float, ref: dict) -> tuple[float, 
     k = 1.0 if abs(c) < 1e-12 else c / math.sin(c)
     north = k * (ref_cos_lat * sin_lat - ref_sin_lat * cos_lat * cos_d_lon) * EARTH_RADIUS_M
     east = k * cos_lat * math.sin(lon_r - ref_lon_r) * EARTH_RADIUS_M
-    # ENU, which is what the scenario's waypoints_enu already speak.
+    # ENU relative to the EKF ORIGIN. The caller must convert to HOME-relative before handing
+    # this to the controller -- see gps_to_home_enu.                           (review, PR 54)
     return (east, north, alt_m - ref["ref_alt"])
+
+
+def gps_to_home_enu(lat: float, lon: float, alt_m: float, ref: dict) -> tuple[float, float, float]:
+    """A GPS point as the controller wants it: ENU relative to HOME.             (SIM-31)
+
+    THE TWO FRAMES ARE NOT THE SAME, and conflating them is a bug that hides on a cold start.
+    `offboard_control._build_square` returns `(x0 + x, y0 + y, z)` where x0,y0 are the vehicle's
+    position when the FCU came alive -- its docstring says so outright: "Both are expressed
+    relative to HOME rather than the world origin". So a waypoint handed to the controller is an
+    OFFSET, while a GPS coordinate is an ABSOLUTE point that must not be re-offset.
+
+    The first version of this passed origin-relative values straight through. It flew correctly
+    only because a cold start puts home at approximately (0, 0); under --no-restart or
+    `run_gate --reuse`, where seed N starts wherever seed N-1 landed, the aircraft would have
+    flown to home + (E, N) and reported small waypoint errors against the shifted target. The
+    provenance would have recorded the un-offset numbers, so nothing would have looked wrong.
+
+    Subtracting home here means the controller adds it back and the vehicle reaches the
+    absolute point the scenario named.
+    """
+    east, north, up = gps_to_enu(lat, lon, alt_m, ref)
+    # NED -> ENU for the vehicle's current local position: E = y, N = x.
+    home_e, home_n = float(ref["y"]), float(ref["x"])
+    return (east - home_e, north - home_n, up)
 
 
 def read_ekf_ref() -> dict:
@@ -115,9 +144,22 @@ def read_ekf_ref() -> dict:
     r = sh(dexec("bash", "-lc",
                  "cd /ros2_ws && . install/setup.bash && "
                  "python3 /tmp/check_ekf_origin.py --print-ref"), timeout=120)
+    # EnvelopeError, not RuntimeError: run_gate scores every other exception as
+    # `outcome: failure`, so a transient "EKF reference not available" would report a control
+    # failure for a flight that never happened -- the VOID-is-not-FAIL confusion EnvelopeError
+    # exists to stop.                                                          (review, PR 54)
     if r.returncode != 0:
-        raise RuntimeError("could not read PX4's EKF origin: " + (r.stderr or r.stdout or ""))
-    return json.loads((r.stdout or "").strip().splitlines()[-1])
+        raise EnvelopeError("could not read PX4's EKF origin: " + (r.stderr or r.stdout or ""))
+    # A login shell can print its own banner, and an exit-0 with empty stdout is possible; both
+    # used to surface as an IndexError or JSONDecodeError traceback instead of this message.
+    for line in reversed((r.stdout or "").strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+    raise EnvelopeError("PX4's EKF origin came back unparseable: " + repr((r.stdout or "")[:200]))
 
 
 class EnvelopeError(RuntimeError):
@@ -262,6 +304,30 @@ drops_during = ld.drops_during
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
+def _validate_waypoints(doc: dict) -> None:
+    """Reject a mission that cannot be flown, BEFORE a stack is brought up.       (SIM-31)
+
+    These used to raise from run_flight, which is after restart_stack -- so a typo cost a full
+    cold start per seed and then landed in run_gate's `except Exception` as
+    `outcome: failure`, producing an "SR 0%, control failure" report for a config error.
+    """
+    mission = doc.get("mission", {}) or {}
+    gps, enu = mission.get("waypoints_gps"), mission.get("waypoints_enu")
+    if gps and enu:
+        raise ValueError("scenario declares BOTH waypoints_enu and waypoints_gps -- give one; "
+                         "there is no defined precedence and guessing would silently fly the "
+                         "wrong mission")
+    for i, w in enumerate(gps or []):
+        if not isinstance(w, dict):
+            raise ValueError(f"waypoints_gps[{i}] must be a mapping with lat, lon, alt_m")
+        missing = [k for k in ("lat", "lon", "alt_m") if k not in w]
+        if missing:
+            raise ValueError(f"waypoints_gps[{i}] is missing {', '.join(missing)}")
+        if not (-90 <= float(w["lat"]) <= 90) or not (-180 <= float(w["lon"]) <= 180):
+            raise ValueError(f"waypoints_gps[{i}] is not a valid coordinate: "
+                             f"{w['lat']}, {w['lon']}")
+
+
 def load_scenario(path: Path) -> dict:
     try:
         import yaml
@@ -275,6 +341,10 @@ def load_scenario(path: Path) -> dict:
     if not SAFE_NAME.match(str(name)):
         sys.exit(f"{path}: scenario name {name!r} must match {SAFE_NAME.pattern} — it is "
                  "used in filesystem paths and shell commands")
+    try:
+        _validate_waypoints(scenario)
+    except ValueError as exc:
+        sys.exit(f"{path}: {exc}")
     return scenario
 
 
@@ -438,13 +508,26 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     gps_wps = mission.get("waypoints_gps") or []
     ekf_ref = None
     if gps_wps:
-        if mission.get("waypoints_enu"):
-            raise ValueError("scenario declares BOTH waypoints_enu and waypoints_gps -- "
-                             "give one; there is no defined precedence and guessing would "
-                             "silently fly the wrong mission")
         ekf_ref = read_ekf_ref()
-        enu_from_gps = [gps_to_enu(float(w["lat"]), float(w["lon"]), float(w["alt_m"]), ekf_ref)
+        enu_from_gps = [gps_to_home_enu(float(w["lat"]), float(w["lon"]), float(w["alt_m"]),
+                                        ekf_ref)
                         for w in gps_wps]
+        # A CEILING ON HOW FAR A CONVERTED WAYPOINT MAY BE.                     (review, PR 54)
+        #
+        # A scenario's coordinates are absolute, so on a stack whose origin differs from the one
+        # they were written against they describe somewhere else entirely -- measured, this
+        # scenario against AirSim's stock origin converts to N -1137417 m. Without a bound that
+        # streams straight into the controller as a setpoint. The sim would merely fly away; the
+        # same harness is meant to reach a real aircraft by swapping the transport.
+        far = [(w, e) for w, e in zip(gps_wps, enu_from_gps)
+               if math.hypot(e[0], e[1]) > GPS_WAYPOINT_MAX_M]
+        if far:
+            w, e = far[0]
+            raise EnvelopeError(
+                f"GPS waypoint {w['lat']:.7f}, {w['lon']:.7f} converts to E {e[0]:.0f} / "
+                f"N {e[1]:.0f} m from the vehicle, beyond the {GPS_WAYPOINT_MAX_M:g} m limit.\n"
+                f"The EKF origin here is {ekf_ref['ref_lat']:.7f}, {ekf_ref['ref_lon']:.7f} -- "
+                "these coordinates were almost certainly written against a different one.")
         print(f"  GPS waypoints converted against the EKF origin "
               f"({ekf_ref['ref_lat']:.7f}, {ekf_ref['ref_lon']:.7f}, {ekf_ref['ref_alt']:.2f} m)")
         for w, e in zip(gps_wps, enu_from_gps):
