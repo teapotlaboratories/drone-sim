@@ -3611,9 +3611,9 @@ evidence.** Fixed two ways, because either alone would leave the trap armed:
 ## SIM-30 — Hold the vehicle until World Partition streaming completes
 
 **Status:** 🟡 **partly landed 2026-08-13 — and it uncovered something larger.** `sim_up.sh` gains
-`ensure_grounded` (env `STREAM_HOLD_S`, `STREAM_HOLD_TRIES`), which runs **after**
-`wait_for_sim_link` and holds the vehicle at spawn until cells load. But the headline is not the
-hold:
+`ensure_grounded` (env `STREAM_PAUSE_MAX_S`, `STREAM_PROBE_EVERY_S`), which runs **after**
+`wait_for_sim_link` and — since PR 56 — **pauses physics** until a probe shows the vehicle
+resting, rather than holding it at spawn while it falls. But the headline is not that step:
 
 **THE SETTLE CHECK HAD NEVER RUN — TWO INDEPENDENT FAULTS, BOTH SILENT.**
 
@@ -3718,7 +3718,7 @@ recorded.
 
 - **The superseded interim — the pose-hold, kept for the record.** `ensure_grounded` calls
   `reset()` first (which returns the vehicle to its `BeginPlay` spawn with zero velocity), then
-  pins it at *that* pose for `STREAM_HOLD_S` while cells load, then verifies and retries. Resetting
+  pins it at *that* pose for the hold duration while cells load, then verifies and retries. Resetting
   first is what makes the hold pose and the final pose the same by construction —
   `PawnSimApi::resetImplementation` teleports to `state_.start_location`, **not** to wherever the
   vehicle was being held, so holding first and resetting last streamed one cell and dropped the
