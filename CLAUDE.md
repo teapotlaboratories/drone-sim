@@ -38,8 +38,9 @@ in [`.ai/AGENTS.md`](.ai/AGENTS.md).
    aircraft (sim or real) is the only real client: bring the stack up with
    `./scripts/sim_up.sh`, exercise the full ROS 2 graph on a seeded scenario, and record the
    evidence (MCAP, metrics, measured rates) — not just the unit you touched.
-   **When a test is done, shut everything down and VERIFY it** *(added 2026-08-14)* — every
-   container, renderer and recorder. This machine is shared with the operator's other work, so
+   **Tear the stack down after EVERY flight, and VERIFY it** *(added 2026-08-14, strengthened
+   2026-08-15)* — after every flight, not just at the end of a session, and never left up "in
+   case another run is wanted". Every container, renderer and recorder. This machine is shared with the operator's other work, so
    a stack left up takes their GPU, CPU and disk. Check with `docker ps -a` and read the
    container AGES; a teardown that reported success has already been found to leave four
    containers up for two hours. Do not use a `pgrep` pattern that matches the asking shell.

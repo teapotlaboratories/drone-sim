@@ -318,8 +318,15 @@ confirm the actual flight/behaviour, not just the unit you touched. Bugs live in
 no green component-level check will show.
 
 - **Flight / control / perception behaviour → fly it and capture the evidence.**
-  - **WHEN A TEST IS DONE, SHUT EVERYTHING DOWN — AND VERIFY IT, DO NOT ASSUME IT.**
-    *(added 2026-08-14)* Every container, every renderer, every recorder. This machine is
+  - **TEAR THE STACK DOWN AFTER EVERY FLIGHT — AND VERIFY IT, DO NOT ASSUME IT.**
+    *(added 2026-08-14, strengthened 2026-08-15)* After **every flight**, not merely at the end
+    of a session. **Never leave a stack up "in case another run is wanted"** — that is the
+    specific habit this rule exists to stop, and it was corrected the day after the rule was
+    first written, by leaving a City Sample stack running for exactly that reason.
+
+    A bring-up is cheap and repeatable; someone else's machine is not. If another flight is
+    wanted, bring it up again — `sim_up.sh` exists precisely so that costs a command rather than
+    a negotiation. Every container, every renderer, every recorder. This machine is
     shared with the operator's other work: a stack left up holds ~8 GB of GPU, a CPU core or
     more, and hammers whichever disk the world lives on. Leaving one running is not untidy, it
     is taking someone else's machine.
