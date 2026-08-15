@@ -318,6 +318,37 @@ confirm the actual flight/behaviour, not just the unit you touched. Bugs live in
 no green component-level check will show.
 
 - **Flight / control / perception behaviour → fly it and capture the evidence.**
+  - **WHEN A TEST IS DONE, SHUT EVERYTHING DOWN — AND VERIFY IT, DO NOT ASSUME IT.**
+    *(added 2026-08-14)* Every container, every renderer, every recorder. This machine is
+    shared with the operator's other work: a stack left up holds ~8 GB of GPU, a CPU core or
+    more, and hammers whichever disk the world lives on. Leaving one running is not untidy, it
+    is taking someone else's machine.
+
+    **The verification is the rule, not the teardown.** Teardown reporting success is not
+    evidence that it worked:
+
+    ```bash
+    docker rm -f sim-px4 sim-ros2 sim-qgc sim-unreal
+    docker ps -a --format '{{.Names}}\t{{.Status}}'          # -a, and read the AGES
+    pgrep -a -f "Binaries/Linux/UnrealEditor"                 # the real binary path
+    nvidia-smi --query-gpu=index,memory.used --format=csv,noheader
+    ```
+
+    **Two ways this has already gone wrong, both on 2026-08-14:**
+
+    - **A teardown was reported as successful, `docker ps` came back blank, and four containers
+      were nonetheless found up TWO HOURS later** — recreated afterwards by a detached bring-up
+      nobody re-checked. `docker ps` at one instant proves nothing; `docker ps -a` with the
+      container ages does.
+    - **The check itself was the bug.** `for p in UnrealEditor Xvfb ffmpeg ...; do pgrep -f "$p"`
+      puts every one of those names into the asking shell's own argv, so `pgrep -f` matched
+      itself and reported 2–4 of everything. Numbers that looked like evidence and were an
+      artifact of how the question was asked. Match on a path the target has and the checker
+      does not.
+
+    A backgrounded or detached bring-up (`nohup`, `setsid`, `run_in_background`) **must** be
+    confirmed dead by PID, not assumed dead because the foreground command returned.
+
   - **RECORD THE CHASE CAMERA ON EVERY FLIGHT TEST, AND HAND THE OPERATOR A COMMAND THEY
     CAN RUN THEMSELVES.** *(added 2026-08-13)* Bring the stack up with `--display` and set
     `SIM_CHASE_VIDEO=1` so the run writes `out/<scenario>-seed<N>-chase.mp4` alongside the
