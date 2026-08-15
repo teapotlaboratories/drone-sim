@@ -3681,7 +3681,42 @@ recorded.
   removes the race rather than surviving it, and needs no RPC polling or arbitrary dwell. Cost: the
   AirSim plugin must be rebuilt **per world tree** (each `.uproject` carries a real copy, not a
   symlink), and CitySample is a 113 GB A2 project that compiles from `Source/`.
-- **The interim — SHIPPED, and it is the pose-hold, not `simPause`.** `ensure_grounded` calls
+- **SUPERSEDED 2026-08-15 — it is now pause-and-probe, and `simPause` was the right answer
+  after all.** The pose-hold below is kept for the record because its failure is the reason.
+
+  **The pose-hold failed in exactly the case it existed for.** When World Partition blocks the
+  UE game thread, the holds are never applied: measured on CitySample, three 30 s holds returned
+  the **identical** `z` and `vz` thirty seconds apart, because the RPC was serving stale values
+  from a frozen simulator. A hold cannot work while the thread that would apply it is stalled.
+
+  **`simPause` was rejected on an assumption that turned out to be true.** The claim was that UE
+  keeps streaming while AirSim is paused — reasoning, not measurement, so it was not used. It
+  has now been measured: paused 150 s the vehicle still fell on release; paused 420 s it landed
+  at `z = 0.756`. The difference is only duration, which is what streaming-while-paused predicts.
+
+  **When to release is not predictable, so it is measured.** Two signals were tried and rejected
+  before landing on the third:
+
+  | Signal | Verdict |
+  |---|---|
+  | `simTestLineOfSightBetweenPoints` | **false positive.** Reports GEOMETRY, not landable ground — World Partition streams HLOD proxies a ray hits and a vehicle falls through. It said "ground"; the vehicle then fell 37 m |
+  | `simListSceneObjects(".*")` | enumerating a city exceeds the RPC timeout and poisons the connection |
+  | **unpause ~1.2 s and read `vz`** | works. A wrong guess costs a second of falling and is undone by `reset()`, which is what makes it repeatable |
+
+  **The budget is wall clock, not an attempt count** (`STREAM_PAUSE_MAX_S`, default 600 s): a
+  stalled game thread makes each RPC take an unpredictable time, so counting attempts would mean
+  a different amount of waiting on every machine and world.
+
+  **The simulator is never left paused** — the release is in a `finally`, because a paused sim
+  looks exactly like a hung one to everything downstream and PX4 would be fed a frozen sensor
+  stream.
+
+  Verified against the shipped code: a vehicle dropped where no cells exist was detected, paused,
+  probed four times (three still falling, the fourth on ground) and released at `z = +0.755`,
+  with `simIsPaused` False afterwards. Blocks is unaffected and takes a one-read no-op path,
+  bring-up 41 s.
+
+- **The superseded interim — the pose-hold, kept for the record.** `ensure_grounded` calls
   `reset()` first (which returns the vehicle to its `BeginPlay` spawn with zero velocity), then
   pins it at *that* pose for `STREAM_HOLD_S` while cells load, then verifies and retries. Resetting
   first is what makes the hold pose and the final pose the same by construction —

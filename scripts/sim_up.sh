@@ -28,9 +28,21 @@ SIM=sim-unreal
 SETTLE_SAMPLES=${SETTLE_SAMPLES:-5}     # consecutive stable ground-truth reads required
 SETTLE_EPS=${SETTLE_EPS:-0.05}          # metres of movement tolerated between reads
 ORIGIN_RETRIES=${ORIGIN_RETRIES:-2}     # PX4 restarts allowed before giving up
-STREAM_HOLD_S=${STREAM_HOLD_S:-30}      # SIM-30: seconds to pin the vehicle at spawn so World
-                                        # Partition cells can load under it (0 disables the hold)
-STREAM_HOLD_TRIES=${STREAM_HOLD_TRIES:-3}
+# SIM-30: World Partition worlds stream terrain in around the vehicle, and the vehicle starts
+# falling on the first physics tick. Rather than race that, physics is PAUSED and released only
+# once a probe shows the vehicle resting.
+#
+# STREAM_PAUSE_MAX_S is a WALL-CLOCK budget, not an attempt count: a stalled game thread makes
+# each RPC take an unpredictable time, so counting attempts would mean a different amount of
+# waiting on every machine. 600 s is generous for CitySample on the spinning disk, where a
+# measured 420 s of paused streaming was enough and 150 s was not. 0 disables the whole step.
+STREAM_PAUSE_MAX_S=${STREAM_PAUSE_MAX_S:-600}
+STREAM_PROBE_EVERY_S=${STREAM_PROBE_EVERY_S:-20}
+# How long to wait for AirSim's RPC to start answering at all. Same scale as SIM_LINK_TIMEOUT:
+# on a cold shader cache this script already measures a ~199 s gap between the container
+# starting and the engine being ready, and CitySample has taken over 230 s. Without this budget
+# the connect raised a bare ConnectionRefusedError instead of a diagnosis.
+LIVE_TIMEOUT_S=${LIVE_TIMEOUT_S:-900}
 
 # SIM-13: where to put the vehicle. AirSim spawns at a level's PlayerStart and falls back to world
 # ORIGIN when there isn't one -- and an arbitrary world has no obligation to put usable ground
@@ -150,7 +162,7 @@ usage: sim_up.sh [--world PATH.uproject] [--settings PATH.json]
                         Off by default: headless is the gate's path. (SIM-29)
 
 Environment equivalents: SPAWN, SPAWN_VEHICLE, WORLD, SETTINGS_FILE, SPAWN_ALLOW_BELOW, ORIGIN,
-DISPLAY_MODE, DISPLAY_NUM, DISPLAY_GEOM, STREAM_HOLD_S, STREAM_HOLD_TRIES.
+DISPLAY_MODE, DISPLAY_NUM, DISPLAY_GEOM, STREAM_PAUSE_MAX_S, STREAM_PROBE_EVERY_S.
 EOF
 }
 
@@ -362,35 +374,44 @@ join() {  # join(name, image, cmd...)
 # is useless; the vehicle has to be PUT BACK and KEPT there while the cells load.
 ensure_grounded() {
   docker cp "$REPO/scripts/airsim_rpc_client.py" "$SIM:/tmp/airsim_rpc_client.py" >/dev/null
-  docker exec -i "$SIM" python3 - "$STREAM_HOLD_S" "$STREAM_HOLD_TRIES" "${SPAWN_VEHICLE:-PX4}" <<'PY'
+  local rc=0
+  docker exec -i "$SIM" python3 - "$STREAM_PAUSE_MAX_S" "$STREAM_PROBE_EVERY_S" \
+      "${SPAWN_VEHICLE:-PX4}" "$LIVE_TIMEOUT_S" <<'PY' || rc=$?
 import socket, sys, time
 sys.path.insert(0, "/tmp")
 from airsim_rpc_client import Rpc
 
-hold_s, tries, vehicle = float(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+budget_s, probe_every_s, vehicle, connect_s = (
+    float(sys.argv[1]), float(sys.argv[2]), sys.argv[3], float(sys.argv[4]))
 
-# EXIT CODES: 0 = already on ground, nothing done. 10 = repaired (the caller must restart PX4,
-# because it has been fed HIL sensor data from a falling vehicle). 1 = could not reach ground.
 EXIT_OK, EXIT_REPAIRED, EXIT_FAIL = 0, 10, 1
 
-rpc = Rpc()
+# The connect retries: this runs earlier than anything else that talks to AirSim, so "RPC not
+# listening yet" is an expected state rather than a crash. Unguarded it produced a bare
+# ConnectionRefusedError traceback instead of a diagnosis.
+rpc = None
+_t0 = time.time()
+while rpc is None and time.time() - _t0 < connect_s:
+    try:
+        rpc = Rpc(); rpc.call("getServerVersion")
+    except Exception:
+        rpc = None; time.sleep(2)
+if rpc is None:
+    print("AirSim RPC never came up after %.0fs" % connect_s)
+    sys.exit(EXIT_FAIL)
 
-# EVERY RPC RETRIES, and a timeout is NOT fatal.                             (review, PR 51)
-#
-# Rpc() uses a 30 s socket timeout, and the whole reason this function exists is that World
-# Partition blocks the game thread for tens of seconds -- measured GenerateStreaming 15.4 s,
-# WP init 28.5 s. A call that straddles that window raises socket.timeout, and treating it as
-# an error would abort bring-up with "vehicle never reached ground" on a stack whose only sin
-# was being busy. Before this change neither of these blocks ran at all, so this is a NEWLY
-# LIVE abort path, and it would fire preferentially on exactly the heavy worlds it targets.
+
 def call(method, *a, tries_=6):
+    """Every RPC retries, and a timeout is not fatal. World Partition blocks the game thread
+    for tens of seconds -- measured GenerateStreaming 26.8 s, WorldPartition init 49.2 s -- so a
+    call straddling that window raises socket.timeout on a stack whose only sin was being busy."""
     global rpc
     for i in range(tries_):
-        t0 = time.time()
         try:
-            return rpc.call(method, *a), time.time() - t0
+            return rpc.call(method, *a)
         except (socket.timeout, OSError, ConnectionError) as exc:
-            print("  rpc %s slow/failed (%s) -- retrying %d/%d" % (method, type(exc).__name__, i + 1, tries_), flush=True)
+            print("  rpc %s slow/failed (%s) -- retrying %d/%d"
+                  % (method, type(exc).__name__, i + 1, tries_), flush=True)
             try:
                 rpc = Rpc()
             except Exception:
@@ -398,93 +419,103 @@ def call(method, *a, tries_=6):
             time.sleep(2)
     raise RuntimeError("RPC %s did not answer after %d attempts" % (method, tries_))
 
+
 def kin():
-    k, dt = call("simGetGroundTruthKinematics", vehicle)
-    return k["position"]["z_val"], k["linear_velocity"]["z_val"], dt
+    k = call("simGetGroundTruthKinematics", vehicle)
+    return k["position"]["z_val"], k["linear_velocity"]["z_val"]
 
-# "Not moving" is not "on the ground" -- it is also what a sim that is not ticking looks like,
-# which is why the first version of this reported success on a CitySample vehicle that had not
-# begun falling. There is no monotonic sim clock on the RPC surface (checked: only
-# simContinueForTime and simSetTimeOfDay), so this cannot be settled directly. Two proxies:
-#
-#   - THREE consecutive stable samples, not one. A game-thread hitch has to span ~3 s to fool it.
-#   - REJECT a sample whose RPC round-trip was slow. A stalled game thread shows up as latency,
-#     so a fast round trip is evidence the sim was actually running when it answered.
-#
-# This is a mitigation, not a proof, and it is written down as one.
-SLOW_RPC_S = 0.5
-def resting(need=3):
-    last = None
-    stable = 0
-    z = vz = float("nan")
-    for _ in range(need * 3):
-        z, vz, dt = kin()
-        if dt > SLOW_RPC_S:          # the sim was busy; the reading proves nothing
-            stable, last = 0, None
-            time.sleep(1.0)
-            continue
-        if last is not None and abs(vz) < 0.10 and abs(z - last) < 0.05:
-            stable += 1
-            if stable >= need:
-                return True, z, vz
-        else:
-            stable = 0
-        last = z
-        time.sleep(1.0)
-    # Report the LAST MEASURED vz, not a placeholder. The first version returned 0.0 here, so a
-    # vehicle falling at terminal velocity was announced as "z=-135.5 vz=+0.00" -- a diagnostic
-    # that says "not moving" about the exact condition being repaired.
-    return False, z, vz
 
-ok, z, vz = resting()
-if ok:
+# ---------------------------------------------------------------------------------------
+# PAUSE, THEN PROBE. Do not race the streaming; stop time until it has caught up.  (SIM-30)
+#
+# The previous approach let the vehicle fall and tried to drag it back with pose-holds. That
+# fails in the case it most needs to work: when World Partition blocks the game thread, the
+# holds are never applied. Measured on CitySample -- three 30 s holds returned the IDENTICAL
+# z and vz thirty seconds apart, because the RPC was serving stale values from a frozen sim.
+#
+# simPause stops AirSim's physics while UE keeps streaming. VERIFIED, not assumed: paused for
+# 150 s the vehicle still fell on release (streaming unfinished); paused for 420 s it landed at
+# z = 0.756. The difference is only duration, which is what streaming-while-paused predicts.
+#
+# WHEN TO RELEASE IS NOT PREDICTABLE, so it is MEASURED. Two obvious signals were tried and
+# rejected:
+#   simTestLineOfSightBetweenPoints -- reports GEOMETRY, not landable ground. World Partition
+#     streams HLOD proxies that a ray hits and a vehicle falls straight through. It said
+#     "ground" and the vehicle then fell 37 m. A false positive in the confident direction.
+#   simListSceneObjects(".*")       -- enumerating a city exceeds the RPC timeout and poisons
+#     the connection.
+#
+# So ask physics itself: unpause for a moment and look. A wrong guess costs about a second of
+# falling and is undone by reset(), which makes the probe cheap enough to repeat.
+PROBE_S = 1.2
+RESTING_VZ = 0.5
+
+
+def probe():
+    """Unpause briefly and report (z, vz). Reversible."""
+    call("simPause", False)
+    time.sleep(PROBE_S)
+    z, vz = kin()
+    call("simPause", True)
+    return z, vz
+
+
+z, vz = kin()
+if abs(vz) < RESTING_VZ:
+    # Already at rest -- the common case, and every non-World-Partition world. Costs one read.
     print("on ground at z=%+.3f m" % z)
     sys.exit(EXIT_OK)
 
-for attempt in range(1, tries + 1):
-    print("not on ground (z=%+.1f vz=%+.2f) -- resetting and holding %.0fs so streaming can "
-          "catch up (attempt %d/%d)" % (z, vz, hold_s, attempt, tries), flush=True)
+print("not on ground (z=%+.1f vz=%+.2f) -- pausing physics and probing every %.0fs "
+      "for up to %.0fs" % (z, vz, probe_every_s, budget_s), flush=True)
+call("simPause", True)
 
-    # RESET FIRST, THEN HOLD WHERE IT LANDS -- the order matters.        (review, PR 51)
-    #
-    # reset() does NOT return the vehicle to wherever we were holding it. PawnSimApi.cpp:455
-    # sets state_ = initial_state_ and teleports to state_.start_location, the pose captured at
-    # BeginPlay. The first version held the vehicle at its CURRENT x/y (already drifted by a
-    # 1.5 km fall) and then called reset() at the end -- so it streamed the cells under one
-    # location and dropped the pawn into another, which may still be unloaded. Every attempt
-    # repeated the same mistake.
-    #
-    # Resetting first makes the hold pose and the final pose the same by construction, and it
-    # also removes the need to guess a spawn Z: the earlier version hardcoded z=-3.0 and
-    # ignored --spawn entirely, which on `--spawn 100,200,-40` pinned the vehicle 37 m below
-    # where it was asked to be.
-    call("reset")
-    time.sleep(2.0)
-    pose, _ = call("simGetVehiclePose", vehicle)
-    hold = {"position": dict(pose["position"]), "orientation": dict(pose["orientation"])}
+# THE BUDGET IS WALL CLOCK, NOT AN ATTEMPT COUNT. A stalled game thread makes each RPC take an
+# unpredictable time, so counting attempts would silently mean a different amount of waiting on
+# every machine and every world.
+deadline = time.time() + budget_s
+attempt = 0
+try:
+    while time.time() < deadline:
+        attempt += 1
+        call("reset")
+        time.sleep(1.0)
+        call("simPause", True)
+        z, vz = probe()
+        left = deadline - time.time()
+        print("  probe %d: z=%+.1f vz=%+.2f  (%.0fs of budget left)" % (attempt, z, vz, left),
+              flush=True)
+        if abs(vz) < RESTING_VZ:
+            call("simPause", False)
+            time.sleep(2.0)
+            z, vz = kin()
+            print("on ground at z=%+.3f m after %d probe(s)" % (z, attempt))
+            sys.exit(EXIT_REPAIRED)
+        if left > probe_every_s:
+            time.sleep(probe_every_s)
+finally:
+    # NEVER LEAVE THE SIMULATOR PAUSED. Whatever happens above, a paused sim looks exactly like
+    # a hung one to everything downstream -- PX4 would receive a frozen sensor stream and the
+    # failure would be diagnosed anywhere but here.
+    try:
+        call("simPause", False)
+    except Exception:
+        pass
 
-    t0 = time.time()
-    while time.time() - t0 < hold_s:
-        call("simSetVehiclePose", hold, True, vehicle)
-        time.sleep(0.2)
-
-    time.sleep(3.0)
-    ok, z, vz = resting()
-    if ok:
-        print("on ground at z=%+.3f m after %d hold(s)" % (z, attempt))
-        sys.exit(EXIT_REPAIRED)
-
-print("still not on ground after %d holds (z=%+.1f vz=%+.2f)" % (tries, z, vz))
+print("still not on ground after %.0fs of paused streaming (%d probes, last z=%+.1f vz=%+.2f)"
+      % (budget_s, attempt, z, vz))
 sys.exit(EXIT_FAIL)
 PY
-  rc=$?
   case "$rc" in
     0)  : ;;
-    10) log "vehicle was repaired onto the ground; restarting PX4 so it does not keep an EKF \
-built from a falling vehicle"
-        docker restart sim-px4 >/dev/null
-        sleep 20
-        wait_for_fmu ;;
+    10) if [ "$(docker inspect -f '{{.State.Running}}' sim-px4 2>/dev/null)" = "true" ]; then
+          log "vehicle repaired onto the ground; restarting PX4 so it does not keep an EKF built from a falling vehicle"
+          docker restart sim-px4 >/dev/null
+          sleep 20
+          wait_for_fmu
+        else
+          log "vehicle repaired onto the ground before PX4 started -- no restart needed"
+        fi ;;
     *)  die "vehicle never reached ground -- see SIM-30 (World Partition streaming race)" ;;
   esac
 }
@@ -833,18 +864,17 @@ wait_for_sim_link
 # every is-it-resting test you can write from outside. It reported "on ground" on a vehicle that
 # had not started falling yet, then the level came up and it fell 1.5 km.
 #
-# Compared NUMERICALLY, not as a string: `!= "0"` left STREAM_HOLD_S=0.0 (or "00") enabled,
-# and with hold_s=0.0 the hold loop is skipped while reset() still fires once per attempt --
-# so "disabling" it silently reset the vehicle three times instead of doing nothing. A
-# non-numeric value used to reach python and die as "vehicle never reached ground".
+# Compared NUMERICALLY, not as a string: `!= "0"` left a value of 0.0 (or "00") enabled, and a
+# non-numeric value used to reach python and die as "vehicle never reached ground" rather than
+# as the configuration error it is.
 #
 # (An earlier comment here claimed `[ ... ] && ensure_grounded` would exit under `set -e`.
 # That is wrong -- bash does not exit when the first command of an && list fails, verified
 # directly -- and it has been removed rather than left as false evidence.)   (review, PR 51)
-if awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v+0 > 0 && v ~ /^[0-9.]+$/)}' 2>/dev/null; then
+if awk -v v="$STREAM_PAUSE_MAX_S" 'BEGIN{exit !(v+0 > 0 && v ~ /^[0-9.]+$/)}' 2>/dev/null; then
   ensure_grounded
-elif ! awk -v v="$STREAM_HOLD_S" 'BEGIN{exit !(v ~ /^[0-9.]+$/)}' 2>/dev/null; then
-  die "STREAM_HOLD_S must be a number (got '$STREAM_HOLD_S'); use 0 to disable the hold"
+elif ! awk -v v="$STREAM_PAUSE_MAX_S" 'BEGIN{exit !(v ~ /^[0-9.]+$/)}' 2>/dev/null; then
+  die "STREAM_PAUSE_MAX_S must be a number (got '$STREAM_PAUSE_MAX_S'); use 0 to disable"
 fi
 wait_for_fmu
 
