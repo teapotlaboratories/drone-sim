@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Ground That Was Not There</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-16 &middot; SIM-32</span>
+  <nav><a href="#gate">The gate</a><a href="#scope">Scoping</a><a href="#trap">The trap</a><a href="#measured">Measured</a><a href="#px4">The other half</a><a href="#ruled">Ruled out</a><a href="#closed">Closed out</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-16 &middot; SIM-32 &middot; SITL only</span>
+  <h1>The Ground<br>That Was Not There</h1>
+  <span class="eyebrow" style="color:var(--ground)">Parked 2026-08-16 &middot; pause-and-probe is the official solution</span>
+  <p class="sub">Scoping the streaming query to the vehicle worked &mdash; the gate released in <strong>0.4&nbsp;s</strong> instead of waiting out a 300&nbsp;s ceiling. <strong>And 0.4&nbsp;s is the wrong answer.</strong> The vehicle came to rest on a far-field surrogate, and fell 32&nbsp;m when the real city replaced it.</p>
+  <div class="mastmeta"><span>Release <b>0.4 s</b>, deterministic</span><span>Previous <b>300 s ceiling</b></span><span>Fall <b>32 m</b></span><span>PX4 <b>166 poll timeouts</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Scoping the query</div><div class="v">works</div><div class="n">0.4 s to a verdict, against a ceiling that never resolved</div></div>
+<div class="stat stop"><div class="k">The verdict itself</div><div class="v">too early</div><div class="n">the surrogate is <code>Activated</code>, so the question is satisfied</div></div>
+<div class="stat warn"><div class="k">SIM-10 coupling</div><div class="v">demonstrated</div><div class="n">holding physics starves PX4&rsquo;s HIL stream &mdash; no longer a prediction</div></div>
+</div>
+
+<h2 id="gate"><span class="secnum">01</span> Why gate physics at all</h2>
+<p>On a World Partition world the terrain streams in <em>around</em> the vehicle, and the vehicle
+starts falling on the first physics tick. Everything before this either <strong>raced</strong> that
+&mdash; patch <code>0005</code>, registering the pawn as a streaming source, necessary but not
+sufficient &mdash; or <strong>reacted</strong> to it, which is <code>SIM-30</code>&rsquo;s
+pause-and-probe: it works, and it is a workaround made of timing constants.</p>
+<p>The gate is the fix. <code>PhysicsWorld</code> is constructed with
+<code>start_async_updator = false</code>, and <code>ASimModeWorldBase::Tick</code> starts the updator
+once the world says streaming has settled &mdash; or once a 300&nbsp;s deadline expires, because a
+gate with no escape is a hang, which is worse than the race it replaces.</p>
+
+<div class="callout"><span class="lbl">A wrong conclusion, corrected</span>
+<p>I recorded that the timeout never fired. <strong>It does.</strong> Held at
+<code>z = &minus;8.000, vz = 0.000</code> for ~38&nbsp;s, then released, fell, settled at
+<code>z = 0.698</code>. I had called the escape hatch broken without waiting long enough for it.</p></div>
+
+<h2 id="scope"><span class="secnum">02</span> The first cut asked the wrong question</h2>
+<p><code>IsStreamingCompleted(nullptr)</code> means &ldquo;every streaming level in the world&rdquo;.
+On CitySample it never went true &mdash; a world with continuously streaming traffic and crowds may
+simply never be globally settled &mdash; so every bring-up paid the <strong>full timeout</strong>
+rather than releasing when the ground was ready. Correct, and uselessly slow.</p>
+<p>The scoped form asks about the cells under the vehicle instead: one
+<code>FWorldPartitionStreamingQuerySource</code> per vehicle at <code>PawnSimApi::getUUPosition()</code>,
+with <code>bUseGridLoadingRange = true</code> so the radius comes from the world&rsquo;s own streaming
+grid rather than a number invented here.</p>
+<pre>wp-&gt;IsStreamingCompleted(EWorldPartitionRuntimeCellState::Activated, sources, /*bExactState=*/false)</pre>
+<p><code>Activated</code> is the state a cell must reach before its collision exists, which is the
+whole point of waiting. The enum&rsquo;s header and the <code>static_cast&lt;PawnSimApi*&gt;</code>
+idiom were both grepped in the engine and plugin trees rather than recalled.</p>
+
+<figure>
+<svg viewBox="0 0 900 300" role="img" aria-label="Timeline showing the gate releasing at 0.4 seconds when far-field surrogate cells are activated, the vehicle resting on the surrogate, and falling 32 metres when real city cells replace it around five minutes later" style="max-width:100%;height:auto">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <line x1="60" y1="250" x2="850" y2="250" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="60" y="275" font-size="12" fill="currentColor">BeginPlay</text>
+  <text x="835" y="275" font-size="12" text-anchor="end" fill="currentColor">~5 min later</text>
+
+  <line x1="120" y1="60" x2="120" y2="250" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="128" y="74" font-size="12.5" fill="currentColor">t = 0.4 s &mdash; query says settled, gate releases</text>
+
+  <rect x="60" y="196" width="420" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="70" y="217" font-size="12.5" fill="currentColor">far-field surrogate cells &mdash; Activated, and solid</text>
+
+  <rect x="480" y="196" width="370" height="34" fill="none" stroke="#C8892B" stroke-width="2"/>
+  <text x="492" y="217" font-size="12.5" fill="#C8892B">real city cells replace the surrogate</text>
+
+  <circle cx="150" cy="180" r="7" fill="currentColor"/>
+  <text x="164" y="184" font-size="12" fill="currentColor">vehicle at rest, z = &minus;0.000</text>
+
+  <path d="M 500 180 L 520 172" stroke="none"/>
+  <circle cx="500" cy="180" r="7" fill="#A3341F"/>
+  <line x1="500" y1="188" x2="500" y2="150" stroke="#A3341F" stroke-width="2" marker-end="url(#ar)" transform="rotate(180 500 169)"/>
+  <text x="514" y="160" font-size="12.5" fill="#A3341F">support vanishes &mdash; falls 32 m</text>
+  <circle cx="500" cy="240" r="7" fill="#A3341F" opacity="0.55"/>
+  <text x="514" y="244" font-size="12" fill="#A3341F">lands on real ground, z = +0.751</text>
+
+  <text x="60" y="118" font-size="12.5" fill="currentColor">The query is satisfied here, and it is not wrong &mdash; the world</text>
+  <text x="60" y="136" font-size="12.5" fill="currentColor">really is complete for the detail level requested at that moment.</text>
+</svg>
+<figcaption>The gate releases the instant the far-field surrogate is <code>Activated</code>. That state is real, so the query answers truthfully &mdash; but the surrogate is not the ground the vehicle will be standing on a minute later.</figcaption>
+</figure>
+
+<h2 id="trap"><span class="secnum">03</span> A trap walked into by being careful</h2>
+<div class="callout stop"><span class="lbl">The backup was itself the shadow</span>
+<p>Backing the plugin up as <code>Plugins/AirSim.pristine.bak</code> put a <strong>second
+<code>AirSim.uplugin</code> inside UE&rsquo;s recursive scan root</strong> &mdash; confirmed by
+listing before and after, two AirSim uplugins existed. This is the same shadowing failure that has
+cost this project time before, reintroduced by the act of taking a backup. It now lives at
+<code>worlds/.plugin-backups/</code>, outside the scan root.</p></div>
+
+<h2 id="measured"><span class="secnum">04</span> Measured on CitySample, cold</h2>
+<p>Built from a pristine plugin with only the regenerated <code>0007</code> applied. The
+<code>.so</code> installed into CitySample is md5-identical to the one built
+(<code>8a16919a8954</code>), with 3 gate symbols in the binary &mdash; the artifact that
+<em>ran</em> was verified, not assumed.</p>
+<div class="tw"><table>
+<thead><tr><th class="mono">time (UTC)</th><th>event</th></tr></thead>
+<tbody>
+<tr><td class="mono">02:45:56</td><td>bring-up start</td></tr>
+<tr><td class="mono">02:47:19</td><td><code>WorldPartition initialize took 27.7 sec</code></td></tr>
+<tr><td class="mono">&mdash;</td><td><strong><code>SIM-32: streaming settled; physics started after seconds: 0.400000</code></strong></td></tr>
+<tr><td class="mono">02:51:17</td><td><strong>FATAL</strong> &mdash; no finite EKF origin; 166 <code>poll timeout</code> errors in PX4</td></tr>
+<tr><td class="mono">02:52:25</td><td>screen still <strong>black</strong>; <code>Preparing Textures (393)</code>, <code>Preparing Static Meshes (135)</code></td></tr>
+<tr><td class="mono">~02:52:5x</td><td>vehicle at <code>z = +31.96, vz = +8.57</code> &mdash; <strong>falling</strong></td></tr>
+<tr><td class="mono">02:53:32</td><td>resting at <code>z = +0.751, vz = 0.000</code>; world now renders</td></tr>
+</tbody>
+</table></div>
+<p>The on-screen log names the mechanism directly:</p>
+<pre>Collision#2 with FastGeoSurrogateActor_0 - ObjID -1</pre>
+<p>The vehicle came to rest on the <strong>far-field surrogate</strong>, not on the city. Those cells
+are <code>Activated</code>, so the query is satisfied. When the real cells stream in and replace the
+surrogate, the support underneath disappears.</p>
+<div class="callout warn"><span class="lbl">Stated as a limit on the above</span>
+<p>The collision line and the timeline are what I have. I have <strong>not</strong> instrumented the
+surrogate being swapped out, so the surrogate-swap account is the leading explanation, not a proven
+one. The experiment that would settle it is step&nbsp;1 below.</p></div>
+
+<h2 id="px4"><span class="secnum">05</span> The other half, no longer a prediction</h2>
+<p>The run died on <strong>no finite EKF origin</strong>, with 166 <code>poll timeout</code> errors and
+PX4 reporting <code>GPS Vertical Pos Drift too high</code> and <code>height estimate not stable</code>.
+Holding physics starves PX4&rsquo;s HIL sensor stream, and PX4 was started as soon as TCP 4560 accepted
+a connection &mdash; long before the gate had any verdict. <code>SIM-10</code> is not a separate task
+from this one.</p>
+
+<div class="grid g2">
+<div class="callout"><span class="lbl">Confound worth naming</span>
+<p>CitySample lives on the 7&nbsp;TB <strong>spinning disk</strong>, which the project&rsquo;s own rule
+says is the wrong place for the simulator&rsquo;s live working set. Every duration above is inflated by
+that. It does not change the mechanism &mdash; the surrogate is <code>Activated</code> regardless of how
+fast the real cells arrive &mdash; but these are not the numbers this fix would post on NVMe.</p></div>
+<div class="callout"><span class="lbl">Next, in order</span>
+<p><strong>1.</strong> Instrument instead of latching: log the query every tick for the whole bring-up
+rather than stopping at the first <code>true</code>. <strong>2.</strong> Then decide the predicate &mdash;
+a dwell requirement is the obvious candidate, but only step 1 says whether a usable dwell is long enough
+to outlast the surrogate. <strong>3.</strong> Fold in <code>SIM-10</code>. <strong>4.</strong> Only then
+measure over N cold bring-ups, on NVMe.</p></div>
+</div>
+
+<h2 id="ruled"><span class="secnum">06</span> Step 1: instrumented, and it rules the predicate out</h2>
+<p>Rebuilt so the query is evaluated <strong>every tick for 600&nbsp;s</strong>, logging on
+<em>change</em> rather than latching on the first <code>true</code> &mdash; and so the verdict also
+goes out via <code>UE_LOG</code>, since it had been reaching only the Slate overlay. Second cold
+CitySample bring-up. The complete transition trace across the whole window:</p>
+<pre>[03.08.12] SIM-32 probe: streaming settled -&gt; TRUE at 0.400 s</pre>
+<p><strong>One transition. <code>TRUE</code> at 0.400&nbsp;s, and never <code>FALSE</code> again in
+600&nbsp;s</strong> &mdash; a window that covers the period in which the previous run&rsquo;s vehicle
+fell 32&nbsp;m. The vehicle ended this run resting at <code>z = +0.752</code> against
+<code>+0.751</code> last run: the same fall-then-land sequence, reproduced to the millimetre.</p>
+<div class="callout stop"><span class="lbl">A dwell requirement cannot fix this</span>
+<p>Dwell was the leading candidate going in &mdash; wait for the query to hold true for N seconds.
+But dwell only helps if the signal <em>changes</em>, and this one does not. It reads
+<code>TRUE</code> continuously straight through the surrogate being replaced by the real city.
+Waiting longer on a constant adds latency and nothing else.</p></div>
+<p><code>IsStreamingCompleted(Activated, {source at the vehicle})</code> answers &ldquo;are the
+currently-requested cells activated&rdquo;. That is true of the far-field surrogate and stays true as
+detail levels swap underneath. It has <strong>no notion of &ldquo;the ground under me is the ground
+that will still be here in a minute&rdquo;</strong>.</p>
+<p>This is a negative result about the <strong>predicate</strong>, not the gate. The gate mechanism
+is sound and measured &mdash; physics holds, the escape releases. What has no working implementation
+is the condition. <strong>0.400&nbsp;s is deterministic</strong>: identical on two cold bring-ups.</p>
+<div class="callout"><span class="lbl">Where that leaves it</span>
+<p>Not &ldquo;tune the dwell&rdquo;. The predicate has to come from outside the streaming
+subsystem&rsquo;s completion flag &mdash; a <strong>downward trace</strong> gated on the hit actor not
+being a <code>FastGeoSurrogateActor</code>, or waiting on the specific cell containing the spawn
+point. And a live option: <strong>don&rsquo;t ship this</strong>. <code>SIM-30</code>&rsquo;s
+pause-and-probe already works, and &ldquo;better design, no working predicate&rdquo; does not beat
+&ldquo;working&rdquo;.</p></div>
+
+<h2 id="closed"><span class="secnum">07</span> Closed out &mdash; pause-and-probe is the official solution</h2>
+<p>Owner&rsquo;s call: <em>&ldquo;let&rsquo;s just log all of this effort and for now let&rsquo;s use
+the simPause method as the official solution. We can check back on this in the future.&rdquo;</em>
+So <code>SIM-30</code>&rsquo;s pause-and-probe is <strong>the</strong> answer to the falling vehicle
+&mdash; it ships, it works, and City Sample flies on it. <code>SIM-32</code> stays on its branch as a
+recorded negative result, applied to nothing.</p>
+<div class="callout warn"><span class="lbl">Read this first when picking it up again</span>
+<p><strong>This is most likely a slow-storage problem.</strong> CitySample lives on the 7&nbsp;TB
+spinning disk, against this project&rsquo;s own rule about the live working set. Both cold runs took
+~5&nbsp;minutes to a first frame, and the entire failure is what happens in the gap between the gate
+releasing at 0.400&nbsp;s and the real city arriving.</p>
+<p><strong>Slow storage does not cause the predicate bug &mdash; it sets its blast radius.</strong>
+<code>IsStreamingCompleted</code> would still answer <code>TRUE</code> on the surrogate on the fastest
+disk ever made; that is semantics, not timing. What storage changes is how long the vehicle stands on
+an answer that is about to stop being true. On NVMe that window should shrink roughly with the load
+time &mdash; plausibly enough that the patch as written becomes good enough. <strong>Untested, and
+cheap to test:</strong> copy CitySample to the internal NVMe and re-run the same instrumented build.
+The probe already logs every transition, so the answer reads off <code>docker logs</code> in one line.</p></div>
+<div class="grid g2">
+<div class="callout ok"><span class="lbl">Banked</span>
+<p>The gate mechanism is <strong>proven</strong> &mdash; physics holds at <code>z = &minus;0.000</code>,
+the 300&nbsp;s escape releases. The scoped query answers in <strong>0.400&nbsp;s</strong>,
+deterministic across two cold runs, against a <code>nullptr</code> query that never resolved.
+<code>SIM-10</code> is <strong>coupled and demonstrated</strong>: 166 <code>poll timeout</code> errors,
+no finite EKF origin. And two defects fixed en route &mdash; the verdict never reached stdout, and a
+plugin <em>backup</em> shadowed the plugin.</p></div>
+<div class="callout stop"><span class="lbl">Ruled out</span>
+<p><code>IsStreamingCompleted</code> as the release predicate. One transition to <code>TRUE</code>,
+never <code>FALSE</code> in 600&nbsp;s, straight through the surrogate swap. A dwell requirement cannot
+fix a constant. The untested idea left on the table: a downward trace rejecting a
+<code>FastGeoSurrogateActor</code> hit &mdash; asking whether real ground is below, instead of asking
+the streaming subsystem a question it cannot answer.</p></div>
+</div>
+
+<footer>
+  <span>Worklog &middot; 2026-08-16 &middot; SIM-32</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
