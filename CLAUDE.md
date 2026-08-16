@@ -43,9 +43,12 @@ in [`.ai/AGENTS.md`](.ai/AGENTS.md).
    case another run is wanted". Every container, renderer and recorder. This machine is shared with the operator's other work, so
    a stack left up takes their GPU, CPU and disk. Check with `docker ps -a` and read the
    container AGES; a teardown that reported success has already been found to leave four
-   containers up for two hours. Verify processes with `pgrep -x <name>` (exact process name) — **not** `pgrep -f`, whose
-   pattern lands in the asking shell's own argv and matches itself, which has already produced
-   fake evidence three times.
+   containers up for two hours. Tear down with the FIVE-name list from `sim_up.sh:224` — it includes `sim-xrce`, which
+   hand-typed lists miss, and there is no teardown command yet (`SIM-33`), and **stop `record_chase.sh` BEFORE teardown** or `docker rm -f`
+   SIGKILLs ffmpeg and the mp4 has no moov atom. `pgrep` alone cannot verify this: `-f` matches
+   the asking shell's own argv (fake evidence three times), and `-x` silently sees nothing for
+   names over 15 chars or for scripts, whose `comm` is `bash`/`python3`. A clean check that
+   cannot see anything looks exactly like a clean machine.
    **Every flight test records the chase camera and reports a command the operator can run
    themselves** *(added 2026-08-13)*: `./scripts/sim_up.sh --display` then
    `SIM_CHASE_VIDEO=1 python3 scripts/run_scenario.py … --no-restart`, quoted literally in
