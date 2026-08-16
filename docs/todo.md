@@ -3610,7 +3610,13 @@ evidence.** Fixed two ways, because either alone would leave the trap armed:
 
 ## SIM-30 — Hold the vehicle until World Partition streaming completes
 
-**Status:** 🟡 **partly landed 2026-08-13 — and it uncovered something larger.** `sim_up.sh` gains
+**Status:** ✅ **THE OFFICIAL SOLUTION for the falling vehicle, as of 2026-08-16** — chosen by
+the owner over `SIM-32`'s gate: *"let's use the simPause method as the official solution for now."*
+`SIM-32` attempted to prevent the fall rather than repair it, and its release predicate was measured
+and ruled out (see that entry); this one ships, and City Sample flies on it. Revisit `SIM-32` later,
+most likely after moving worlds onto NVMe.
+
+**Original status:** 🟡 **partly landed 2026-08-13 — and it uncovered something larger.** `sim_up.sh` gains
 `ensure_grounded` (env `STREAM_PAUSE_MAX_S`, `STREAM_PROBE_EVERY_S`), which runs **after**
 `wait_for_sim_link` and — since PR 56 — **pauses physics** until a probe shows the vehicle
 resting, rather than holding it at spawn while it falls. But the headline is not that step:
@@ -3743,7 +3749,9 @@ not a fix.
 
 ## SIM-31 — Scenarios that state their world, their pose, and their flight envelope
 
-**Status:** 🟡 **two of three slices landed 2026-08-13.** Flight envelope and origin/pose are
+**Status:** ✅ **all three slices landed — closed 2026-08-14.** Slice three (GPS waypoints) merged with `gps_to_home_enu()` in `run_scenario.py`, `tests/test_gps_waypoints.py`, and the worklog `docs/worklog/2026-08-14-sim31-gps-waypoints.md`; it needed **no controller change**. This status line sat stale at "two of three" until 2026-08-16 — corrected on sight, since a stale plan is a broken rule.
+
+**Original status:** 🟡 two of three slices landed 2026-08-13. Flight envelope and origin/pose are
 built and flown; **GPS waypoints are still open**.
 
 | Slice | State |
@@ -3883,7 +3891,26 @@ decorative.
 
 ## SIM-32 — Don't step physics until the ground exists
 
-**Status:** 🟡 **BUILT AND TESTED 2026-08-16 — the mechanism works; it is slow, not broken.**
+**Status:** ⏸️ **PARKED 2026-08-16 by the owner** — "let's use the simPause method as the
+official solution for now, we can check back on this in the future." The **official solution for
+the falling vehicle is `SIM-30`'s pause-and-probe**, which ships and works. `SIM-32` stays on the
+branch as a recorded negative result; `patches/cosys-airsim/0007` is applied to nothing.
+
+**Leading hypothesis for revisiting: this is mostly a SLOW-STORAGE problem.** CitySample lives on
+the 7 TB **spinning disk**, against this project's own rule that the simulator's live working set
+belongs on the internal NVMe. Both cold runs took ~5 minutes to render a first frame, and the gap
+between the gate's release at 0.400 s and the real city arriving is what the vehicle falls through.
+On NVMe that gap should shrink by roughly the ratio of the load times — plausibly to the point
+where the surrogate is replaced before the vehicle has fallen anywhere that matters.
+
+Stated precisely, because the distinction decides whether the revisit is worth it: **slow storage
+does not cause the predicate bug, it sets its blast radius.** `IsStreamingCompleted` would still
+answer `TRUE` on the surrogate on the fastest disk in the world — that is semantics, not timing.
+What storage changes is how long the vehicle is left standing on an answer that is about to stop
+being true. **Untested.** The experiment when this is picked up again is a one-liner: copy
+CitySample to the internal NVMe and re-run the same instrumented build.
+
+**Previous status, kept for the record:** 🟡 BUILT AND TESTED 2026-08-16 — the mechanism works; it is slow, not broken.
 `patches/cosys-airsim/0007` exists and is **not applied to anything**; the vehicle no longer falls,
 and the simulator never starts. Both halves of that sentence are results.
 
@@ -3930,21 +3957,70 @@ about changing the plugin.
 Blocks environment reverted and rebuilt clean, no containers left running. The patch is on the
 branch and applied to nothing.
 
-**Where it actually stands after the correction.** The gate holds, the escape releases, and what
-remains is that `IsStreamingCompleted(nullptr)` does not appear to go true on CitySample — so
-every bring-up would pay the **full timeout** rather than releasing when the ground is ready.
-That is slow-but-functional, not a hang, which is a materially better position than the previous
-entry claimed.
+**Where it stands after step 1 (measured 2026-08-16 — worklog
+`docs/worklog/2026-08-16-sim32-gating-physics-on-streaming.md`).**
+
+Scoping the query to the vehicle **works**: `IsStreamingCompleted(Activated, {source at
+getUUPosition()}, bExactState=false)` returns a verdict in **0.4 s**, against a `nullptr` query that
+never resolved and always paid the 300 s ceiling.
+
+**And 0.4 s is the wrong answer.** The on-screen log named the mechanism: `Collision#2 with
+FastGeoSurrogateActor_0`. The vehicle came to rest on the **far-field surrogate**, whose cells are
+legitimately `Activated` — so the query answers truthfully about a world that is complete *for the
+detail level requested at that instant*. Roughly five minutes later the real cells replaced the
+surrogate, the support vanished, and the vehicle fell **32 m** (`z = +31.96, vz = +8.57`) before
+landing on the real ground at `z = +0.751`. The screen was still black at 02:52:25, five minutes
+after the gate had declared the world settled.
+
+Caveat carried honestly: the collision line and the timeline are the evidence. The surrogate swap
+itself is **not** instrumented, so that account is the leading explanation, not proven.
+
+**`SIM-10` is now demonstrated, not predicted.** The run died on no finite EKF origin with **166**
+`poll timeout` errors and PX4 reporting `GPS Vertical Pos Drift too high` / `height estimate not
+stable`. Holding physics starves the HIL stream, and PX4 starts as soon as TCP 4560 accepts.
+
+**Step 1 is done, and it rules the predicate out (measured 2026-08-16, second cold run).**
+
+Instrumented to evaluate the query every tick for 600 s, logging on change rather than latching.
+Complete trace across the whole window:
+
+```
+SIM-32 probe: streaming settled -> TRUE at 0.400 s
+```
+
+**One transition. `TRUE` at 0.400 s, never `FALSE` again in 600 s** — a window that covers the
+period in which the previous run's vehicle fell 32 m. So `0.400 s` is deterministic (identical on
+two cold bring-ups), and **a dwell requirement cannot fix this**: dwell only helps if the signal
+changes, and this one reads `TRUE` continuously straight through the surrogate being replaced by
+the real city. The vehicle ended resting at `z = +0.752` against `+0.751` last run — the same
+fall-then-land sequence, reproduced to the millimetre.
+
+**What is ruled out:** `IsStreamingCompleted(Activated, {source at the vehicle})` cannot express the
+question the gate needs. It answers "are the currently-requested cells activated", which is true of
+the far-field surrogate and stays true as detail levels swap underneath. It has no notion of "the
+ground under me is the ground that will still be here in a minute".
+
+This is a negative result about the **predicate**, not the gate. The gate mechanism is sound and
+measured — physics holds, the escape releases. What has no working implementation is the condition.
 
 **Next, in order:**
 
-1. **Scope the query to the vehicle rather than `nullptr`** — the query-source overload with a
-   location and radius, so it answers "the cells under me are ready" and releases in seconds
-   instead of at the ceiling. This is the one remaining piece of the fix itself.
-2. **Fold in `SIM-10`.** Holding physics starves PX4's HIL stream (88 `poll timeout` errors), so
-   this cannot ship while PX4 is already running. PX4 must start after the gate releases. The two
-   tasks are coupled.
-3. Only then measure it over N cold bring-ups.
+1. **Find a predicate outside the streaming subsystem.** Untested candidates: a **downward trace**
+   from the vehicle gated on the hit actor not being a `FastGeoSurrogateActor`/HLOD proxy (asks the
+   question literally, and the surrogate is nameable — that is how it was caught at all); or waiting
+   on the specific cell containing the spawn point, if World Partition exposes that granularity.
+2. **Fold in `SIM-10`** — PX4 must start after the gate releases. Both cold runs died on no finite
+   EKF origin because holding physics starves the HIL stream. The two tasks are one.
+3. Only then measure over N cold bring-ups — and on **NVMe**: CitySample currently lives on the
+   7 TB spinning disk, against this project's own rule, which inflates every duration here.
+4. **Live option: don't ship this.** `SIM-30`'s pause-and-probe already works. The gate is the
+   better design, but "better design, no working predicate" does not beat "working".
+
+**Observability defect found while measuring:** the gate reports via
+`UAirBlueprintLib::LogMessageString`, which renders only to the on-screen Slate overlay — it never
+reaches stdout, so `docker logs` shows nothing and the verdict is invisible to any headless run.
+It had to be read off a screenshot. **Fixed** — `UE_LOG` added alongside, and the second run's
+verdict came straight out of `docker logs`.
 
 **Superseded plan text follows.**
 
