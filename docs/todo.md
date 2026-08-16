@@ -3883,7 +3883,54 @@ decorative.
 
 ## SIM-32 — Don't step physics until the ground exists
 
-**Status:** 🔵 **open, designed 2026-08-16, nothing built.** Every unknown named when this was
+**Status:** 🟡 **BUILT AND TESTED 2026-08-16 — the mechanism works, the implementation hangs.**
+`patches/cosys-airsim/0007` exists and is **not applied to anything**; the vehicle no longer falls,
+and the simulator never starts. Both halves of that sentence are results.
+
+**IT PROVED THE MECHANISM.** On CitySample, with the gate in place, the vehicle sat at
+`z = -0.0000, vz = 0.0000` for the entire fifteen-minute load — where every previous run had it
+hundreds of metres down at 8.5 m/s by that point. `ensure_grounded` took its no-op path and
+reported `on ground` without doing anything. Nothing had to detect, hold, probe or repair a fall,
+because there was no fall.
+
+**AND IT HUNG, WHICH IS THE FAILURE THIS PLAN NAMED IN ADVANCE.** Physics never started at all.
+Proven, not inferred: lifting the vehicle 5 m left it at `z = -5.0000, vz = 0.0000` indefinitely —
+nothing was stepping. Two things went wrong together:
+
+- **`IsStreamingCompleted(nullptr)` apparently never returns true on CitySample.** This is the
+  exact risk the plan flagged: the strictest form of the question, on a world whose traffic and
+  crowds stream continuously. The plan said the timeout would cover it. It did not.
+- **The timeout never fired.** `physics_gate_waited_s_ += DeltaSeconds` accumulated in
+  `ASimModeWorldBase::Tick`, with a 300 s ceiling, across a fifteen-minute load — so either that
+  Tick is not running for this sim mode, or the accumulator is not advancing as assumed. **Not yet
+  established which**, and that is the next thing to find out.
+
+The plan's own words were *"a gate with no escape is a hang, which is a worse failure than the one
+being fixed"*. The escape was written and it did not work, which is worse than not having written
+it: the design looked covered.
+
+**A second consequence, not in the plan.** Holding physics starves PX4's HIL sensor stream — 88
+`ERROR [simulator_mavlink] poll timeout 0, 25` lines while the gate held. PX4 connects to TCP 4560
+and then receives nothing. Even with the hang fixed, **gating physics while PX4 is already running
+is the wrong order**: this only makes sense combined with `SIM-10`, starting PX4 after the gate
+releases. The two tasks are coupled and were treated as independent.
+
+**Cost, now measured rather than estimated:** the plugin compiles in **21.8 s**
+(`Result: Succeeded`), and the artifact drops into a world by copying `Binaries/Linux` plus the
+patched sources. The 396-file figure quoted earlier was always about integrating CitySample, never
+about changing the plugin.
+
+**Everything was restored:** CitySample's plugin returned from backup (0 `SIM-32` strings), the
+Blocks environment reverted and rebuilt clean, no containers left running. The patch is on the
+branch and applied to nothing.
+
+**Next, in order:** find out why the timeout did not fire before touching anything else; then
+scope the query to the vehicle's own streaming source rather than `nullptr`; then fold in `SIM-10`
+so PX4 starts after the gate releases rather than starving behind it.
+
+**Superseded plan text follows.**
+
+**Status when planned:** 🔵 open, designed 2026-08-16, nothing built. Every unknown named when this was
 first proposed has since been resolved against the actual engine and plugin sources — see
 "verified before building" below. This is the fix `patches/cosys-airsim/0005` deferred, and the
 one that would close `SIM-10`.
