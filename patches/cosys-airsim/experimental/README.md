@@ -1,7 +1,10 @@
-# Experimental patches — NOT applied by `scripts/build_airsim_wrapper.sh`
+# Experimental patches — NOT applied by any build script
 
-The build script globs `patches/cosys-airsim/*.patch`, so anything in this subdirectory is
-deliberately excluded from the shipped configuration.
+**Three** scripts glob `patches/cosys-airsim/*.patch` and apply what they find:
+`build_airsim_wrapper.sh:66`, `build_blocks.sh:65` and `convert_world.sh:154`. All three globs are
+**non-recursive**, so anything in this subdirectory is deliberately excluded from the shipped
+configuration. If you ever make one of them recursive, everything here starts shipping — for
+`0007` that means gating physics on every converted world, which kills bring-up.
 
 ## `0004-scene-capture-ldr.patch`
 
@@ -52,12 +55,20 @@ physics — which starves PX4's HIL stream and kills bring-up on "no finite EKF 
 `poll timeout` errors. This directory is excluded by the non-recursive glob; that is the whole
 point of it.
 
-**Known defects, found by review and NOT fixed — fix them before this is ever un-parked:**
+**Nine known defects, found by two review passes and NOT fixed — fix them before this is ever
+un-parked.** Defect 1 was corrected after the second pass showed the first pass had its mechanism
+backwards, which is itself a reason to re-derive rather than trust this list:
 
-1. **`simPause(true)` during the gate window is silently discarded.** `startAsyncUpdator()`
-   reaches `ScheduledExecutor::start()`, which calls `initializePauseState()` and unconditionally
-   sets `paused_ = false`. `sim_up.sh`'s `ensure_grounded` pauses right after `wait_for_sim_link`,
-   so on a slow world that pause can be thrown away and the vehicle falls unwatched.
+1. **`simPause(true)` during the gate window WEDGES the gate — it does not get discarded.**
+   *(Corrected 2026-08-16 by the second review; the first version of this list had the mechanism
+   backwards, and a maintainer would have fixed the wrong thing.)* `ASimModeWorldBase::pause()`
+   calls `physics_world_->pause()` **and** `ASimModeBase::pause()`, and the latter calls
+   `UGameplayStatics::SetGamePaused` (`SimModeBase.cpp:1472`). No AirSim actor sets
+   `bTickEvenWhenPaused`, so while the pause is in effect `Tick()` does not run at all — the gate
+   cannot release, and its escape timer cannot advance. `sim_up.sh`'s `ensure_grounded` pauses
+   right after `wait_for_sim_link` and holds for up to `STREAM_PAUSE_MAX_S` (600 s), which is
+   longer than the gate's own 300 s deadline. A deadlock between the gate and the workaround that
+   replaced it.
 2. **`continueForTime`/`continueForFrames` hang the game thread while the gate is closed.** They
    busy-wait on `isPaused()`, which only flips inside `executorLoop()` — not running before
    release. Blocking the game thread means `Tick()` never runs, so the gate can never release and
@@ -72,6 +83,24 @@ point of it.
    `registerPhysicsBody()` get no protection.
 6. **Unchecked `static_cast<PawnSimApi*>`** over a `VehicleSimApiBase*` list; the following null
    check cannot catch a wrong-type entry.
+7. **`ScheduledExecutor`'s state is indeterminate for the whole gate window.**
+   `start_async_updator = false` means `World::startAsyncUpdator()` never runs, and that is the
+   only caller of `ScheduledExecutor::initialize()`. Its default constructor initialises nothing
+   and `PhysicsWorld` is heap-allocated, so `paused_`, `started_` and `period_nanos_` hold
+   indeterminate values for up to 300 s. `simIsPaused` then reads an atomic never stored to, and
+   ending the level before release runs `~World → executor_.stop()`, which branches on
+   uninitialised `started_` and may `join()` a default-constructed thread.
+8. **The gate blinds `ensure_grounded`, which is the safety net it defers to.** With physics
+   held, `vz` is *exactly* 0 — and that is the signal `SIM-30`'s probe uses to decide the vehicle
+   is resting. Its first `resting()` check therefore passes unconditionally and it reports "on
+   ground" for any world. The worklog records `settled at z=-0.000` / `on ground at z=-0.000` as
+   evidence the gate works; it equally means the net was blind, and PX4 initialises its EKF origin
+   against a vehicle that starts falling the moment the gate releases.
+9. **The 300 s escape is measured in TICKED GAME TIME, not wall clock.** It accumulates `Tick`'s
+   `DeltaSeconds`, so it stops advancing whenever the game is paused (defect 1) or the game thread
+   stalls — both of which this patch's own measurements produce. The header's guarantee that the
+   updator starts "after `kPhysicsGateTimeoutS` regardless" is not bounded in the only clock an
+   operator or bring-up script actually has.
 
 Revisit note: CitySample lives on the 7 TB spinning disk, against this project's own rule. Slow
 storage does not cause the predicate bug but it sets its blast radius — copy the world to internal

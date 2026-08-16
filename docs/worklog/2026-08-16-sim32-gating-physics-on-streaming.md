@@ -269,3 +269,36 @@ directly with `SIM-30`'s pause-and-probe, the solution this work just deferred t
 `continueForTime` busy-waits on a flag only the unstarted executor can flip, blocking the game
 thread so `Tick()` never runs, the gate never releases, and the 300 s escape never fires. That is
 a hang, which the patch header explicitly claims to have designed against.
+
+---
+
+## Second review pass — and the evidence on this page reads two ways
+
+The re-review confirmed the blocking fix (all three patch globs verified non-recursive, so
+`experimental/` genuinely excludes `0007`) and found more. Two are worth carrying here rather than
+only in the patch README.
+
+**My defect list had a mechanism backwards.** I recorded that `simPause(true)` during the gate
+window would be *silently discarded* by `initializePauseState()`. It cannot be:
+`ASimModeWorldBase::pause()` calls `physics_world_->pause()` **and** `ASimModeBase::pause()`, and
+the latter calls `UGameplayStatics::SetGamePaused` (`SimModeBase.cpp:1472`). No AirSim actor sets
+`bTickEvenWhenPaused`, so while paused `Tick()` does not run at all. The real failure is the
+opposite and worse: **the pause wedges the gate**. `ensure_grounded` pauses for up to
+`STREAM_PAUSE_MAX_S` = 600 s, longer than the gate's own 300 s deadline — and that deadline is
+accumulated `DeltaSeconds`, so it does not advance while paused either. A deadlock between the gate
+and the workaround that replaced it. I checked this myself after the review raised it, and my first
+reading of the source was wrong in the review's favour.
+
+**And the headline evidence on this page is double-edged.** I recorded `settled at z=-0.000` /
+`on ground at z=-0.000` as proof the gate holds the vehicle. It is also proof that `SIM-30`'s
+probe was **blind**: with physics held, `vz` is exactly 0, which is the very signal `resting()`
+uses — so its first check passes unconditionally and it reports "on ground" for any world at all.
+The gate silently disables the safety net it defers to. That reading did not occur to me while
+writing the measurement down, and it is the more important of the two.
+
+Nine defects now recorded in `patches/cosys-airsim/experimental/README.md`. Also corrected off the
+back of this pass: `docs/vendor/cosys-airsim.md`'s "only patch that would touch the UE plugin"
+callout (there are now two), the defect count in three places, and `SIM-30`'s status — which I had
+flipped to ✅ on the strength of an owner's choice of approach, while that entry's own bar is
+"done means a success rate, not a success" and no N-run campaign has been run. It now reads 🟢
+approach chosen, success rate not re-measured.

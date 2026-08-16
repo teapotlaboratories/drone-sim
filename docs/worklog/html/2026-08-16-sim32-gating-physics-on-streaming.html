@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog &middot; 2026-08-16 &middot; SIM-32</span>
-  <nav><a href="#gate">The gate</a><a href="#scope">Scoping</a><a href="#trap">The trap</a><a href="#measured">Measured</a><a href="#px4">The other half</a><a href="#ruled">Ruled out</a><a href="#closed">Closed out</a><a href="#correction">Correction</a><a href="index.html">Index</a></nav>
+  <nav><a href="#gate">The gate</a><a href="#scope">Scoping</a><a href="#trap">The trap</a><a href="#measured">Measured</a><a href="#px4">The other half</a><a href="#ruled">Ruled out</a><a href="#closed">Closed out</a><a href="#correction">Correction</a><a href="#pass2">Pass two</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -393,6 +393,32 @@ pause-and-probe, the very solution this work defers to. And <code>continueForTim
 on a flag only the unstarted executor can flip, blocking the game thread so <code>Tick()</code> never
 runs, the gate never releases, and the 300&nbsp;s escape never fires. <strong>A hang</strong> &mdash;
 which the patch header explicitly claims to have designed against.</p></div>
+
+<h2 id="pass2"><span class="secnum">09</span> Second review pass &mdash; the evidence reads two ways</h2>
+<div class="callout stop"><span class="lbl">The headline measurement is double-edged</span>
+<p>I recorded <code>settled at z=-0.000</code> / <code>on ground at z=-0.000</code> as proof the gate
+holds the vehicle. It is <em>also</em> proof that <code>SIM-30</code>&rsquo;s probe was
+<strong>blind</strong>: with physics held, <code>vz</code> is exactly 0 &mdash; the very signal
+<code>resting()</code> uses &mdash; so its first check passes unconditionally and it reports &ldquo;on
+ground&rdquo; for any world at all. <strong>The gate silently disables the safety net it defers
+to.</strong> That reading did not occur to me while writing the measurement down, and it is the more
+important of the two.</p></div>
+<div class="callout warn"><span class="lbl">My defect list had a mechanism backwards</span>
+<p>I recorded that <code>simPause(true)</code> during the gate window would be <em>silently
+discarded</em>. It cannot be. <code>ASimModeWorldBase::pause()</code> calls
+<code>physics_world_-&gt;pause()</code> <strong>and</strong> <code>ASimModeBase::pause()</code>, which
+calls <code>SetGamePaused</code> (<code>SimModeBase.cpp:1472</code>); no AirSim actor sets
+<code>bTickEvenWhenPaused</code>, so while paused <code>Tick()</code> does not run. The real failure
+is the opposite and worse &mdash; <strong>the pause wedges the gate</strong>. <code>ensure_grounded</code>
+holds for up to 600&nbsp;s against the gate&rsquo;s 300&nbsp;s deadline, and that deadline is
+accumulated <code>DeltaSeconds</code>, so it does not advance while paused either. A deadlock between
+the gate and the workaround that replaced it. I checked it myself after the review raised it, and my
+first reading of the source was wrong in the review&rsquo;s favour.</p></div>
+<p>Nine defects are now recorded in <code>experimental/README.md</code>. Also corrected: the vendor
+doc&rsquo;s &ldquo;only patch that would touch the UE plugin&rdquo; callout, the defect count in three
+places, and <code>SIM-30</code>&rsquo;s status &mdash; flipped to ✅ on an owner&rsquo;s choice of
+approach when that entry&rsquo;s own bar is <em>&ldquo;done means a success rate, not a success&rdquo;</em>
+and no N-run campaign has been run. It now reads 🟢 approach chosen, success rate not re-measured.</p>
 
 <footer>
   <span>Worklog &middot; 2026-08-16 &middot; SIM-32</span>

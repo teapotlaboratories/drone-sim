@@ -3610,8 +3610,10 @@ evidence.** Fixed two ways, because either alone would leave the trap armed:
 
 ## SIM-30 — Hold the vehicle until World Partition streaming completes
 
-**Status:** ✅ **THE OFFICIAL SOLUTION for the falling vehicle, as of 2026-08-16** — chosen by
-the owner over `SIM-32`'s gate: *"let's use the simPause method as the official solution for now."*
+**Status:** 🟢 **THE OFFICIAL APPROACH for the falling vehicle, as of 2026-08-16 — approach
+chosen, success rate NOT re-measured.** Deliberately not ✅: this entry's own bar is *"done means a
+success rate, not a success"*, and no N-run campaign has been run since. What happened is that the
+owner chose the approach over `SIM-32`'s gate: *"let's use the simPause method as the official solution for now."*
 `SIM-32` attempted to prevent the fall rather than repair it, and its release predicate was measured
 and ruled out (see that entry); this one ships, and City Sample flies on it. Revisit `SIM-32` later,
 most likely after moving worlds onto NVMe.
@@ -3901,10 +3903,12 @@ recorded negative result at
 claim the first version of this entry made. `build_blocks.sh:65` and `convert_world.sh:154` glob
 `patches/cosys-airsim/*.patch` and apply anything touching `Unreal/`, which `0007` does, so the
 next world conversion would have shipped the gate and killed bring-up. `experimental/` is outside
-that non-recursive glob. Five further defects found by the same review are recorded in
-`patches/cosys-airsim/experimental/README.md` as blockers for un-parking, two of them severe:
-`simPause` issued during the gate window is silently discarded, and `continueForTime` hangs the
-game thread so the gate can never release.
+that non-recursive glob. **Nine** known defects are recorded in `patches/cosys-airsim/experimental/README.md` as blockers
+for un-parking (five from the first review pass, three more from the second, and one of the
+originals rewritten because its mechanism was backwards). Two are severe: a `simPause` during the
+gate window **wedges** the gate — `ASimModeBase::pause` calls `SetGamePaused`, no AirSim actor
+sets `bTickEvenWhenPaused`, so `Tick()` stops and neither the gate nor its escape timer can
+advance — and `continueForTime` busy-waits the game thread to the same effect.
 
 **Leading hypothesis for revisiting: this is mostly a SLOW-STORAGE problem.** CitySample lives on
 the 7 TB **spinning disk**, against this project's own rule that the simulator's live working set
