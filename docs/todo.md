@@ -3891,6 +3891,32 @@ decorative.
 
 ---
 
+## SIM-33 — Give the stack a teardown command
+
+**Status:** 🔵 **open, raised 2026-08-16** by the review of PR 55 (the teardown rule) — the rule
+demands a verified teardown after every flight, and **the repo has no way to do one**.
+
+`sim_up.sh` has a `teardown()` (line 219) but it is only called at the *start* of a bring-up
+(line 735) to clear a previous stack. `scripts/sim_down.sh` does not exist, despite being reached
+for by name more than once — every teardown in this session silently fell through to a hand-typed
+`docker rm -f`. Hand-typed lists have consistently missed **`sim-xrce`**, which the canonical list
+at `sim_up.sh:224` includes precisely because a stale one holds udp/8888 and `MicroXRCEAgent`
+**exits 0 when it fails to bind**. The failure then surfaces as a silently broken *next* bring-up,
+nowhere near its cause.
+
+**The work:** a `--down` flag on `sim_up.sh` (or `scripts/sim_down.sh` delegating to it) that runs
+the same `teardown()` and then *verifies* rather than assumes — `docker ps`, the `pgrep` caveats
+now recorded in `.ai/AGENTS.md` (15-char `comm` truncation, scripts whose `comm` is `bash`, `-f`
+matching the asking shell), a display-scoped `Xvfb` check, and `nvidia-smi --query-compute-apps`.
+It must stop `record_chase.sh` **first**: `docker rm -f` SIGKILLs ffmpeg and the mp4 loses its moov
+atom — the very evidence hard stop 5 requires.
+
+**Why code rather than a longer rule:** the rule is now ~50 lines of caveats about how to verify by
+hand, and every caveat is a way to get it wrong. A command that does it and prints what it checked
+replaces all of them, and cannot drift from `sim_up.sh:224`.
+
+---
+
 ## SIM-32 — Don't step physics until the ground exists
 
 **Status:** ⏸️ **PARKED 2026-08-16 by the owner** — "let's use the simPause method as the
