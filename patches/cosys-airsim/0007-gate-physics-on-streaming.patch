@@ -1,0 +1,163 @@
+Do not start stepping physics until World Partition has finished streaming.
+
+THE PROBLEM patch 0005 left open, in its own words: "a proper fix has to hold the vehicle until
+streaming around it completes rather than racing it."
+
+On a World Partition world the terrain streams in AROUND the vehicle, while the vehicle begins
+falling on the very first physics step. If it passes the ground plane before the cells under it
+activate, there is nothing to land on -- and because the streaming source follows the pawn, a
+vehicle that has fallen away loads cells around its new position while the spawn unloads, so the
+situation cannot recover on its own.
+
+WHERE THE GATE GOES. PhysicsWorld's constructor takes `start_async_updator` and defaults it to
+true, and initializeWorld() starts the async updator immediately -- so physics is running before
+any terrain exists. ASimModeWorldBase::initializeForPlay() now passes false, and Tick() starts the
+updator once UWorldPartitionSubsystem::IsStreamingCompleted() reports the world settled.
+
+WHY UE PHYSICS IS NOT THE LEVER. This vehicle is not moved by Unreal's physics. AirSim's own
+integrator writes the pose through PawnSimApi::setPose ->
+pawn->SetActorLocationAndRotation(..., ETeleportType::TeleportPhysics). Disabling pawn physics
+would therefore have changed nothing; the async updator is what has to be held.
+
+WHY THE WAIT IS NON-BLOCKING. The wait lives in Tick and returns early. Blocking inside it would
+stall the game thread -- which is the thread performing the streaming being waited for, so a
+blocking wait would prevent the very work that ends it.
+
+WHY THERE IS A TIMEOUT. A gate with no escape converts a race into a hang, which is a worse
+failure than the one being fixed: a hang gives no diagnosis at all. After
+kPhysicsGateTimeoutS the updator starts regardless and logs at Failure level that it did so,
+because that is the case where the vehicle may still fall.
+
+WORLDS WITHOUT A PARTITION ARE UNAFFECTED. isStreamingSettled() returns true when the world has
+no UWorldPartitionSubsystem, so Blocks and every other non-streaming map start physics on the
+first tick exactly as before.
+
+IsStreamingCompleted(nullptr) asks the strictest form of the question -- every streaming level,
+not a sphere around the vehicle. It is tried first because it needs no coordinate conversion
+between AirLib NED and Unreal world space; if it proves too strict on a world whose traffic
+streams continuously, the timeout still releases and the log records which path was taken.
+
+--- a/Unreal/Plugins/AirSim/Source/SimMode/SimModeWorldBase.h
++++ b/Unreal/Plugins/AirSim/Source/SimMode/SimModeWorldBase.h
+@@ -48,6 +48,9 @@
+     //used for adding physics bodies on the fly
+     virtual void registerPhysicsBody(msr::airlib::VehicleSimApiBase* physicsBody) override;
+ 
++    // SIM-32: has World Partition finished streaming? True for worlds without one.
++    bool isStreamingSettled() const;
++
+     long long getPhysicsLoopPeriod() const;
+     void setPhysicsLoopPeriod(long long period);
+ 
+@@ -60,6 +63,21 @@
+     std::unique_ptr<PhysicsEngineBase> createPhysicsEngine();
+ 
+ private:
++    // SIM-32: physics does not start until the ground exists.
++    //
++    // On a World Partition world the terrain streams in AROUND the vehicle, and the vehicle
++    // begins falling on the very first physics step -- so it can pass through where the ground
++    // is about to be. Everything before this either raced that or reacted to it.
++    //
++    // These hold the gate: the updator is not started in initializeForPlay(), and Tick() starts
++    // it once streaming has settled, or once the deadline expires.
++    bool physics_started_ = false;
++    float physics_gate_waited_s_ = 0.0f;
++
++    // A GATE WITH NO ESCAPE IS A HANG, which is a worse failure than the race it replaces. If
++    // streaming never reports completion the simulator must start anyway and say so, loudly.
++    static constexpr float kPhysicsGateTimeoutS = 300.0f;
++
+     std::unique_ptr<msr::airlib::PhysicsWorld> physics_world_;
+     PhysicsEngineBase* physics_engine_;
+ 
+--- a/Unreal/Plugins/AirSim/Source/SimMode/SimModeWorldBase.cpp
++++ b/Unreal/Plugins/AirSim/Source/SimMode/SimModeWorldBase.cpp
+@@ -2,7 +2,10 @@
+ #include "physics/FastPhysicsEngine.hpp"
+ #include "physics/ExternalPhysicsEngine.hpp"
+ #include <exception>
++#include <string>
+ #include "AirBlueprintLib.h"
++#include "Engine/World.h"
++#include "WorldPartition/WorldPartitionSubsystem.h"
+ 
+ void ASimModeWorldBase::BeginPlay()
+ {
+@@ -18,9 +21,16 @@
+ 
+     std::unique_ptr<PhysicsEngineBase> physics_engine = createPhysicsEngine();
+     physics_engine_ = physics_engine.get();
++    // start_async_updator = FALSE. This is the whole change.                        (SIM-32)
++    //
++    // PhysicsWorld's constructor defaults it to true and initializeWorld() starts stepping
++    // immediately, which is why the vehicle begins falling before any terrain has streamed in.
++    // Tick() starts it instead, once the world says streaming has settled.
+     physics_world_.reset(new msr::airlib::PhysicsWorld(std::move(physics_engine),
+                                                        vehicles,
+-                                                       getPhysicsLoopPeriod()));
++                                                       getPhysicsLoopPeriod(),
++                                                       false,   // state_reporter_enabled (default)
++                                                       false)); // start_async_updator -- gated
+ }
+ 
+ void ASimModeWorldBase::registerPhysicsBody(msr::airlib::VehicleSimApiBase* physicsBody)
+@@ -148,8 +158,58 @@
+     //we use custom debug reporting for this class
+ }
+ 
++bool ASimModeWorldBase::isStreamingSettled() const
++{
++    UWorld* world = GetWorld();
++    if (!world)
++        return true;
++
++    // A world with no partition never streams, so there is nothing to wait for. This is what
++    // keeps Blocks and every other non-World-Partition map completely unaffected.
++    UWorldPartitionSubsystem* wp = world->GetSubsystem<UWorldPartitionSubsystem>();
++    if (!wp)
++        return true;
++
++    // nullptr means "every streaming level", which is the strictest form of the question. It is
++    // deliberately the first thing tried rather than a spatial query around the vehicle: it needs
++    // no coordinate conversion, and if it proves too strict on a world with continuously
++    // streaming traffic the timeout below still releases and the log says which path was taken.
++    return wp->IsStreamingCompleted(nullptr);
++}
++
+ void ASimModeWorldBase::Tick(float DeltaSeconds)
+ {
++    if (!physics_started_) {
++        physics_gate_waited_s_ += DeltaSeconds;
++        const bool settled = isStreamingSettled();
++        const bool timed_out = physics_gate_waited_s_ >= kPhysicsGateTimeoutS;
++
++        if (settled || timed_out) {
++            physics_started_ = true;
++            startAsyncUpdator();
++            if (timed_out && !settled) {
++                // LOUD, because this is the case where the vehicle may still fall: the gate gave
++                // up rather than the world becoming ready.
++                UAirBlueprintLib::LogMessageString(
++                    "SIM-32: world partition streaming did NOT settle; starting physics anyway "
++                    "after seconds: ",
++                    std::to_string(physics_gate_waited_s_), LogDebugLevel::Failure);
++            }
++            else {
++                UAirBlueprintLib::LogMessageString(
++                    "SIM-32: streaming settled; physics started after seconds: ",
++                    std::to_string(physics_gate_waited_s_), LogDebugLevel::Informational);
++            }
++        }
++        else {
++            // NOT BLOCKING. Returning here keeps the game thread free -- which matters because
++            // that is the thread doing the streaming we are waiting for. Blocking inside this
++            // function would prevent the very work that ends the wait.
++            Super::Tick(DeltaSeconds);
++            return;
++        }
++    }
++
+     { //keep this lock as short as possible
+         physics_world_->lock();
+ 
