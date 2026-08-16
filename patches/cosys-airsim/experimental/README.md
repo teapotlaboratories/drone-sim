@@ -28,3 +28,53 @@ gamma encode. If so, `TargetGamma` would only start to matter *with* this patch,
 "gamma is refuted" finding is strictly a stock-HDR result.
 
 See `docs/worklog/2026-08-03-c11-washout-root-cause.md`.
+
+## `0007-gate-physics-on-streaming.patch`
+
+Gates AirSim's physics start on World Partition streaming, so the vehicle never begins falling
+before the terrain under it exists. `PhysicsWorld` is constructed with
+`start_async_updator = false`, and `ASimModeWorldBase::Tick` starts the updator once
+`isStreamingSettled()` returns true or a 300 s deadline expires.
+
+**Status: parked 2026-08-16. The mechanism works; its release condition is ruled out.**
+
+The gate itself is proven — physics holds at `z = -0.000` and the escape releases, both measured.
+What does not work is the predicate. `IsStreamingCompleted(Activated, {source at the vehicle})`
+returns `TRUE` **0.400 s** in, on the far-field surrogate, and **never returns `FALSE` again in
+600 s** — straight through the surrogate being replaced by the real city. The vehicle falls 32 m
+at that swap. A dwell requirement cannot help, because dwell only helps if the signal changes.
+`SIM-30`'s pause-and-probe is the official solution instead.
+
+**It lives here because the build scripts would otherwise ship it.** `build_blocks.sh:65` and
+`convert_world.sh:154` glob `patches/cosys-airsim/*.patch` and apply anything whose diff touches
+`Unreal/`. `0007` matches. Left at the top level, the next world conversion would silently gate
+physics — which starves PX4's HIL stream and kills bring-up on "no finite EKF origin" with ~166
+`poll timeout` errors. This directory is excluded by the non-recursive glob; that is the whole
+point of it.
+
+**Known defects, found by review and NOT fixed — fix them before this is ever un-parked:**
+
+1. **`simPause(true)` during the gate window is silently discarded.** `startAsyncUpdator()`
+   reaches `ScheduledExecutor::start()`, which calls `initializePauseState()` and unconditionally
+   sets `paused_ = false`. `sim_up.sh`'s `ensure_grounded` pauses right after `wait_for_sim_link`,
+   so on a slow world that pause can be thrown away and the vehicle falls unwatched.
+2. **`continueForTime`/`continueForFrames` hang the game thread while the gate is closed.** They
+   busy-wait on `isPaused()`, which only flips inside `executorLoop()` — not running before
+   release. Blocking the game thread means `Tick()` never runs, so the gate can never release and
+   the 300 s escape never fires. A hang, which is exactly what the design set out to avoid.
+3. **The early return skips `updateRenderedState`/`updateRendering` for every vehicle** for up to
+   300 s, so a `simSetVehiclePose` during the wait is accepted and never applied — capture scripts
+   would silently photograph the spawn pose, and the gate's own query keeps sampling a stale
+   `getUUPosition()`.
+4. **The 600 s per-tick probe is unconditional**, with no cvar or `#if !UE_BUILD_SHIPPING` — ~36k
+   `IsStreamingCompleted` calls after release, on the worlds where that query is most expensive.
+5. **The empty-vehicle escape latches the gate permanently open**, so vehicles added later via
+   `registerPhysicsBody()` get no protection.
+6. **Unchecked `static_cast<PawnSimApi*>`** over a `VehicleSimApiBase*` list; the following null
+   check cannot catch a wrong-type entry.
+
+Revisit note: CitySample lives on the 7 TB spinning disk, against this project's own rule. Slow
+storage does not cause the predicate bug but it sets its blast radius — copy the world to internal
+NVMe and re-run the instrumented build before writing any new predicate.
+
+See `docs/worklog/2026-08-16-sim32-gating-physics-on-streaming.md`.

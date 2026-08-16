@@ -3893,8 +3893,18 @@ decorative.
 
 **Status:** ⏸️ **PARKED 2026-08-16 by the owner** — "let's use the simPause method as the
 official solution for now, we can check back on this in the future." The **official solution for
-the falling vehicle is `SIM-30`'s pause-and-probe**, which ships and works. `SIM-32` stays on the
-branch as a recorded negative result; `patches/cosys-airsim/0007` is applied to nothing.
+the falling vehicle is `SIM-30`'s pause-and-probe**, which ships and works. `SIM-32` stays as a
+recorded negative result at
+`patches/cosys-airsim/experimental/0007-gate-physics-on-streaming.patch`.
+
+**It is under `experimental/` because review caught that it was NOT "applied to nothing"** — the
+claim the first version of this entry made. `build_blocks.sh:65` and `convert_world.sh:154` glob
+`patches/cosys-airsim/*.patch` and apply anything touching `Unreal/`, which `0007` does, so the
+next world conversion would have shipped the gate and killed bring-up. `experimental/` is outside
+that non-recursive glob. Five further defects found by the same review are recorded in
+`patches/cosys-airsim/experimental/README.md` as blockers for un-parking, two of them severe:
+`simPause` issued during the gate window is silently discarded, and `continueForTime` hangs the
+game thread so the gate can never release.
 
 **Leading hypothesis for revisiting: this is mostly a SLOW-STORAGE problem.** CitySample lives on
 the 7 TB **spinning disk**, against this project's own rule that the simulator's live working set
@@ -3955,7 +3965,7 @@ about changing the plugin.
 
 **Everything was restored:** CitySample's plugin returned from backup (0 `SIM-32` strings), the
 Blocks environment reverted and rebuilt clean, no containers left running. The patch is on the
-branch and applied to nothing.
+branch, and now parked under `patches/cosys-airsim/experimental/` — see the corrected status above.
 
 **Where it stands after step 1 (measured 2026-08-16 — worklog
 `docs/worklog/2026-08-16-sim32-gating-physics-on-streaming.md`).**

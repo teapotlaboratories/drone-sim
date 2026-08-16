@@ -198,6 +198,36 @@ landed. Every world injected from Blocks in that window carried an unpatched plu
 
 ---
 
+## 4b. `experimental/0007-gate-physics-on-streaming.patch` — parked, NOT applied
+
+Gates AirSim's physics start on World Partition streaming so the vehicle never begins falling
+before the terrain under it exists: `PhysicsWorld` built with `start_async_updator = false`, and
+`ASimModeWorldBase::Tick` starting the updator once streaming settles or a 300 s deadline expires.
+It is the fix `0005` deferred.
+
+**Parked 2026-08-16. The mechanism works; the release condition is ruled out.** The gate holds
+physics at `z = -0.000` and the escape releases — both measured. But
+`IsStreamingCompleted(Activated, {query source at the vehicle})` returns `TRUE` **0.400 s** in, on
+the far-field surrogate, and **never returns `FALSE` again in 600 s** — straight through the
+surrogate being replaced by the real city, which is when the vehicle falls 32 m. A dwell
+requirement cannot fix a signal that never changes. `SIM-30`'s pause-and-probe remains the
+official solution for the falling vehicle.
+
+**It lives under `experimental/` for the same reason `0004` does, and the reason is load-bearing
+here.** `build_blocks.sh:65` and `convert_world.sh:154` glob `patches/cosys-airsim/*.patch` and
+apply anything whose diff touches `Unreal/`. `0007` matches that filter. Left at the top level it
+would be applied by the next world conversion, silently gating physics — which starves PX4's HIL
+stream and kills bring-up on "no finite EKF origin" with ~166 `poll timeout` errors. **This was
+caught by review after the patch had been sitting at the top level**, where the claim being made
+about it ("applied to nothing") was false.
+
+Six known defects are recorded in `patches/cosys-airsim/experimental/README.md` and must be fixed
+before it is ever un-parked — notably that `simPause` issued during the gate window is silently
+discarded, and that `continueForTime` busy-waits on a state only the unstarted executor can change,
+hanging the game thread so the gate can never release.
+
+Full account: `docs/worklog/2026-08-16-sim32-gating-physics-on-streaming.md`.
+
 ## 5. `0006-gpulidar-empty-readback.patch`
 
 **Fixes the renderer crash that had been firing since 2026-08-02** — the one recorded below as
