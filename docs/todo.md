@@ -3881,6 +3881,70 @@ decorative.
 
 ---
 
+## SIM-32 — Don't step physics until the ground exists
+
+**Status:** 🔵 **open, designed 2026-08-16, nothing built.** Every unknown named when this was
+first proposed has since been resolved against the actual engine and plugin sources — see
+"verified before building" below. This is the fix `patches/cosys-airsim/0005` deferred, and the
+one that would close `SIM-10`.
+
+**The problem, in one line.** On a World Partition world the vehicle starts falling on the first
+physics tick, while the terrain under it is still streaming in. Everything built so far has raced
+that or survived it; nothing has removed it.
+
+| Approach | Status |
+|---|---|
+| Register the pawn as a streaming source (`0005`) | shipped — **necessary, not sufficient**, 2 of 3 |
+| Pose-hold the falling vehicle (`SIM-30`, first cut) | **failed** — holds are applied by the very game thread streaming blocks |
+| Pause physics, probe for ground (`SIM-30`, shipped) | works, and is a workaround: timing constants, a budget, a probe loop |
+| **Gate the physics start (this)** | the fix — the vehicle never falls, so there is nothing to detect or repair |
+
+**Where the gate goes.** `ASimModeWorldBase::startAsyncUpdator()`
+(`Unreal/Plugins/AirSim/Source/SimMode/SimModeWorldBase.cpp:42`) is what begins stepping —
+`physics_world_->startAsyncUpdator()`. Hold that until streaming around the vehicle has completed.
+
+**VERIFIED BEFORE BUILDING, against the engine and plugin rather than assumed:**
+
+- **The right question is askable.** `UWorldPartitionSubsystem` exposes three forms
+  (`WorldPartitionSubsystem.h:92`): a query-source form, `IsAllStreamingCompleted()`, and one
+  where *"the test is reduced to streaming levels affected by the optional streaming source
+  provider"*. **Use the scoped form.** `IsAllStreamingCompleted()` is the trap — in a world with
+  MassAI traffic and crowds constantly streaming, it may never be true.
+- **"Inert" means not starting the updator, not disabling pawn physics.** UE physics does not
+  move this vehicle: AirSim's own integrator writes `SetActorLocationAndRotation` through
+  `PawnSimApi::setPose` (`PawnSimApi.cpp:646-662`). Gating UE physics would have done nothing —
+  this was a real misconception, resolved by reading the code.
+- **It cannot deadlock on a frozen source.** The worry was that streaming might stall if the
+  source never moves. `SIM-30`'s `simPause` experiment disproves it empirically: physics paused
+  420 s with the pawn completely static, streaming still completed, and the vehicle landed on
+  release. A stationary source drives streaming perfectly well.
+
+**Cost, corrected.** A **plugin rebuild only**. CitySample's own `Source/` contains **zero**
+references to AirSim and does not list it as a module dependency, so its 396-file project build
+is not implicated — that number belongs to integrating the project, not to changing the plugin.
+`scripts/build_blocks.sh` already builds the plugin, and the artifact drops into any world with a
+matching engine version and target.
+
+**Risks to design around:**
+
+- **The wait must not block the game thread.** Blocking inside `startAsyncUpdator` would stall the
+  very thread doing the streaming — self-defeating. Poll on tick, or defer the start.
+- **A timeout is mandatory.** If streaming never completes, the sim must start anyway and say so;
+  otherwise bring-up hangs forever with no diagnosis. The failure has to be louder than a hang.
+- **Vendored-code surgery.** Lands as a patch under `patches/cosys-airsim/` with a
+  `docs/vendor/cosys-airsim.md` entry, per the least-destructive rule; the vendored tree stays
+  byte-identical to upstream.
+
+**Done means:** CitySample cold-starts with the vehicle **never leaving the ground** — no fall to
+detect, `ensure_grounded` taking its no-op path every time — over N cold bring-ups, not one. And
+Blocks unaffected.
+
+**What it would let us delete.** If this works, `SIM-30`'s pause-and-probe becomes a fallback for
+worlds running an unpatched plugin, and `SIM-10`'s "the real fix is ordering, not repair" is
+finally satisfiable: PX4 could start knowing the vehicle is already at rest.
+
+---
+
 ## Not in this backlog
 
 Recorded so they are not smuggled in:
