@@ -227,3 +227,45 @@ in one line. That is the first thing to do next time, before writing any new pre
 Untested idea left on the table, if NVMe does not settle it: a downward trace from the vehicle that
 rejects the hit when it is a `FastGeoSurrogateActor` — asking whether there is real ground below,
 instead of asking the streaming subsystem a question it cannot answer.
+
+---
+
+## Correction — "applied to nothing" was false
+
+Review of PR 57 caught it, and it is the most important thing on this page.
+
+I stated repeatedly, here and in the PR, that `patches/cosys-airsim/0007` was **applied to
+nothing** and that nothing in the shipped bring-up path changed. That was wrong.
+
+`scripts/build_blocks.sh:65` and `scripts/convert_world.sh:154` both glob
+`patches/cosys-airsim/*.patch` and apply every patch whose diff touches `Unreal/`. `0007` matches
+that filter. Verified after the fact:
+
+```
+APPLIES: 0005-worldpartition-streaming-source.patch
+APPLIES: 0006-gpulidar-empty-readback.patch
+APPLIES: 0007-gate-physics-on-streaming.patch
+```
+
+So the next `convert_world.sh` on any World Partition world, or the next `build_blocks.sh`, would
+have silently shipped the gate — which by the measurements on this very page starves PX4's HIL
+stream and kills bring-up on "no finite EKF origin". The safety property that justified merging a
+parked negative result at all did not hold.
+
+**How I missed it, since that is the reusable part.** My own build output said
+`applied  0007-gate-physics-on-streaming.patch`, in this session, more than once. I read it as
+"the build applied it for my test" when it actually meant "the build applies it, always". The
+evidence was in front of me and I fitted it to what I already believed.
+
+**Fixed** by moving it to `patches/cosys-airsim/experimental/`, which the non-recursive glob does
+not reach — the mechanism that already parks `0004`, and which existed the whole time. Confirmed
+after the move: the glob now matches `0005` and `0006` only.
+
+The review also found five further defects in the patch, none of them fixed, all recorded in
+`patches/cosys-airsim/experimental/README.md` as blockers for un-parking. Two are severe enough to
+change the design's own claim about itself: `simPause(true)` issued during the gate window is
+**silently discarded** when `startAsyncUpdator()` runs `initializePauseState()` — which collides
+directly with `SIM-30`'s pause-and-probe, the solution this work just deferred to — and
+`continueForTime` busy-waits on a flag only the unstarted executor can flip, blocking the game
+thread so `Tick()` never runs, the gate never releases, and the 300 s escape never fires. That is
+a hang, which the patch header explicitly claims to have designed against.

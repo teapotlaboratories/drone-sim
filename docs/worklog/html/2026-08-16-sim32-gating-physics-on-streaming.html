@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog &middot; 2026-08-16 &middot; SIM-32</span>
-  <nav><a href="#gate">The gate</a><a href="#scope">Scoping</a><a href="#trap">The trap</a><a href="#measured">Measured</a><a href="#px4">The other half</a><a href="#ruled">Ruled out</a><a href="#closed">Closed out</a><a href="index.html">Index</a></nav>
+  <nav><a href="#gate">The gate</a><a href="#scope">Scoping</a><a href="#trap">The trap</a><a href="#measured">Measured</a><a href="#px4">The other half</a><a href="#ruled">Ruled out</a><a href="#closed">Closed out</a><a href="#correction">Correction</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -335,7 +335,7 @@ pause-and-probe already works, and &ldquo;better design, no working predicate&rd
 the simPause method as the official solution. We can check back on this in the future.&rdquo;</em>
 So <code>SIM-30</code>&rsquo;s pause-and-probe is <strong>the</strong> answer to the falling vehicle
 &mdash; it ships, it works, and City Sample flies on it. <code>SIM-32</code> stays on its branch as a
-recorded negative result, applied to nothing.</p>
+recorded negative result &mdash; parked under <code>patches/cosys-airsim/experimental/</code>, which is where it had to be moved after review found the &ldquo;applied to nothing&rdquo; claim was false (see <a href="#correction">§08</a>).</p>
 <div class="callout warn"><span class="lbl">Read this first when picking it up again</span>
 <p><strong>This is most likely a slow-storage problem.</strong> CitySample lives on the 7&nbsp;TB
 spinning disk, against this project&rsquo;s own rule about the live working set. Both cold runs took
@@ -363,6 +363,36 @@ fix a constant. The untested idea left on the table: a downward trace rejecting 
 <code>FastGeoSurrogateActor</code> hit &mdash; asking whether real ground is below, instead of asking
 the streaming subsystem a question it cannot answer.</p></div>
 </div>
+
+<h2 id="correction"><span class="secnum">08</span> Correction &mdash; &ldquo;applied to nothing&rdquo; was false</h2>
+<div class="callout stop"><span class="lbl">Caught by review, and the most important thing on this page</span>
+<p>I stated repeatedly &mdash; here and in the PR &mdash; that <code>patches/cosys-airsim/0007</code>
+was <strong>applied to nothing</strong>, and that nothing in the shipped bring-up path changed.
+<strong>That was wrong.</strong> <code>build_blocks.sh:65</code> and <code>convert_world.sh:154</code>
+both glob <code>patches/cosys-airsim/*.patch</code> and apply every patch whose diff touches
+<code>Unreal/</code>. <code>0007</code> matches.</p>
+<pre>APPLIES: 0005-worldpartition-streaming-source.patch
+APPLIES: 0006-gpulidar-empty-readback.patch
+APPLIES: 0007-gate-physics-on-streaming.patch</pre>
+<p>So the next world conversion would have <strong>silently shipped the gate</strong> &mdash; which by
+the measurements on this very page starves PX4&rsquo;s HIL stream and kills bring-up. The safety
+property that justified merging a parked negative result at all did not hold.</p></div>
+<p><strong>How it was missed, since that is the reusable part.</strong> My own build output said
+<code>applied&nbsp;&nbsp;0007-gate-physics-on-streaming.patch</code>, in this session, more than once.
+I read it as &ldquo;the build applied it for my test&rdquo; when it meant &ldquo;the build applies it,
+always&rdquo;. The evidence was in front of me and I fitted it to what I already believed.</p>
+<p><strong>Fixed</strong> by moving it to <code>patches/cosys-airsim/experimental/</code>, outside the
+non-recursive glob &mdash; the mechanism that already parks <code>0004</code>, and which existed the
+whole time.</p>
+<div class="callout warn"><span class="lbl">Five more defects, none fixed</span>
+<p>Recorded in <code>experimental/README.md</code> as blockers for un-parking. Two change the
+design&rsquo;s claim about itself: <code>simPause(true)</code> during the gate window is
+<strong>silently discarded</strong>, because <code>startAsyncUpdator()</code> runs
+<code>initializePauseState()</code> &mdash; colliding directly with <code>SIM-30</code>&rsquo;s
+pause-and-probe, the very solution this work defers to. And <code>continueForTime</code> busy-waits
+on a flag only the unstarted executor can flip, blocking the game thread so <code>Tick()</code> never
+runs, the gate never releases, and the 300&nbsp;s escape never fires. <strong>A hang</strong> &mdash;
+which the patch header explicitly claims to have designed against.</p></div>
 
 <footer>
   <span>Worklog &middot; 2026-08-16 &middot; SIM-32</span>
