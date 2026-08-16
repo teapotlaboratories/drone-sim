@@ -337,7 +337,7 @@ no green component-level check will show.
     ```bash
     docker rm -f sim-px4 sim-ros2 sim-qgc sim-unreal
     docker ps -a --format '{{.Names}}\t{{.Status}}'          # -a, and read the AGES
-    pgrep -a -f "Binaries/Linux/UnrealEditor"                 # the real binary path
+    pgrep -x UnrealEditor; pgrep -x px4; pgrep -x Xvfb        # -x: EXACT process NAME
     nvidia-smi --query-gpu=index,memory.used --format=csv,noheader
     ```
 
@@ -350,8 +350,17 @@ no green component-level check will show.
     - **The check itself was the bug.** `for p in UnrealEditor Xvfb ffmpeg ...; do pgrep -f "$p"`
       puts every one of those names into the asking shell's own argv, so `pgrep -f` matched
       itself and reported 2–4 of everything. Numbers that looked like evidence and were an
-      artifact of how the question was asked. Match on a path the target has and the checker
-      does not.
+      artifact of how the question was asked.
+
+      **Use `pgrep -x`, not a cleverer `-f` pattern.** *(added 2026-08-16, after this bit twice
+      more in one session.)* `-x` matches the executable NAME, so a shell whose arguments merely
+      mention that name is **structurally incapable** of matching — the guarantee is in the
+      matching mode, not in the pattern's cunning. Every `-f` workaround fails the same way,
+      including the `[U]nrealEditor` bracket trick and "match on a path the checker does not
+      have": under `bash -c`, the *whole command string* lands in the wrapper's own argv, so the
+      path you chose to be distinctive is sitting right there in the process you are searching.
+      If you genuinely need `-f` (matching an interpreter's arguments, say `python3 foo.py`),
+      exclude yourself explicitly with `pgrep -f -- "$pat" | grep -v "^$$\$"`.
 
     A backgrounded or detached bring-up (`nohup`, `setsid`, `run_in_background`) **must** be
     confirmed dead by PID, not assumed dead because the foreground command returned.
