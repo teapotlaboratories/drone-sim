@@ -43,7 +43,9 @@ in [`.ai/AGENTS.md`](.ai/AGENTS.md).
    case another run is wanted". Every container, renderer and recorder. This machine is shared with the operator's other work, so
    a stack left up takes their GPU, CPU and disk. Check with `docker ps -a` and read the
    container AGES; a teardown that reported success has already been found to leave four
-   containers up for two hours. Do not use a `pgrep` pattern that matches the asking shell.
+   containers up for two hours. Verify processes with `pgrep -x <name>` (exact process name) — **not** `pgrep -f`, whose
+   pattern lands in the asking shell's own argv and matches itself, which has already produced
+   fake evidence three times.
    **Every flight test records the chase camera and reports a command the operator can run
    themselves** *(added 2026-08-13)*: `./scripts/sim_up.sh --display` then
    `SIM_CHASE_VIDEO=1 python3 scripts/run_scenario.py … --no-restart`, quoted literally in
