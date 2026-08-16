@@ -3883,7 +3883,7 @@ decorative.
 
 ## SIM-32 — Don't step physics until the ground exists
 
-**Status:** 🟡 **BUILT AND TESTED 2026-08-16 — the mechanism works, the implementation hangs.**
+**Status:** 🟡 **BUILT AND TESTED 2026-08-16 — the mechanism works; it is slow, not broken.**
 `patches/cosys-airsim/0007` exists and is **not applied to anything**; the vehicle no longer falls,
 and the simulator never starts. Both halves of that sentence are results.
 
@@ -3900,10 +3900,16 @@ nothing was stepping. Two things went wrong together:
 - **`IsStreamingCompleted(nullptr)` apparently never returns true on CitySample.** This is the
   exact risk the plan flagged: the strictest form of the question, on a world whose traffic and
   crowds stream continuously. The plan said the timeout would cover it. It did not.
-- **The timeout never fired.** `physics_gate_waited_s_ += DeltaSeconds` accumulated in
-  `ASimModeWorldBase::Tick`, with a 300 s ceiling, across a fifteen-minute load — so either that
-  Tick is not running for this sim mode, or the accumulator is not advancing as assumed. **Not yet
-  established which**, and that is the next thing to find out.
+- **~~The timeout never fired.~~ CORRECTED 2026-08-16 — the timeout works.** Tested directly with
+  a build whose streaming check was forced `false` and whose ceiling was cut to 30 s: the vehicle
+  was held at `z = -8.000, vz = 0.000` for ~38 s, then released, fell, and settled at `z = 0.698`.
+  `ASimModeWorldBase::Tick` does run — `ASimModeWorldMultiRotor` overrides `BeginPlay` but not
+  `Tick` — and the accumulator advances.
+
+  **So the earlier claim was wrong, and wrong in a specific way worth recording: I did not wait
+  long enough.** The budget counts TICK time, and the game thread is stalled for most of a
+  CitySample load, so 300 s of ticking is far more than 300 s of wall clock. Declaring the escape
+  hatch broken after a few minutes was a conclusion the evidence did not support.
 
 The plan's own words were *"a gate with no escape is a hang, which is a worse failure than the one
 being fixed"*. The escape was written and it did not work, which is worse than not having written
@@ -3924,9 +3930,21 @@ about changing the plugin.
 Blocks environment reverted and rebuilt clean, no containers left running. The patch is on the
 branch and applied to nothing.
 
-**Next, in order:** find out why the timeout did not fire before touching anything else; then
-scope the query to the vehicle's own streaming source rather than `nullptr`; then fold in `SIM-10`
-so PX4 starts after the gate releases rather than starving behind it.
+**Where it actually stands after the correction.** The gate holds, the escape releases, and what
+remains is that `IsStreamingCompleted(nullptr)` does not appear to go true on CitySample — so
+every bring-up would pay the **full timeout** rather than releasing when the ground is ready.
+That is slow-but-functional, not a hang, which is a materially better position than the previous
+entry claimed.
+
+**Next, in order:**
+
+1. **Scope the query to the vehicle rather than `nullptr`** — the query-source overload with a
+   location and radius, so it answers "the cells under me are ready" and releases in seconds
+   instead of at the ceiling. This is the one remaining piece of the fix itself.
+2. **Fold in `SIM-10`.** Holding physics starves PX4's HIL stream (88 `poll timeout` errors), so
+   this cannot ship while PX4 is already running. PX4 must start after the gate releases. The two
+   tasks are coupled.
+3. Only then measure it over N cold bring-ups.
 
 **Superseded plan text follows.**
 
