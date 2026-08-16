@@ -17,6 +17,10 @@ plugin binary `libUnrealEditor-AirSim.so` is **stock upstream** (md5 `2122e037`)
 configuration every image-quality measurement on 2026-08-03 was taken against — so those
 findings apply to vanilla Cosys-AirSim, not to a patched tree.
 
+> **TWO patches exist that are deliberately NOT applied** — `experimental/0004` below and
+> `experimental/0007` (§4b), both UE-plugin-side. The "only patch that would touch the UE
+> plugin" wording below predates `0007` and predates `0005`/`0006`; read it as history.
+>
 > **A fourth patch exists and is deliberately NOT applied.**
 > `patches/cosys-airsim/experimental/0004-scene-capture-ldr.patch` changes the `Scene` capture
 > source from `SCS_FinalToneCurveHDR` to `SCS_FinalColorLDR` (`PIPCamera.cpp:178`). It is the
@@ -221,7 +225,7 @@ stream and kills bring-up on "no finite EKF origin" with ~166 `poll timeout` err
 caught by review after the patch had been sitting at the top level**, where the claim being made
 about it ("applied to nothing") was false.
 
-Six known defects are recorded in `patches/cosys-airsim/experimental/README.md` and must be fixed
+Nine known defects are recorded in `patches/cosys-airsim/experimental/README.md` and must be fixed
 before it is ever un-parked — notably that `simPause` issued during the gate window is silently
 discarded, and that `continueForTime` busy-waits on a state only the unstarted executor can change,
 hanging the game thread so the gate can never release.
