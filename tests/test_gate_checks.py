@@ -980,6 +980,17 @@ def test_the_routing_predicate_has_exactly_one_implementation():
     assert owners == ["vendor_patches.sh"], (
         f"the predicate must live only in vendor_patches.sh; also found in {owners}")
 
+    # AND the structural check, because the above is a substring scan: a fourth copy spelled
+    # `^+++ b/Unreal` or `b/Unreal[/ ]` would slip past it. Anything that reasons about the patch
+    # directory must go through the owner.                                (review, PR 61)
+    for f in root.glob("*.sh"):
+        if f.name == "vendor_patches.sh":
+            continue
+        code = [l for l in f.read_text().splitlines() if not l.lstrip().startswith("#")]
+        if any("patches/cosys-airsim" in l for l in code):
+            assert "vendor_patches.sh" in f.read_text(), (
+                f"{f.name} reasons about the patch directory without sourcing the owner")
+
 
 def test_all_three_callers_use_the_owner():
     s = _scripts("build_airsim_wrapper.sh", "convert_world.sh", "build_blocks.sh")
@@ -1019,7 +1030,10 @@ def test_counts_are_published_for_callers():
     s = _scripts("vendor_patches.sh", "build_blocks.sh", "convert_world.sh")
     assert "VP_APPLIED=" in s["vendor_patches.sh"] and "VP_ALREADY=" in s["vendor_patches.sh"]
     assert "$VP_APPLIED" in s["build_blocks.sh"]
-    assert s["convert_world.sh"].count("$VP_APPLIED") == 2
+    # At least one use, not an exact count: pinning the number fails when a THIRD legitimate use
+    # is added, and the natural fix is to bump the magic number rather than re-check the
+    # invariant.                                                          (review, PR 61)
+    assert "$VP_APPLIED" in s["convert_world.sh"]
 
 
 def test_routing_classifies_the_shipped_patches_correctly():
@@ -1041,3 +1055,34 @@ def test_routing_classifies_the_shipped_patches_correctly():
                 "0003-per-timer-callback-groups.patch"):
         assert got.get(ros) == "R", f"{ros} is a ROS 2 wrapper patch"
     assert not [k for k in got if k.startswith("0007")], "0007 is parked in experimental/"
+
+
+def test_the_rebuild_rule_has_one_owner_too():
+    """"Already applied" is about SOURCE; the thing that flies is the BINARY. build_blocks.sh had
+    the earned version and convert_world.sh did not -- so --no-build followed by a normal run
+    shipped a plugin without 0005, and the vehicle falls through the world forever."""
+    s = _scripts("vendor_patches.sh", "build_blocks.sh", "convert_world.sh")
+    assert "vp_needs_rebuild()" in s["vendor_patches.sh"]
+    assert "vp_needs_rebuild" in s["build_blocks.sh"]
+    assert "vp_needs_rebuild" in s["convert_world.sh"], (
+        "the A1 skip must be earned by the artifact, not by source state")
+    for name in ("build_blocks.sh", "convert_world.sh"):
+        code = [l for l in s[name].splitlines() if not l.lstrip().startswith("#")]
+        assert not [l for l in code if "-newer" in l and "$SO" in l], (
+            f"{name} must not keep its own artifact-freshness check")
+
+
+def test_the_real_apply_is_checked_not_just_the_dry_run():
+    """--dry-run writes nothing, so it passes on a read-only or root-owned tree that the actual
+    write then fails -- reporting "applied" and letting a caller compile unpatched source."""
+    s = _scripts("vendor_patches.sh")["vendor_patches.sh"]
+    i = s.index("--forward --batch --silent")
+    assert "vp_die" in s[i:i + 400], "an unchecked write can report success"
+
+
+def test_counts_are_reset_on_entry():
+    """Both early exits used to leave the previous values in place."""
+    s = _scripts("vendor_patches.sh")["vendor_patches.sh"]
+    body = s[s.index("vp_apply_unreal() {"):]
+    head = body[:body.index("while IFS=")]
+    assert "VP_APPLIED=0" in head and "VP_ALREADY=0" in head

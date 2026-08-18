@@ -75,17 +75,11 @@ SO="$PLUGIN/Binaries/Linux/libUnrealEditor-AirSim.so"
 # UNPATCHED .so -- the silent-skip failure this script's header is about, reproduced by the
 # script itself. So the skip now has to be earned by the artifact.
 if [ "$VP_APPLIED" -eq 0 ] && [ -z "$FORCE" ]; then
-  if [ ! -f "$SO" ]; then
-    warn "every patch is already applied, but there is NO plugin binary at
-       $SO
-       Building rather than reporting success for an artifact that does not exist."
-  elif [ -n "$(find "$PLUGIN/Source" -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
-                    -newer "$SO" -print -quit 2>/dev/null)" ]; then
-    warn "every patch is already applied, but plugin SOURCE is newer than $(basename "$SO") --
-       the binary predates the source and cannot contain those patches. Building."
-  else
+  # ONE rule, in scripts/vendor_patches.sh: convert_world.sh had the un-earned version and
+  # could ship a plugin without 0005.                                     (review, PR 61)
+  if ! vp_needs_rebuild "$PLUGIN" "$SO"; then
     ok "every patch already applied and $(basename "$SO") is newer than the patched source;
-       nothing to rebuild (use --force to compile anyway)"
+         nothing to rebuild (use --force to compile anyway)"
     exit 0
   fi
 fi

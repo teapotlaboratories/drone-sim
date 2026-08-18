@@ -4132,7 +4132,7 @@ recorded negative result at
 `patches/cosys-airsim/experimental/0007-gate-physics-on-streaming.patch`.
 
 **It is under `experimental/` because review caught that it was NOT "applied to nothing"** — the
-claim the first version of this entry made. `build_blocks.sh:65` and `convert_world.sh:154` glob
+claim the first version of this entry made. Since `SIM-25` the one glob is `scripts/vendor_patches.sh:47`, which globs
 `patches/cosys-airsim/*.patch` and apply anything touching `Unreal/`, which `0007` does, so the
 next world conversion would have shipped the gate and killed bring-up. `experimental/` is outside
 that non-recursive glob. **Nine** known defects are recorded in `patches/cosys-airsim/experimental/README.md` as blockers

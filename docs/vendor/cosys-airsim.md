@@ -218,7 +218,7 @@ requirement cannot fix a signal that never changes. `SIM-30`'s pause-and-probe r
 official solution for the falling vehicle.
 
 **It lives under `experimental/` for the same reason `0004` does, and the reason is load-bearing
-here.** `build_blocks.sh:65` and `convert_world.sh:154` glob `patches/cosys-airsim/*.patch` and
+here.** `scripts/vendor_patches.sh:47` globs `patches/cosys-airsim/*.patch` for all three callers and
 apply anything whose diff touches `Unreal/`. `0007` matches that filter. Left at the top level it
 would be applied by the next world conversion, silently gating physics — which starves PX4's HIL
 stream and kills bring-up on "no finite EKF origin" with ~166 `poll timeout` errors. **This was

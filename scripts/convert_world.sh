@@ -242,8 +242,15 @@ fi
 # --------------------------------------------------------------------------------------
 if [ "$DO_BUILD" -eq 0 ]; then
   log "step 4/4  build skipped (--no-build)"
-elif [ "$TIER" = A1 ] && [ "$VP_APPLIED" -eq 0 ]; then
-  log "step 4/4  no build needed (A1, and no plugin patches to compile)"
+elif [ "$TIER" = A1 ] && [ "$VP_APPLIED" -eq 0 ] \
+     && ! vp_needs_rebuild "$PLUGIN" "$PLUGIN/Binaries/Linux/libUnrealEditor-AirSim.so"; then
+  # THE SKIP IS EARNED BY THE BINARY, not by source state.                (review, PR 61)
+  # This skipped on VP_APPLIED alone: run --no-build once (0005 applies), then run again
+  # normally -- every patch reverse-applies so VP_APPLIED is 0, the build is skipped, and the
+  # world ships a .so WITHOUT 0005. The vehicle then falls through it forever, which is the
+  # failure 0005 exists to prevent. build_blocks.sh had already learned this; shared now.
+  log "step 4/4  no build needed (A1, no plugin patches, and the binary is current)"
+
 else
   docker image inspect "$ENGINE_IMAGE" >/dev/null 2>&1 \
     || die "engine image $ENGINE_IMAGE is not present. It is credential-gated -- see README."

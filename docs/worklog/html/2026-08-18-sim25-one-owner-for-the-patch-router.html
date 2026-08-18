@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog &middot; 2026-08-18 &middot; SIM-25</span>
-  <nav><a href="#three">Three copies</a><a href="#paid">Paid three times</a><a href="#shipped">The owner</a><a href="#caught">What building caught</a><a href="index.html">Index</a></nav>
+  <nav><a href="#three">Three copies</a><a href="#paid">Paid three times</a><a href="#shipped">The owner</a><a href="#caught">What building caught</a><a href="#pass2">Pass two</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -232,6 +232,39 @@ now check code rather than text.</p></div>
 out and rebuilt. The resulting <code>libUnrealEditor-AirSim.so</code> is md5
 <strong><code>20f5430c1a61</code></strong>: <strong>byte-identical</strong> to the pre-refactor build
 from two days earlier. Same inputs, same artifact.</p></div>
+
+<h2 id="pass2"><span class="secnum">05</span> Review pass &mdash; a third copy, and a live bug next door</h2>
+<div class="callout stop"><span class="lbl">The extraction left a third enumeration</span>
+<p><code>build_airsim_wrapper.sh</code> adopted the predicate but still globbed the directory itself,
+with <code>PATCHDIR</code> as a second spelling of the path &mdash; so the PR&rsquo;s own stated
+invariant was violated by the PR, and the guard test deliberately checked only the other two.</p></div>
+<div class="callout stop"><span class="lbl">And a live bug in the skip logic next door</span>
+<p><code>convert_world.sh</code> decided &ldquo;no build needed&rdquo; from <em>source</em> state
+alone. Run it once with <code>--no-build</code> (0005 applies), then run again normally: every patch
+reverse-applies, <code>VP_APPLIED</code> is 0, the build is skipped, and the world ships a
+<code>.so</code> <strong>without 0005</strong> &mdash; the vehicle falls through a World Partition
+world forever, which is the exact failure that patch prevents. <code>build_blocks.sh</code> had
+already learned this and carried the earned version.</p>
+<p><strong>That is the ticket&rsquo;s thesis arriving from the other direction.</strong> The
+duplication was not just the routing rule &mdash; it was <em>every</em> decision these three scripts
+share, and the second copy was already wrong. So the rebuild rule became the second thing with one
+owner: <code>vp_needs_rebuild</code>.</p></div>
+<div class="grid g2">
+<div class="callout warn"><span class="lbl">The real apply was unchecked</span>
+<p><code>--dry-run</code> writes nothing, so it passes on a read-only or root-owned tree where the
+actual write fails &mdash; and the loop would report <code>applied</code>, increment the count, and
+let a caller compile unpatched source.</p></div>
+<div class="callout warn"><span class="lbl">Documentation that was load-bearing and wrong</span>
+<p>Three docs cited <code>build_blocks.sh:65</code> and <code>convert_world.sh:154</code> as the
+globs &mdash; the record of <em>why</em> <code>0007</code> is parked. Neither globs now. A maintainer
+checking &ldquo;is 0007 really out of reach?&rdquo; would find nothing at the cited line. The same
+citations in the 2026-08-16 worklog are left alone: worklogs are frozen, and that one correctly
+records what was true when written.</p></div>
+</div>
+<p>Two more of my tests checked text rather than structure &mdash; a substring scan a fourth copy
+would pass, and an exact <code>== 2</code> a third legitimate use would break. Both assert the
+invariant now. Rebuilt through the reworked owner; the artifact is still md5
+<code>20f5430c1a61</code>. 186 tests.</p>
 
 <footer>
   <span>Worklog &middot; 2026-08-18 &middot; SIM-25</span>
