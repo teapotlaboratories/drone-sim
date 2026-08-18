@@ -586,3 +586,45 @@ def test_chase_video_is_cleared_before_the_flight():
     assert "chase_mp4.unlink(missing_ok=True)" in src, (
         "chase_mp4 must be cleared up-front like the bag, result, video and probe -- "
         "record_chase.sh has paths that leave the destination untouched")
+
+
+# --- SIM-34, second review pass ---------------------------------------------------------------
+
+def test_chase_clear_is_guarded_by_chase_on():
+    """The up-front delete must not run when chase is DISABLED.
+
+    An unconditional clear is worse than the stale-file bug it fixed: with --no-chase it deletes
+    the previous run's evidence and writes nothing back, and run_local_ci.sh passes --no-chase
+    over the same seed numbers, on out/ -- which is the symlink to the 7 TB archive.
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    i = src.index("chase_mp4.unlink(missing_ok=True)")
+    guard = src[:i].rstrip().splitlines()[-1].strip()
+    assert guard == "if chase_on:", (
+        f"chase_mp4.unlink must sit directly under `if chase_on:`, found {guard!r}")
+
+
+def test_gate_does_not_swallow_configuration_faults():
+    """Only sim_up.sh's own RuntimeError is a per-seed VOID.
+
+    A bare `except Exception` turns a bad scenario or a wedged docker daemon into N slow voids
+    and an 'inconclusive' report that never names the cause.
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    i = src.index("rs.restart_stack(variant, world, a.settings, scenario=scenario)")
+    after = src[i:i + 600]
+    assert "except RuntimeError as exc:" in after, "bring-up must catch RuntimeError specifically"
+    assert "except Exception" not in after, "a bare except would swallow configuration faults"
+    assert "MAX_CONSECUTIVE_BRINGUP_FAILURES" in src, "repeated bring-up failure must abort"
+
+
+def test_missing_chase_evidence_clears_met():
+    """A run that lacks required evidence must not claim the criterion in the quoted artifact."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    assert '"met": verdict["met"] and not (chase_requested and _missing_chase)' in src, (
+        "met must account for requested-but-missing chase evidence")
+    assert 'if not r.get("void") and not r.get("chase_video")' in src, (
+        "the missing-chase counter must exclude VOID runs -- they never flew")
