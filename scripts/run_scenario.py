@@ -457,6 +457,16 @@ def restart_stack(variant: dict, world: str = "", settings: str = "", *,
     # --spawn=VALUE for the same reason sim_up.sh relays it that way: a negative X is common
     # and a bare "-3.656,..." reads as a flag to anything using argparse downstream.
     cmd = [str(SIM_UP), f"--spawn={spawn}"]
+    # CHASE IMPLIES --display, and the coupling lives HERE rather than in each caller.  (SIM-34)
+    #
+    # `chase_available()` needs a real Xvfb screen, which only `sim_up.sh --display` creates. When
+    # that was every caller's job to remember, run_gate.py forgot: 40 gate runs recorded
+    # `chase_video: None` while reporting `video_written: True`, so the gate could not produce the
+    # one piece of evidence hard stop 5 requires -- and said nothing. Deriving the flag from the
+    # same environment variable run_flight reads makes "asked for chase but no display"
+    # unrepresentable, instead of a silent per-caller mistake.
+    if os.environ.get("SIM_CHASE_VIDEO", "") in ("1", "true", "yes"):
+        cmd += ["--display"]
     # Where the world sits on Earth. Passed as LAT,LON,ALT because sim_up.sh relays it verbatim
     # to apply_spawn.py, which is the one place that validates it.
     origin = sc.get("origin_geopoint") or {}
