@@ -754,3 +754,53 @@ def test_gate_forwards_force_world_and_records_the_pair():
     assert '"world_declared"' in src, "the report must name what was forced away from"
     assert '"world_forced": bool(a.force_world and a.world' in src, (
         "world_forced must report the FACT -- --force-world with no --world overrode nothing")
+
+
+def test_running_world_parses_a_real_docker_inspect_reply():
+    """The HAPPY path, which no previous test covered.                    (review, PR 59)
+
+    `running_world()` referenced an undefined `SIM`, and the NameError was swallowed by a bare
+    `except Exception`, so it returned "" for every input -- exactly what the only test asserted.
+    A test that stubs a realistic reply is what catches that class of dead code.
+    """
+    import types, tempfile, os
+    from pathlib import Path
+    rs = _rs_mod()
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "MyCity.uproject").write_text("")
+        rs.sh = lambda *a, **k: types.SimpleNamespace(
+            returncode=0, stdout=f"/out=/repo/out\n/world={d}\n")
+        assert rs.running_world() == str(Path(d) / "MyCity.uproject")
+
+
+def test_running_world_falls_back_to_blocks_without_a_world_mount():
+    import types
+    from pathlib import Path
+    rs = _rs_mod()
+    rs.sh = lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="/out=/repo/out\n")
+    assert rs.running_world().endswith("Blocks.uproject")
+
+
+def test_reused_stack_mismatch_raises_a_catchable_error_not_sys_exit():
+    """sys.exit() from inside run_flight strands the collision witness and loses the report."""
+    import types, tempfile, pytest
+    from pathlib import Path
+    rs = _rs_mod()
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "Running.uproject").write_text("")
+        rs.sh = lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=f"/world={d}\n")
+        with pytest.raises(rs.WorldMismatchError):
+            rs.assert_reused_stack_matches("/elsewhere/Other.uproject")
+        # and --force-world still gets through
+        assert rs.assert_reused_stack_matches("/elsewhere/Other.uproject", force=True)
+
+
+def test_running_world_does_not_hide_bugs_behind_a_bare_except():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    i = src.index("def running_world(")
+    # CODE only -- the phrase appears in this function's own comment explaining the bug.
+    body = "\n".join(l for l in src[i:i + 1600].splitlines()
+                     if not l.lstrip().startswith("#"))
+    assert "except (OSError, subprocess.SubprocessError):" in body
+    assert "except Exception" not in body, "a bare except is what hid the NameError"

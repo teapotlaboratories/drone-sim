@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog &middot; 2026-08-18 &middot; SIM-36</span>
-  <nav><a href="#silent">Why it was silent</a><a href="#shipped">What shipped</a><a href="#door">The other door</a><a href="#docs">Documented</a><a href="index.html">Index</a></nav>
+  <nav><a href="#silent">Why it was silent</a><a href="#shipped">What shipped</a><a href="#door">The other door</a><a href="#docs">Documented</a><a href="#dead">Correction</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -263,6 +263,40 @@ was parked.</p></div>
 </table></div>
 <p>157 tests. A 1-seed Blocks gate flew the normal path clean afterwards: PASS, worst 0.786 m,
 <code>world_forced: false</code>, chase recorded.</p>
+
+<h2 id="dead"><span class="secnum">05</span> Correction &mdash; the guard I called &ldquo;the important half&rdquo; was dead code</h2>
+<div class="callout stop"><span class="lbl">There is no <code>SIM</code> in that module</span>
+<p><code>running_world()</code> called <code>sh(["docker", "inspect", SIM, &hellip;])</code>. The
+constants are <code>ROS2</code> and <code>UNREAL</code>. The <code>NameError</code> was raised inside
+the <code>try</code> and swallowed by <code>except Exception: return ""</code>, so the function
+returned <code>""</code> for every input on every machine. <strong>The reused-stack guard never
+fired</strong> &mdash; and <code>run_scenario.py --no-restart</code> is the exact command hard stop 5
+prescribes for every flight test.</p></div>
+<div class="callout warn"><span class="lbl">And my test could not have caught it</span>
+<p><code>test_running_world_returns_empty_when_undeterminable</code> stubs <code>sh</code> to raise
+and asserts <code>""</code> &mdash; which is what the broken function returns for <em>every</em> input.
+It passed against dead code and would have kept passing forever. The verification table above lists
+that row as evidence; it was evidence of nothing.</p></div>
+<p>Two fixes, the second mattering more: <code>UNREAL</code> not <code>SIM</code>; and
+<strong><code>except (OSError, subprocess.SubprocessError)</code></strong> not
+<code>except Exception</code>. &ldquo;Docker cannot answer&rdquo; is an OSError. A typo is a bug that
+must surface &mdash; the bare except is what turned a <code>NameError</code> into a confident
+&ldquo;no opinion&rdquo;.</p>
+<div class="grid g2">
+<div class="callout warn"><span class="lbl">sys.exit stranded the witness</span>
+<p><code>run_gate</code> calls <code>run_flight</code> after <code>cw.start()</code> and outside any
+<code>SystemExit</code> handler, so exiting from inside left <code>watch_collisions.py</code> running
+in the container with no report &mdash; the two losses the PR-53 and PR-58 comments in that file exist
+to prevent. Now a typed <code>WorldMismatchError</code> the gate catches.</p></div>
+<div class="callout warn"><span class="lbl">Flag versus fact, one level down</span>
+<p>The per-seed artifact reported the flag while the gate reported the fact, so one run could emit
+<code>world_forced: true</code> in one file and <code>false</code> in the other &mdash; the drift
+<code>same_world()</code> was extracted to prevent, reappearing.</p></div>
+</div>
+<p><strong>The pattern across this branch and the last:</strong> every defect was in code that decides
+<em>what is true about a run</em>, and none of them failed loudly. A dead guard returns
+&ldquo;fine&rdquo;. A swallowed <code>NameError</code> returns &ldquo;no opinion&rdquo;. A test written
+against broken behaviour returns green.</p>
 
 <footer>
   <span>Worklog &middot; 2026-08-18 &middot; SIM-36</span>
