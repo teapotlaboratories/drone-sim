@@ -3996,8 +3996,18 @@ the wrong thing.
 
 ## SIM-34 — The flight gate cannot record the chase camera
 
-**Status:** 🔵 **open, raised 2026-08-17** by the first 40-seed gate run — the project's headline
-evidence tool structurally cannot satisfy the project's own evidence rule.
+**Status:** ✅ **done 2026-08-18.** The gate records the chase camera, verified by running it:
+a 2-seed Blocks gate wrote `square-10m-seed1-chase.mp4` and `-seed2-chase.mp4` (42.7 MB / 43.8 MB,
+h264 1920×1080, 6041 and 6054 frames, ~100.7 s, moov intact per `ffprobe`) and populated
+`chase_video` in the gate JSON on both seeds. Before the fix that field was `None` on all 40 runs.
+
+**The fix is the coupling, not the flag.** `restart_stack` now derives `--display` from the same
+`SIM_CHASE_VIDEO` the recorder reads, so "asked for chase but the renderer has no display" is
+unrepresentable. When remembering `--display` was each caller's job, `run_gate.py` forgot — and
+reported `video_written: True` while writing the one view hard stop 5 exists to reject. `--no-chase`
+opts out and **prints that the run does not satisfy the chase rule**; opting out silently is gone.
+
+**Original status:** 🔵 open, raised 2026-08-17 by the first 40-seed gate run.
 
 **Measured:** a 40-seed run of `scenarios/square-10m.yaml` produced `chase_video: None` on **all
 40** runs. `run_gate.py` writes that field into its JSON (line 343) but never sets

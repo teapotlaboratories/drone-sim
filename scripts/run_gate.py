@@ -257,7 +257,17 @@ def main() -> int:
     ap.add_argument("--world", default="", help=".uproject to load (default: bundled Blocks)")
     ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
     ap.add_argument("--no-video", action="store_true",
-                    help="skip the per-seed video (~37 MB each). Recording is ON by default.")
+                    help="skip the per-seed VEHICLE-camera video (~37 MB each). ON by default.")
+    # CHASE IS ON BY DEFAULT, because hard stop 5 requires it on every flight test and the
+    # vehicle camera cannot satisfy it -- a camera bolted to the aircraft can never show the
+    # aircraft. This gate recorded 40 vehicle-camera videos and zero chase videos before
+    # SIM-34, which is the failure mode the rule exists to prevent, produced by the tool meant
+    # to enforce it. Opt out explicitly and the run says so; do not opt out silently.
+    ap.add_argument("--no-chase", action="store_true",
+                    help="skip the chase-camera video. It is ON by default because hard stop 5 "
+                         "requires it; the vehicle camera cannot substitute for it. Costs ~63 MB "
+                         "per seed on Blocks and ~290 MB on CitySample, and forces the renderer "
+                         "onto an Xvfb display.")
     ap.add_argument("--no-origin-check", action="store_true",
                     help="skip the pre-run EKF-origin assertion (SIM-10). Only for stacks "
                          "where /fmu/out/vehicle_gps_position is unavailable -- without it a "
@@ -275,6 +285,14 @@ def main() -> int:
     # way whether the gate was invoked by hand or by run_local_ci.sh.
     if a.no_video:
         os.environ["SIM_NO_VIDEO"] = "1"
+    # Set BEFORE any bring-up: restart_stack reads this to decide whether the renderer needs a
+    # display, so setting it later would give the first seed a stack that cannot record.
+    if not a.no_chase:
+        os.environ["SIM_CHASE_VIDEO"] = "1"
+    else:
+        os.environ.pop("SIM_CHASE_VIDEO", None)
+        print("chase    : DISABLED by --no-chase -- this run does not satisfy the "
+              "chase-camera rule, and its results should say so")
     a.outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"gate     : {name}  ·  {len(seeds)} seeds  ·  "
