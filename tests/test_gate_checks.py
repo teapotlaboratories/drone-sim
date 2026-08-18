@@ -1003,25 +1003,31 @@ def test_all_three_callers_use_the_owner():
 
 def test_no_caller_re_globs_the_patch_directory():
     """A second glob is a second copy of "which patches exist" -- the same bug one level down."""
-    s = _scripts("convert_world.sh", "build_blocks.sh")
+    # build_airsim_wrapper.sh INCLUDED: it is the caller that actually re-globbed, and the
+    # guard that was supposed to prevent that omitted it.                 (review, PR 61)
+    s = _scripts("convert_world.sh", "build_blocks.sh", "build_airsim_wrapper.sh")
     for name, src in s.items():
         # CODE, not prose: build_blocks.sh's header mentions the glob in a comment, and matching
         # that is the same substring-vs-real-check mistake this file has already made once today.
         code = [l for l in src.splitlines() if not l.lstrip().startswith("#")]
-        assert not [l for l in code if "patches/cosys-airsim/*.patch" in l], (
-            f"{name} must go through vp_list, not glob again")
+        globs = [l for l in code
+                 if "patches/cosys-airsim/*.patch" in l or '$PATCHDIR"/*' in l]
+        assert not globs, f"{name} must go through vp_list, not glob again: {globs}"
 
 
 def test_the_glob_is_non_recursive_so_experimental_stays_parked():
     """`experimental/` is how a patch is parked -- 0004 and 0007 live there BECAUSE this glob
     does not reach them. Making it recursive would ship a physics gate that kills bring-up."""
     s = _scripts("vendor_patches.sh")["vendor_patches.sh"]
-    assert '"$repo"/patches/cosys-airsim/*.patch' in s
-    # No recursive descent: no globstar, and no `find` walking the tree. (`-r` is not a signal --
-    # `read -r` is unrelated, and asserting on it was a false positive.)
+    # Assert the PROPERTY, not the spelling: the directory is a variable now, and pinning the
+    # literal broke this test for a change that did not alter behaviour.  (review, PR 61)
+    glob = [l for l in s.splitlines() if "for p in" in l and "*.patch" in l]
+    assert len(glob) == 1, f"exactly one glob expected, found {glob}"
+    assert "/*.patch" in glob[0] and "**" not in glob[0], (
+        f"one level only -- experimental/ must stay out of reach: {glob[0].strip()}")
     assert "globstar" not in s
     assert not [l for l in s.splitlines()
-                if "find " in l and "patches" in l], "must not walk into experimental/"
+                if "find " in l and "patch" in l], "must not walk into experimental/"
 
 
 def test_counts_are_published_for_callers():
@@ -1086,3 +1092,16 @@ def test_counts_are_reset_on_entry():
     body = s[s.index("vp_apply_unreal() {"):]
     head = body[:body.index("while IFS=")]
     assert "VP_APPLIED=0" in head and "VP_ALREADY=0" in head
+
+
+def test_docs_cite_the_glob_by_function_not_by_line_number():
+    """Three docs record WHY 0007 is parked. Citing a line number in a 147-line file whose header
+    is 35 lines of prose means the next edit silently invalidates all three at once -- which is
+    the failure those docs exist to prevent.                              (review, PR 61)"""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("patches/cosys-airsim/experimental/README.md",
+                "docs/vendor/cosys-airsim.md", "docs/todo.md"):
+        src = (root / rel).read_text()
+        assert "vendor_patches.sh:47" not in src, (
+            f"{rel} cites a line number that will drift; name vp_list instead")

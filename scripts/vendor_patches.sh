@@ -42,9 +42,15 @@ vp_is_unreal_side() {
 
 # Every patch this routing rule considers, in a stable order. Callers must not re-glob: a second
 # glob is a second copy of "which patches exist", which is the bug this file closes.
+# The directory vp_list actually searches, so a caller's error text cannot name a different one.
+# build_airsim_wrapper.sh kept its own PATCHDIR spelling, and if the directory ever moved those
+# messages would name a path that was not searched -- a small copy of the bug this file closes.
+#                                                                          (review, PR 61)
+VP_PATCHDIR="patches/cosys-airsim"
+
 vp_list() {
   local repo="$1" p
-  for p in "$repo"/patches/cosys-airsim/*.patch; do
+  for p in "$repo"/$VP_PATCHDIR/*.patch; do
     [ -e "$p" ] || continue
     printf '%s\n' "$p"
   done
@@ -125,15 +131,27 @@ vp_apply_unreal() {
 # the vehicle falls through a World Partition world forever. Same rule, one owner.
 vp_needs_rebuild() {
   local plugin="$1" so="$2"
+  # UNKNOWN IS NOT FINE.                                                  (review, PR 61)
+  # `find` on a missing or unreadable Source/ returns the same empty string as "nothing newer
+  # than the binary", and the function would then confidently answer "the binary is current".
+  # Both callers happen to guard upstream today; the guard belongs to the rule, not to them.
+  if [ ! -d "$plugin/Source" ]; then
+    vp_warn "cannot tell whether $(basename "$so") is current: no readable $plugin/Source.
+         Building rather than assuming."
+    return 0
+  fi
   if [ ! -f "$so" ]; then
-    vp_warn "every patch is already applied, but there is NO plugin binary at
+    # Wording deliberately NOT "every patch is already applied": this is a shared owner now, and
+    # convert_world.sh reaches it whenever VP_APPLIED is 0 -- which is also true when the patch
+    # set contains no Unreal-side patches at all.                         (review, PR 61)
+    vp_warn "no plugin binary at
          $so
          Building rather than reporting success for an artifact that does not exist."
     return 0
   fi
   if [ -n "$(find "$plugin/Source" -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
                   -newer "$so" -print -quit 2>/dev/null)" ]; then
-    vp_warn "every patch is already applied, but plugin SOURCE is newer than $(basename "$so") --
+    vp_warn "plugin SOURCE is newer than $(basename "$so") --
          the binary predates the source and cannot contain those patches. Building."
     return 0
   fi

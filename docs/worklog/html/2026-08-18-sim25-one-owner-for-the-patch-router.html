@@ -171,7 +171,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <span class="eyebrow">Worklog &middot; 2026-08-18 &middot; SIM-25 &middot; build-path change</span>
   <h1>Three Copies<br>Of One Rule</h1>
   <p class="sub">Which half of Cosys-AirSim does this patch belong to? Three scripts each answered that separately &mdash; and all three already carried a <code>die</code> for the drift case, which is the tell: <strong>the risk was understood, the cause was not.</strong></p>
-  <div class="mastmeta"><span>Copies <b>3 &rarr; 1</b></span><span>Artifact <b>byte-identical</b></span><span>Paid for <b>3 times</b></span><span>Tests <b>177 &rarr; 183</b></span></div>
+  <div class="mastmeta"><span>Copies <b>3 &rarr; 1</b></span><span>Artifact <b>byte-identical</b></span><span>Paid for <b>3 times</b></span><span>Tests <b>177 &rarr; 187</b></span></div>
 </header>
 
 <div class="grid g3">
@@ -189,6 +189,43 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <tr><td class="mono">build_blocks.sh</td><td>the same block, copy-pasted, differing in one remedy sentence</td></tr>
 </tbody>
 </table></div>
+
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="Before, three scripts each carried their own copy of the routing predicate, the apply loop and the rebuild rule; after, one library owns all three and the scripts call into it" style="max-width:100%;height:auto">
+  <defs><marker id="a25" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <text x="20" y="24" font-size="12.5" fill="currentColor">BEFORE &mdash; each script decided for itself</text>
+  <g font-size="11">
+    <rect x="20" y="38" width="122" height="62" fill="none" stroke="#A3341F" stroke-width="1.5"/>
+    <text x="28" y="56" fill="currentColor">wrapper</text><text x="28" y="72" fill="#A3341F">predicate</text><text x="28" y="88" fill="#A3341F">own glob</text>
+    <rect x="156" y="38" width="122" height="62" fill="none" stroke="#A3341F" stroke-width="1.5"/>
+    <text x="164" y="56" fill="currentColor">convert_world</text><text x="164" y="72" fill="#A3341F">predicate + loop</text><text x="164" y="88" fill="#A3341F">rebuild rule (wrong)</text>
+    <rect x="292" y="38" width="122" height="62" fill="none" stroke="#A3341F" stroke-width="1.5"/>
+    <text x="300" y="56" fill="currentColor">build_blocks</text><text x="300" y="72" fill="#A3341F">predicate + loop</text><text x="300" y="88" fill="#A3341F">rebuild rule</text>
+  </g>
+  <text x="20" y="126" font-size="11.5" fill="#A3341F">Three answers to &ldquo;which half?&rdquo;, and convert_world&rsquo;s rebuild rule was already wrong.</text>
+
+  <text x="20" y="164" font-size="12.5" fill="currentColor">AFTER &mdash; one owner, three callers</text>
+  <g font-size="11">
+    <rect x="20" y="178" width="122" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <text x="28" y="204" fill="currentColor">wrapper</text>
+    <rect x="156" y="178" width="122" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <text x="164" y="204" fill="currentColor">convert_world</text>
+    <rect x="292" y="178" width="122" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <text x="300" y="204" fill="currentColor">build_blocks</text>
+  </g>
+  <line x1="142" y1="200" x2="560" y2="200" stroke="currentColor" stroke-width="1.2" marker-end="url(#a25)"/>
+  <line x1="278" y1="200" x2="560" y2="200" stroke="currentColor" stroke-width="1.2"/>
+  <line x1="414" y1="200" x2="560" y2="200" stroke="currentColor" stroke-width="1.2"/>
+  <rect x="565" y="160" width="315" height="80" fill="none" stroke="#3F7A34" stroke-width="2"/>
+  <text x="577" y="180" font-size="12" fill="#3F7A34">scripts/vendor_patches.sh</text>
+  <g font-size="11" fill="currentColor">
+    <text x="577" y="198">vp_is_unreal_side &mdash; the predicate</text>
+    <text x="577" y="214">vp_apply_unreal &mdash; apply / already / die</text>
+    <text x="577" y="230">vp_list &middot; vp_needs_rebuild</text>
+  </g>
+</svg>
+<figcaption>The duplication was never only the routing rule: <code>convert_world.sh</code>&rsquo;s copy of the rebuild rule was already the wrong one, and would ship a plugin without <code>0005</code>.</figcaption>
+</figure>
 
 <h2 id="paid"><span class="secnum">02</span> The repo has paid for this three times</h2>
 <div class="callout stop"><span class="lbl">Twice before, and again this week</span>
@@ -264,7 +301,7 @@ records what was true when written.</p></div>
 <p>Two more of my tests checked text rather than structure &mdash; a substring scan a fourth copy
 would pass, and an exact <code>== 2</code> a third legitimate use would break. Both assert the
 invariant now. Rebuilt through the reworked owner; the artifact is still md5
-<code>20f5430c1a61</code>. 186 tests.</p>
+<code>20f5430c1a61</code>. 187 tests.</p>
 
 <footer>
   <span>Worklog &middot; 2026-08-18 &middot; SIM-25</span>

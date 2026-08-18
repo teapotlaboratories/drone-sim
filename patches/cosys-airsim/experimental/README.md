@@ -1,10 +1,11 @@
 # Experimental patches — NOT applied by any build script
 
-**One** place globs `patches/cosys-airsim/*.patch` since `SIM-25`: `scripts/vendor_patches.sh:47`, which
-`build_airsim_wrapper.sh`, `build_blocks.sh` and `convert_world.sh` all source. That glob is
-**non-recursive**, so anything in this subdirectory is deliberately excluded from the shipped
-configuration. If you ever make one of them recursive, everything here starts shipping — for
-`0007` that means gating physics on every converted world, which kills bring-up.
+**One** place globs `patches/cosys-airsim/*.patch` since `SIM-25`: `vp_list` in
+`scripts/vendor_patches.sh`, which `build_airsim_wrapper.sh`, `build_blocks.sh` and
+`convert_world.sh` all source. **That glob is non-recursive**, so anything in this subdirectory is
+deliberately excluded from the shipped configuration. **Make `vp_list` recursive and everything
+here starts shipping** — for `0007` that means gating physics on every converted world, which
+kills bring-up.
 
 ## `0004-scene-capture-ldr.patch`
 
@@ -48,8 +49,9 @@ returns `TRUE` **0.400 s** in, on the far-field surrogate, and **never returns `
 at that swap. A dwell requirement cannot help, because dwell only helps if the signal changes.
 `SIM-30`'s pause-and-probe is the official solution instead.
 
-**It lives here because the build scripts would otherwise ship it.** `scripts/vendor_patches.sh:47` globs
-`patches/cosys-airsim/*.patch` for all three callers and applies anything whose diff touches
+**It lives here because the build scripts would otherwise ship it.** `vp_list` in
+`scripts/vendor_patches.sh` globs `patches/cosys-airsim/*.patch` for all three callers, and
+`vp_apply_unreal` applies anything whose diff touches
 `Unreal/`. `0007` matches. Left at the top level, the next world conversion would silently gate
 physics — which starves PX4's HIL stream and kills bring-up on "no finite EKF origin" with ~166
 `poll timeout` errors. This directory is excluded by the non-recursive glob; that is the whole
