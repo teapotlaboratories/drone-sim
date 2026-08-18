@@ -538,3 +538,51 @@ def test_unknown_runs_are_counted_separately_so_they_are_visible():
 ])
 def test_drops_during_is_a_delta_and_propagates_unknown(before, after, expected):
     assert rg.rs.drops_during(before, after) == expected
+
+
+# --- SIM-34: the display decision and the recording decision must never disagree -------------
+#
+# restart_stack derives `--display` from SIM_CHASE_VIDEO, and run_flight derives `chase_on` from
+# the same variable. That guarantee is only as good as the two tests being IDENTICAL -- the
+# literal used to be copied to three places, so the next edit to one copy would silently
+# re-create SIM-34: a gate that asks for chase, gets no display, and reports chase_video: None
+# beside video_written: True.                                                (review, PR 58)
+
+def _rs():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "rs_env", Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_env_true_accepts_only_the_documented_truthy_values(monkeypatch):
+    rs = _rs()
+    for v in ("1", "true", "yes"):
+        monkeypatch.setenv("SIM_CHASE_VIDEO", v)
+        assert rs._env_true("SIM_CHASE_VIDEO") is True, f"{v!r} should be truthy"
+    for v in ("", "0", "no", "false", "off", "TRUE", "Yes"):
+        monkeypatch.setenv("SIM_CHASE_VIDEO", v)
+        assert rs._env_true("SIM_CHASE_VIDEO") is False, f"{v!r} should be falsey"
+    monkeypatch.delenv("SIM_CHASE_VIDEO", raising=False)
+    assert rs._env_true("SIM_CHASE_VIDEO") is False, "unset should be falsey"
+
+
+def test_only_one_truthiness_literal_survives_in_run_scenario():
+    """Grep, deliberately: the point is that no SECOND copy of the tuple exists to drift."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    assert src.count('("1", "true", "yes")') == 1, (
+        "the truthiness literal must live in _env_true() alone -- a second copy is how SIM-34 "
+        "comes back")
+
+
+def test_chase_video_is_cleared_before_the_flight():
+    """A stale chase mp4 must never be reported as this run's evidence."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    assert "chase_mp4.unlink(missing_ok=True)" in src, (
+        "chase_mp4 must be cleared up-front like the bag, result, video and probe -- "
+        "record_chase.sh has paths that leave the destination untouched")

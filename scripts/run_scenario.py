@@ -409,6 +409,17 @@ def resolve_world(scenario: dict, cli_world: str) -> str:
     return str(p)
 
 
+def _env_true(name: str) -> bool:
+    """One definition of "this environment flag is on".                            (SIM-34)
+
+    The whole point of SIM-34's fix is that the display decision and the recording decision can
+    never disagree. That guarantee is only as good as the two tests being identical, and the
+    literal was copied to three places -- so the next edit to one copy silently re-creates the
+    bug this function exists to prevent. Tested in tests/test_gate_checks.py.
+    """
+    return os.environ.get(name, "") in ("1", "true", "yes")
+
+
 def restart_stack(variant: dict, world: str = "", settings: str = "", *,
                   scenario: dict | None = None) -> None:
     """Cold-start the whole simulator at the seed's spawn pose.
@@ -465,7 +476,7 @@ def restart_stack(variant: dict, world: str = "", settings: str = "", *,
     # one piece of evidence hard stop 5 requires -- and said nothing. Deriving the flag from the
     # same environment variable run_flight reads makes "asked for chase but no display"
     # unrepresentable, instead of a silent per-caller mistake.
-    if os.environ.get("SIM_CHASE_VIDEO", "") in ("1", "true", "yes"):
+    if _env_true("SIM_CHASE_VIDEO"):
         cmd += ["--display"]
     # Where the world sits on Earth. Passed as LAT,LON,ALT because sim_up.sh relays it verbatim
     # to apply_spawn.py, which is the one place that validates it.
@@ -619,7 +630,7 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     # running during a gate run: sim_up.sh does not start it. Subscribing to camera topics
     # would have recorded nothing at all, silently.
     video_in_container = f"/out/{tag}.mp4"
-    if os.environ.get("SIM_NO_VIDEO", "") not in ("1", "true", "yes"):
+    if not _env_true("SIM_NO_VIDEO"):
         sh(dexec("rm", "-f", video_in_container), timeout=60)
         for f in ("watch_video.py", "airsim_rpc_client.py"):
             sh(["docker", "cp", str(REPO / "scripts" / f), f"{ROS2}:/tmp/{f}"], timeout=60)
@@ -636,12 +647,23 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     # OPT-IN, unlike the RPC video, for two measured reasons: it needs the stack brought up with
     # `sim_up.sh --display`, and at ~63 MB per run a 40-seed gate adds ~2.5 GB on top of the
     # ~2.0 GB of per-seed video out/ already holds.
-    chase_on = (os.environ.get("SIM_CHASE_VIDEO", "") in ("1", "true", "yes")
-                and chase_available())
-    if os.environ.get("SIM_CHASE_VIDEO", "") in ("1", "true", "yes") and not chase_on:
+    chase_on = _env_true("SIM_CHASE_VIDEO") and chase_available()
+    if _env_true("SIM_CHASE_VIDEO") and not chase_on:
         print("  chase: SIM_CHASE_VIDEO is set but the renderer has no display — "
               "bring the stack up with ./scripts/sim_up.sh --display", file=sys.stderr)
     chase_mp4 = REPO / "out" / f"{tag}-chase.mp4"
+    # CLEAR IT FIRST, like every other artifact.                          (review, PR 58)
+    #
+    # The name is deterministic per scenario+seed, and record_chase.sh has two deliberate paths
+    # that leave the destination untouched -- "ffmpeg did not exit after SIGINT" and "the stack
+    # was probably restarted mid-recording". `chase_on` is not cleared by those, so a failed
+    # capture would report the PREVIOUS run's file as this run's evidence: re-run the same gate
+    # tomorrow and seed 1 cites yesterday's flight. Every other artifact here is already deleted
+    # up-front for exactly this reason (bag, result, video, probe), with a comment recalling a run
+    # that reported "success 4/4" from a file written twenty minutes earlier. This was nearly
+    # unreachable while chase was opt-in; making the gate its default producer makes re-running
+    # the same gate the routine case.
+    chase_mp4.unlink(missing_ok=True)
     if chase_on and (REPO / "out" / ".chase-recording").exists():
         # Stale state from a previous run that died between start and stop would refuse this
         # one. `stop` is the documented way to clear it and is safe when nothing is recording.
@@ -789,7 +811,7 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
               flush=True)
 
     video_written = False
-    if os.environ.get("SIM_NO_VIDEO", "") not in ("1", "true", "yes"):
+    if not _env_true("SIM_NO_VIDEO"):
         r = sh(dexec("test", "-s", video_in_container), timeout=30)
         video_written = (r.returncode == 0)
         if not video_written:

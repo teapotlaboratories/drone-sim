@@ -68,7 +68,15 @@ if [ "$RUN_GATE" = "1" ]; then
   echo
   echo "tier 2 — the flight gate (this is the part CI cannot run):"
   echo "  $SEEDS seeded runs against $SCENARIO, roughly $((SEEDS * 3)) minutes"
-  if python3 -u ./scripts/run_gate.py "$SCENARIO" --seeds "$SEEDS" --outdir out; then
+  # --no-chase HERE, deliberately.                                    (review, PR 58)
+  #
+  # SIM-34 made chase recording the gate's default, which is right for a gate run that has
+  # to stand as evidence. It is wrong for local CI: this would force the renderer onto an
+  # Xvfb display and write ~63 MB per seed (~630 MB for the default 10) on every
+  # invocation, where it previously wrote none. CI checks that the stack still flies; the
+  # chase video is for runs someone will actually look at. A CI run therefore does NOT
+  # satisfy the chase-camera rule -- and the gate's own report now says so.
+  if python3 -u ./scripts/run_gate.py "$SCENARIO" --seeds "$SEEDS" --outdir out --no-chase; then
     echo "  flight gate                        PASS"
   else
     echo "  flight gate                        FAIL"
