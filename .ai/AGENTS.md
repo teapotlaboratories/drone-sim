@@ -346,7 +346,7 @@ no green component-level check will show.
     ```
     containers (sim-*)               none running
     pgrep -x UnrealEditor            none
-    pgrep -x UnrealEditor-C          none
+    pgrep -x UnrealEditor-Cm         none
     pgrep -x CrashReportClie         none
     pgrep -x px4                     none
     pgrep -x ffmpeg                  none
@@ -362,7 +362,14 @@ no green component-level check will show.
       separate false reports came from this.
     - **`pgrep -x` matches `comm`, truncated by the kernel to 15 chars.** `UnrealEditor-Cmd` (16)
       and `CrashReportClient` (17) can *never* match; pgrep warns and exits non-zero, which reads
-      exactly like "nothing running". The command's patterns are pre-truncated.
+      exactly like "nothing running". The command's patterns are truncated to **exactly 15** —
+      the first cut used `UnrealEditor-C` (14) and matched nothing either, and the test written
+      to pin it used a *substring* check that passed over the defect. Off by one in a checker is
+      indistinguishable from a clean machine.
+    - **`pgrep -x` cannot see a script at all.** A `#!/usr/bin/env bash` script has `comm=bash`;
+      a runner has `comm=python3`. So `--down` also walks `/proc` for a **detached bring-up** —
+      which is what re-created the stack in the two-hour incident — excluding its own ancestors,
+      since this script's own cmdline says `sim_up.sh`.
     - **A name is not ownership.** QGC runs its own Xvfb on `:99` and the operator may run theirs,
       so the check is scoped to *our* `DISPLAY_NUM` — otherwise you report a failure you did not
       cause, or kill someone else's process while "cleaning up".

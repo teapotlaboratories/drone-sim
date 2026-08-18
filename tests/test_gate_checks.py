@@ -834,10 +834,20 @@ def test_pgrep_patterns_are_truncated_to_the_comm_limit():
     src = _sim_up()
     m = re.search(r"for proc in ([^\n;]+); do", src)
     assert m, "the process loop should be greppable"
-    for name in m.group(1).split():
+    pats = m.group(1).split()
+    for name in pats:
         assert len(name) <= 15, f"{name!r} is {len(name)} chars -- pgrep -x can never match it"
-    assert "UnrealEditor-C" in m.group(1), "the -Cmd process must be checked, truncated"
-    assert "CrashReportClie" in m.group(1)
+
+    # EXACT membership, not `in`.                                       (review, PR 60)
+    # The first version of this test asserted `"UnrealEditor-C" in m.group(1)` -- a SUBSTRING
+    # check, which passes for the broken 14-char pattern and for the correct 15-char one alike.
+    # It reported green over the very defect it was written to prevent: comm truncates to 15, so
+    # UnrealEditor-Cmd becomes UnrealEditor-Cm, and pgrep -x UnrealEditor-C matches nothing,
+    # ever -- printing "none" for a leaked process holding GBs of VRAM.
+    for full in ("UnrealEditor-Cmd", "CrashReportClient"):
+        want = full[:15]
+        assert want in pats, (
+            f"pattern for {full} must be exactly {want!r} (comm truncates to 15); got {pats}")
 
 
 def test_xvfb_check_is_scoped_to_our_display():
@@ -865,3 +875,39 @@ def test_no_match_is_not_an_abort_under_set_e():
         if "$(pgrep" in line or "$(docker ps" in line or "$(nvidia-smi" in line:
             assert "|| true" in line or "|| echo" in line, (
                 f"unguarded capture aborts under set -e: {line.strip()}")
+
+
+def test_gpu_holder_that_is_ours_fails_the_verdict():
+    """Printing "still holding" without touching the verdict let a leaked renderer keep GBs of
+    VRAM under an exit-0 all-clear.                                       (review, PR 60)"""
+    src = _sim_up()
+    body = src[src.index("verify_down()"):src.index("down_and_verify()")]
+    assert 'ours="$ours $out"' in body, "leftover PIDs must be collected for the cross-check"
+    assert "is one of OURS -- not released" in body
+    assert body.count("bad=1") >= 5, "the GPU branch must be able to set bad"
+
+
+def test_detached_bringup_is_detected():
+    """pgrep -x cannot see a script (comm=bash) or a runner (comm=python3), and a bring-up in
+    flight is what re-created the stack in the two-hour incident."""
+    src = _sim_up()
+    body = src[src.index("verify_down()"):src.index("down_and_verify()")]
+    assert "detached bring-up / runner" in body
+    assert "sim_up.sh*|*run_scenario.py*|*run_gate.py*" in body
+    assert "/proc/$a/stat" in body, "own ancestors must be excluded -- our cmdline says sim_up.sh"
+
+
+def test_down_skips_bringup_only_preparation():
+    """--down must not die on a missing settings file or a stale exported SPAWN."""
+    src = _sim_up()
+    i = src.index('if [ -z "$DOWN" ]; then')
+    j = src.index('[ -f "$BASE_SETTINGS" ] || die')
+    assert i < j, "the settings/spawn preparation must sit inside the not-DOWN guard"
+    assert "end of the bring-up-only preparation skipped by --down" in src
+
+
+def test_final_claim_matches_what_was_checked():
+    """"nothing of ours is left running" overstated it -- pgrep -x is blind to scripts."""
+    src = _sim_up()
+    assert "nothing of ours is left running" not in src
+    assert "containers, our processes, our display and the GPU are clear" in src
