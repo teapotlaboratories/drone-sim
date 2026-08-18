@@ -675,12 +675,19 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     #
     # The stale-file cases this guards against all have chase_on true, so nothing is lost: when
     # chase_on is false, chase_video is reported None regardless of what sits on disk.
-    if chase_on:
-        chase_mp4.unlink(missing_ok=True)
     if chase_on and (REPO / "out" / ".chase-recording").exists():
         # Stale state from a previous run that died between start and stop would refuse this
         # one. `stop` is the documented way to clear it and is safe when nothing is recording.
         chase("stop", "--no-distinct")
+    # UNLINK AFTER the stale-state stop, not before.          (review, PR 58, 3rd pass)
+    #
+    # `chase("stop")` PUBLISHES a leftover .partial to this exact path (record_chase.sh does
+    # `mv -f "$T" "$F"`), so clearing first and stopping second puts the old file straight back --
+    # and if this run's own stop then takes the "ffmpeg did not exit after SIGINT" path, which
+    # leaves the destination untouched and does not clear chase_on, yesterday's flight is reported
+    # as this run's chase_video. Order matters, and the order is: settle the past, then clear.
+    if chase_on:
+        chase_mp4.unlink(missing_ok=True)
 
     # LANDING PROBE, always on.                                                    (SIM-27)
     #

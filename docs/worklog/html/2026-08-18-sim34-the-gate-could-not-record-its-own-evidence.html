@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evidence Of Nothing</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-18 &middot; SIM-34</span>
+  <nav><a href="#broken">Broken</a><a href="#fix">The fix</a><a href="#passes">Three passes</a><a href="#says">What it says</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-18 &middot; SIM-34 &middot; SITL only</span>
+  <h1>Evidence<br>Of Nothing</h1>
+  <p class="sub">The tool that exists to produce evidence recorded <strong>40 videos of the wrong thing</strong> and reported success. Fixing it took three review passes &mdash; and two of the worst findings were defects introduced <em>while fixing the previous one</em>.</p>
+  <div class="mastmeta"><span>chase_video <b>None &times;40</b></span><span>Review passes <b>3</b></span><span>Self-inflicted HIGHs <b>2</b></span><span>Tests <b>139 &rarr; 145</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">The gate recorded</div><div class="v">the drone's view</div><div class="n">a camera on the aircraft can never show the aircraft</div></div>
+<div class="stat warn"><div class="k">And reported</div><div class="v">video_written: true</div><div class="n">next to chase_video: null, on every run</div></div>
+<div class="stat ok"><div class="k">Now</div><div class="v">unrepresentable</div><div class="n">the display is derived from the same flag as the recorder</div></div>
+</div>
+
+<h2 id="broken"><span class="secnum">01</span> The tool that could not produce its own evidence</h2>
+<p>Hard stop 5 requires the chase camera on every flight test, because a camera bolted to the
+aircraft can never show the aircraft. The first full 40-seed gate returned <code>chase_video: None</code>
+on <strong>all 40 runs</strong>, while the 40 videos it <em>did</em> write were the vehicle camera
+&mdash; the exact view the rule was written to reject &mdash; reported alongside
+<code>video_written: True</code>.</p>
+<div class="callout stop"><span class="lbl">Nobody owned the coupling</span>
+<p>Chase recording needs an Xvfb screen, which only <code>sim_up.sh --display</code> creates.
+Remembering that was each caller's job. <code>run_gate.py</code> forgot &mdash; silently, because
+<code>chase_available()</code> simply returns false and the recorder never starts.</p></div>
+
+<h2 id="fix"><span class="secnum">02</span> The fix is the coupling, not the flag</h2>
+<p><code>restart_stack</code> now derives <code>--display</code> from the same
+<code>SIM_CHASE_VIDEO</code> that <code>run_flight</code> reads, so &ldquo;asked for chase but the
+renderer has no display&rdquo; is <strong>unrepresentable</strong> rather than a per-caller mistake.
+Chase is on by default; <code>--no-chase</code> opts out and says so, in the console and in the JSON.</p>
+<pre>[ 1/2] seed 1   PASS  worst 0.786 m  161s
+square-10m-seed1-chase.mp4   42.7 MB   h264 1920x1080   6041 frames   100.684 s
+square-10m-seed2-chase.mp4   43.8 MB   h264 1920x1080   6054 frames   100.900 s</pre>
+
+<h2 id="passes"><span class="secnum">03</span> Three review passes</h2>
+<figure>
+<svg viewBox="0 0 880 210" role="img" aria-label="Three review passes: pass one found six issues including a stale video being reported as evidence, pass two found the fix for that was itself a data-loss bug, pass three found the abort added in pass two discarded completed flights" style="max-width:100%;height:auto">
+  <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <line x1="40" y1="105" x2="850" y2="105" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+  <circle cx="150" cy="105" r="9" fill="#A3341F"/><circle cx="430" cy="105" r="9" fill="#A3341F"/><circle cx="700" cy="105" r="9" fill="#C8892B"/>
+  <text x="150" y="80" font-size="12.5" text-anchor="middle" fill="currentColor">pass 1 &middot; 6 findings</text>
+  <text x="150" y="132" font-size="11.5" text-anchor="middle" fill="#A3341F">stale video cited as evidence</text>
+  <text x="430" y="80" font-size="12.5" text-anchor="middle" fill="currentColor">pass 2 &middot; 4 findings</text>
+  <text x="430" y="132" font-size="11.5" text-anchor="middle" fill="#A3341F">the fix deleted archived videos</text>
+  <text x="430" y="150" font-size="11" text-anchor="middle" fill="currentColor" opacity="0.8">(introduced in pass 1's fix)</text>
+  <text x="700" y="80" font-size="12.5" text-anchor="middle" fill="currentColor">pass 3 &middot; 9 findings</text>
+  <text x="700" y="132" font-size="11.5" text-anchor="middle" fill="#C8892B">the abort discarded flown seeds</text>
+  <text x="700" y="150" font-size="11" text-anchor="middle" fill="currentColor" opacity="0.8">(introduced in pass 2's fix)</text>
+  <text x="40" y="188" font-size="12" fill="currentColor">Each fix touched the path that decides what counts as evidence &mdash; where a mistake does not fail loudly.</text>
+</svg>
+<figcaption>Two of the three worst findings were defects introduced while fixing the previous one.</figcaption>
+</figure>
+<div class="callout stop"><span class="lbl">Pass 2 &mdash; the fix was worse than the bug</span>
+<p>The stale-video <code>unlink</code> was <strong>unconditional</strong>, so it ran with chase
+<em>disabled</em> too. The same commit added <code>--no-chase</code> to <code>run_local_ci.sh</code>
+over the same seed numbers &mdash; so <code>./scripts/run_local_ci.sh --gate</code> would have deleted
+<code>square-10m-seed1..10-chase.mp4</code>, <strong>including the two files this branch cites as its
+own verification</strong>, from <code>out/</code>, the symlink to the 7 TB archive. Unrecoverable.</p>
+<p>Verified the destructive way: ran a <code>--no-chase</code> gate over seed 1 and confirmed the
+existing 42.9 MB video survived <strong>byte-identical</strong> (<code>md5 b3dc3625164a</code> before
+and after) &mdash; not by re-reading the guard.</p></div>
+<div class="callout warn"><span class="lbl">Pass 3 &mdash; the abort re-created the loss it prevented</span>
+<p>The three-strikes abort added in pass 2 called <code>sys.exit()</code> <em>before</em> the summary
+is written. A 40-seed run that flew 37 seeds over two hours and then hit three bring-up failures
+would discard every completed flight &mdash; precisely the loss the <code>try/except</code> cites as
+its reason for existing. Now it records the aborting seed, breaks, and writes the report.</p></div>
+<div class="callout"><span class="lbl">A test that failed on its first run, correctly</span>
+<p><code>test_only_one_truthiness_literal_survives</code> was written to lock in the new
+<code>_env_true()</code> helper. It <strong>failed</strong>: <code>SIM_NO_VIDEO</code> carried two
+more copies of the same literal. The drift the helper exists to prevent was already present.</p></div>
+
+<h2 id="says"><span class="secnum">04</span> What the pattern says</h2>
+<p>Every pass found something real, and the two worst were self-inflicted. The pattern is specific:
+each fix touched the path that decides <strong>what counts as evidence</strong>, and a mistake there
+does not fail loudly. It produces a confident report about a file that is wrong, missing, or someone
+else's.</p>
+<p>Which is the original bug restated. <code>SIM-34</code> was never &ldquo;the flag wasn't set&rdquo;.
+It was <strong>a tool that reported success while recording the wrong thing</strong>.</p>
+
+<footer>
+  <span>Worklog &middot; 2026-08-18 &middot; SIM-34</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
