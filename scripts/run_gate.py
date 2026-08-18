@@ -287,7 +287,8 @@ def main() -> int:
         os.environ["SIM_NO_VIDEO"] = "1"
     # Set BEFORE any bring-up: restart_stack reads this to decide whether the renderer needs a
     # display, so setting it later would give the first seed a stack that cannot record.
-    if not a.no_chase:
+    chase_requested = not a.no_chase
+    if chase_requested:
         os.environ["SIM_CHASE_VIDEO"] = "1"
     else:
         os.environ.pop("SIM_CHASE_VIDEO", None)
@@ -313,12 +314,25 @@ def main() -> int:
     for i, seed in enumerate(seeds, 1):
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
+        bringup_failure = ""
         if not a.reuse:
-            rs.restart_stack(variant, world, a.settings, scenario=scenario)
+            # A BRING-UP FAILURE IS THIS SEED'S PROBLEM, NOT THE WHOLE RUN'S.  (review, PR 58)
+            #
+            # This used to propagate: restart_stack raises RuntimeError, nothing here caught it,
+            # and the gate died on a traceback having written no report -- losing every seed
+            # already flown. SIM-34 raised the stakes by making --display a precondition of the
+            # default path, and sim_up.sh *dies* when DISPLAY_NUM resolves to 99 (a value
+            # operators are documented as exporting) or when Xvfb never binds. So a box that
+            # previously ran the gate headless would now lose the entire run to the display.
+            # VOID, not FAIL: the aircraft never flew, so there is no flight to judge.
+            try:
+                rs.restart_stack(variant, world, a.settings, scenario=scenario)
+            except Exception as exc:
+                bringup_failure = f"stack bring-up failed: {type(exc).__name__}: {exc}"
         # Assert the stack is measurable BEFORE flying it. A stale EKF origin makes the
         # vehicle report an altitude tens of metres wrong; the run would look like a control
         # failure and would be indistinguishable from one in the report (SIM-10).
-        void_reason = "" if a.no_origin_check else _origin_void_reason()
+        void_reason = bringup_failure or ("" if a.no_origin_check else _origin_void_reason())
         if void_reason:
             result = {"outcome": "void", "failure_reason": void_reason}
             ok, why = False, void_reason
@@ -411,6 +425,16 @@ def main() -> int:
                                  if isinstance(r.get("max_pose_split_m"), (int, float))),
                                 default=None),
         "runs_without_probe_data": sum(1 for r in runs if r.get("probe_written") is False),
+        # THE REPORT MUST SAY WHETHER THE EVIDENCE WAS ASKED FOR AND WHETHER IT ARRIVED.
+        #                                                                   (review, PR 58)
+        # Without these two, a --no-chase report and a chase-enabled report are byte-identical
+        # -- both carry chase_video: null on every run -- and the JSON is what gets quoted while
+        # console scrollback is not. The counter covers the other half: chase can be requested
+        # and still produce nothing (chase_available() false after a renderer repair, a
+        # DISPLAY_NUM mismatch, ffmpeg already running, a full disk), which would score green
+        # with no evidence -- SIM-34's exact failure mode one layer down.
+        "chase_requested": chase_requested,
+        "runs_without_chase_video": sum(1 for r in runs if not r.get("chase_video")),
         "lidar_readback_drops_unknown_runs": sum(
             1 for r in runs if r.get("lidar_readback_drops") is not None
             and r["lidar_readback_drops"] < 0),
@@ -457,6 +481,13 @@ def main() -> int:
     if summary["runs_without_probe_data"]:
         print(f"  pose split   : NO probe data for "
               f"{summary['runs_without_probe_data']} run(s) — not measured, not clean")
+    if not summary["chase_requested"]:
+        print("  chase        : NOT REQUESTED (--no-chase) — this run does not satisfy the "
+              "chase-camera rule")
+    elif summary["runs_without_chase_video"]:
+        print(f"  chase        : MISSING for {summary['runs_without_chase_video']} of "
+              f"{len(runs)} run(s) — requested but not recorded; the flight verdict below does "
+              "NOT carry the evidence hard stop 5 requires")
     print(f"  report       : {out}")
     print()
     if summary["met"]:
