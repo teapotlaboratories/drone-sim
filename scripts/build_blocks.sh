@@ -61,27 +61,11 @@ done
 #    the plugin in its description.
 # --------------------------------------------------------------------------------------
 log "step 1/2  applying Unreal-side vendor patches to $PLUGIN"
-applied=0; already=0
-for p in "$REPO"/patches/cosys-airsim/*.patch; do
-  [ -e "$p" ] || continue
-  grep -qE '^\+\+\+ b/Unreal/' "$p" || continue          # ROS 2 wrapper patch; not ours
-  name=$(basename "$p")
-  if patch -p4 -d "$PLUGIN" --forward --batch --dry-run < "$p" >/dev/null 2>&1; then
-    patch -p4 -d "$PLUGIN" --forward --batch --silent < "$p" >/dev/null
-    log "  applied  $name"; applied=$((applied + 1))
-  elif patch -p4 -R -d "$PLUGIN" --batch --dry-run < "$p" >/dev/null 2>&1; then
-    log "  already  $name"; already=$((already + 1))
-  else
-    # Never "probably fine". A patch that neither applies nor reverse-applies means the plugin
-    # has drifted from what it was cut against, and skipping it quietly reinstates the exact
-    # defect it exists to prevent -- for 0006 that is a renderer that dies mid-flight.
-    die "$name does NOT apply to $PLUGIN and is not already present.
-       The plugin has drifted from what the patch was cut against. Re-cut the patch, or delete
-       $PLUGIN and re-run upstream's build.sh for a clean copy first."
-  fi
-done
-[ "$applied" -gt 0 ] || [ "$already" -gt 0 ] \
-  || warn "no Unreal-side patches found under patches/cosys-airsim/ -- nothing to apply"
+# One implementation, in scripts/vendor_patches.sh. This block was a copy of convert_world.sh's,
+# differing only in the remedy sentence.                                                (SIM-25)
+. "$REPO/scripts/vendor_patches.sh"
+vp_apply_unreal "$REPO" "$PLUGIN" \
+  "Re-cut the patch, or delete $PLUGIN and re-run upstream's build.sh for a clean copy first."
 
 SO="$PLUGIN/Binaries/Linux/libUnrealEditor-AirSim.so"
 
@@ -90,7 +74,7 @@ SO="$PLUGIN/Binaries/Linux/libUnrealEditor-AirSim.so"
 # failed, a re-run would report "nothing to rebuild" and exit 0 with patched source and an
 # UNPATCHED .so -- the silent-skip failure this script's header is about, reproduced by the
 # script itself. So the skip now has to be earned by the artifact.
-if [ "$applied" -eq 0 ] && [ -z "$FORCE" ]; then
+if [ "$VP_APPLIED" -eq 0 ] && [ -z "$FORCE" ]; then
   if [ ! -f "$SO" ]; then
     warn "every patch is already applied, but there is NO plugin binary at
        $SO

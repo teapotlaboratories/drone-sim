@@ -150,40 +150,17 @@ PLUGIN="$ROOT/Plugins/AirSim"
 [ -d "$PLUGIN" ] || die "expected $PLUGIN after injection, and it is not there"
 
 log "step 2/4  applying Unreal-side vendor patches to the injected plugin"
-applied=0; skipped=0
-for p in "$REPO"/patches/cosys-airsim/*.patch; do
-  [ -e "$p" ] || continue
-  # Match the DIFF HEADER, not the prose -- see the same fix in build_airsim_wrapper.sh. A
-  # content grep would route a ROS-side patch here just for mentioning the plugin in its
-  # description, and this loop is the one that decides whether 0005 reaches a world at all.
-  grep -qE '^\+\+\+ b/Unreal/' "$p" || continue           # ROS 2 wrapper patch; not ours
-  name=$(basename "$p")
-  # -p4 strips a/Unreal/Plugins/AirSim -> the plugin root (which contains Source/). --forward
-  # makes re-runs idempotent, and --batch stops patch prompting on stdin if the level is ever
-  # wrong again -- an interactive prompt here would hang the whole conversion.
-  if patch -p4 -d "$PLUGIN" --forward --batch --dry-run < "$p" >/dev/null 2>&1; then
-    patch -p4 -d "$PLUGIN" --forward --batch --silent < "$p" >/dev/null
-    log "  applied  $name"; applied=$((applied + 1))
-  elif patch -p4 -R -d "$PLUGIN" --batch --dry-run < "$p" >/dev/null 2>&1; then
-    # Reverse-applies cleanly => it is ALREADY in the tree. Benign, and the common case on a
-    # re-run.
-    log "  already  $name"; skipped=$((skipped + 1))
-  else
-    # Neither applies nor reverse-applies: the patch no longer matches this plugin. Do NOT
-    # continue quietly. Treating this as "already applied" was a real defect -- 0005 is what
-    # stops the vehicle falling through a World Partition world, so silently skipping it
-    # produces exactly the failure the patch exists to prevent, with nothing to point at.
-    die "$name does NOT apply to $PLUGIN and is not already present.
-       The plugin has drifted from what the patch was cut against. Do not fly a World Partition
-       world without 0005 -- the vehicle will fall through it forever. Re-cut the patch, or
-       re-inject with --force to get a clean plugin copy first."
-  fi
-done
-[ "$applied" -gt 0 ] || [ "$skipped" -gt 0 ] || warn "no Unreal-side patches found under patches/cosys-airsim/"
+# The routing rule and the apply loop live in scripts/vendor_patches.sh -- ONE implementation.
+# They used to be copy-pasted here and in build_blocks.sh, with build_airsim_wrapper.sh carrying a
+# third copy of the predicate alone.                                                    (SIM-25)
+. "$REPO/scripts/vendor_patches.sh"
+vp_apply_unreal "$REPO" "$PLUGIN" \
+  "Do not fly a World Partition world without 0005 -- the vehicle will fall through it forever.
+         Re-cut the patch, or re-inject with --force to get a clean plugin copy first."
 
 # A patched plugin has SOURCE that must be compiled, so it forces a build even for a project
 # that would otherwise be A1. Say so plainly rather than letting the user wonder.
-if [ "$applied" -gt 0 ] && [ "$DO_BUILD" -eq 0 ]; then
+if [ "$VP_APPLIED" -gt 0 ] && [ "$DO_BUILD" -eq 0 ]; then
   warn "patches were applied but --no-build was given: the plugin source now differs from its
        compiled binary, and the change will NOT take effect until the project is built."
 fi
@@ -265,7 +242,7 @@ fi
 # --------------------------------------------------------------------------------------
 if [ "$DO_BUILD" -eq 0 ]; then
   log "step 4/4  build skipped (--no-build)"
-elif [ "$TIER" = A1 ] && [ "$applied" -eq 0 ]; then
+elif [ "$TIER" = A1 ] && [ "$VP_APPLIED" -eq 0 ]; then
   log "step 4/4  no build needed (A1, and no plugin patches to compile)"
 else
   docker image inspect "$ENGINE_IMAGE" >/dev/null 2>&1 \

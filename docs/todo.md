@@ -3063,7 +3063,22 @@ actually fails.
 
 ## `SIM-25` — one implementation of the Unreal-side patch routing rule, not three
 
-**Status:** 🟡 **open** — raised **2026-08-08** by the review of `SIM-23`.
+**Status:** ✅ **done 2026-08-18.** `scripts/vendor_patches.sh` owns the rule: `vp_is_unreal_side`
+(the predicate), `vp_apply_unreal` (the apply/already/die loop, with the remedy sentence as a
+parameter — the only real difference between the two copies) and `vp_list` (so no caller
+re-globs, since a second glob is a second copy of "which patches exist").
+
+**Verified by building.** Both paths exercised — `already` when present, `applied` when reversed
+out — and the resulting `libUnrealEditor-AirSim.so` is md5 `20f5430c1a61`, **byte-identical to
+the pre-refactor build**. The non-recursive glob that keeps `experimental/` parked now has a
+test, because making it recursive would ship `0007` and kill bring-up.
+
+**The build caught what review would have had to reason about:** `$applied` became unbound after
+the extraction, and `convert_world.sh` used it in two more places than the one I had seen.
+Counts are published as `VP_APPLIED`/`VP_ALREADY`. Worklog:
+`docs/worklog/2026-08-18-sim25-one-owner-for-the-patch-router.md`.
+
+**Original status:** 🟡 open — raised **2026-08-08** by the review of `SIM-23`.
 
 The rule deciding whether a patch under `patches/cosys-airsim/` belongs to the Unreal plugin or
 the ROS 2 wrapper now exists in **three** scripts:
