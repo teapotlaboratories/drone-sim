@@ -33,6 +33,10 @@ DISPLAY_NUM=${DISPLAY_NUM:-77}
 DISPLAY_NUM=${DISPLAY_NUM#:}
 FPS=${FPS:-60}
 CRF=${CRF:-23}
+# Post-capture re-encode, separate from CRF above -- that one governs the LIVE capture and is kept
+# cheap on purpose. Measurement table is at the compression step in cmd_stop.
+COMPRESS_CRF=${COMPRESS_CRF:-28}
+COMPRESS_PRESET=${COMPRESS_PRESET:-veryfast}
 # Fallback container-side path, used when the renderer has no /out mount (a stack brought up
 # by something other than `sim_up.sh --display`). _resolve_target below prefers /out.
 FALLBACK_MP4=/tmp/chase.mp4
@@ -42,6 +46,11 @@ MAX_SECONDS=${MAX_SECONDS:-1800}
 
 log()  { printf '\033[36m[chase]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[chase] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
+# Non-fatal, because the compression step's whole contract is "fall back, do not lose the file".
+# It was missing, so the fallback branch hit `warn: command not found` and `set -e` killed the
+# script BEFORE publishing -- an error handler that destroyed the outcome it was protecting.
+# Caught by testing the failure path, which is the only way this class shows up.
+warn() { printf '\033[33m[chase] WARN:\033[0m %s\n' "$*" >&2; }
 
 # Where the renderer should WRITE, given where the caller wants the file.
 #
@@ -122,6 +131,7 @@ usage: record_chase.sh start [--out PATH.mp4]
   start   begin grabbing the renderer's screen. Default output out/chase-<UTC>.mp4.
   stop    finalise the recording, deliver it, and report BOTH grabbed and distinct frames.
           --no-distinct skips the mpdecimate pass (~10 s per flight-length capture).
+          --no-compress skips the post-capture re-encode (~43 s, ~11x smaller).
   status  is a recording running, and how many frames it has ingested.
 
 Environment: SIM, DISPLAY_NUM, FPS (60), CRF (23), MAX_SECONDS (1800).
@@ -263,13 +273,14 @@ cmd_start() {
 }
 
 cmd_stop() {
-  local no_distinct=""
+  local no_distinct="" no_compress="" raw_b enc_b enc_dur
   while [ $# -gt 0 ]; do
     case "$1" in
       # Skip the mpdecimate pass. It decodes the whole file (~10 s per flight-length capture),
       # which is right interactively and wrong in a 40-seed gate -- ~7 minutes of pure
       # post-processing for a per-seed number nobody reads.                          (SIM-29)
       --no-distinct) no_distinct=1; shift ;;
+      --no-compress) no_compress=1; shift ;;
       *)             usage >&2; die "unknown argument: $1" ;;
     esac
   done
@@ -332,6 +343,55 @@ cmd_stop() {
   distinct=$(docker exec -e T="$partial" "$SIM" bash -lc \
     'ffmpeg -hide_banner -nostats -loglevel info -i "$T" -vf mpdecimate -vsync vfr -an -f null - 2>&1 \
      | grep -o "frame= *[0-9]*" | tail -1 | grep -o "[0-9]*"' 2>/dev/null | tr -d '\r' || true)
+  fi
+
+  # RE-ENCODE AFTER THE FLIGHT, NEVER DURING IT.                                  (SIM-29)
+  #
+  # Capture uses `-preset ultrafast` on purpose: encoding competes with the renderer for CPU,
+  # and this repo does not accept "two passing flights" as evidence that capture leaves flight
+  # timing alone. So the live path stays cheap and the file stays fat -- 200 MB for a 232 s
+  # CitySample flight -- and the squeeze happens here, after ffmpeg has exited and nothing is
+  # flying.
+  #
+  # MEASURED on that 232 s 1080p capture, not assumed:
+  #
+  #     preset veryfast   17.5 MB   43 s      <- chosen
+  #     preset faster     21.3 MB   46 s
+  #     preset fast       23.8 MB   51 s
+  #     preset medium     24.3 MB   58 s
+  #     preset slow       25.2 MB   78 s
+  #     (original)       200.4 MB
+  #
+  # veryfast is both the FASTEST and the SMALLEST, which is the opposite of the usual x264
+  # trade. The source is ultrafast-encoded and carries blocking artifacts; the slower presets
+  # reproduce those artifacts faithfully and spend bits doing it, while veryfast smooths them.
+  # Choosing `slow` on instinct would have cost 80% more time for a 44% bigger file.
+  #
+  # THE ORIGINAL IS NOT DISCARDED UNTIL THE RE-ENCODE IS VERIFIED. A shorter or unreadable
+  # output is thrown away and the capture published untouched: losing a flight video to a
+  # compression step is strictly worse than storing a large one.
+  if [ -z "$no_compress" ]; then
+    raw_b=$(docker exec -e T="$partial" "$SIM" bash -lc 'stat -c%s "$T"' 2>/dev/null | tr -d '\r' || echo 0)
+    log "compressing (x264 crf $COMPRESS_CRF preset $COMPRESS_PRESET; ~43 s per flight-length capture, --no-compress to skip)"
+    if docker exec -e T="$partial" -e CRF="$COMPRESS_CRF" -e PRE="$COMPRESS_PRESET" "$SIM" bash -lc \
+         'ffmpeg -v error -y -i "$T" -c:v libx264 -preset "$PRE" -crf "$CRF" -an "$T.enc.mp4"' 2>/dev/null
+    then
+      enc_dur=$(docker exec -e T="$partial" "$SIM" bash -lc \
+        'ffprobe -v error -show_entries format=duration -of csv=p=0 "$T.enc.mp4"' 2>/dev/null | tr -d '\r' || true)
+      if [ -n "$enc_dur" ] && [ -n "${dur:-}" ] \
+         && awk -v a="$enc_dur" -v b="$dur" 'BEGIN{exit !(a>0 && (a-b<1) && (b-a<1))}'; then
+        enc_b=$(docker exec -e T="$partial" "$SIM" bash -lc 'stat -c%s "$T.enc.mp4"' 2>/dev/null | tr -d '\r' || echo 0)
+        docker exec -e T="$partial" "$SIM" bash -lc 'mv -f "$T.enc.mp4" "$T"'
+        log "  compressed      $(awk -v r="$raw_b" -v e="$enc_b" 'BEGIN{printf "%.1f MB -> %.1f MB (%.1fx smaller)", r/1048576, e/1048576, (e>0? r/e : 0)}')"
+      else
+        docker exec -e T="$partial" "$SIM" bash -lc 'rm -f "$T.enc.mp4"' 2>/dev/null || true
+        warn "re-encode duration '${enc_dur:-none}' does not match the capture's '${dur:-unknown}' --
+       discarding it and publishing the original. The capture is intact."
+      fi
+    else
+      docker exec -e T="$partial" "$SIM" bash -lc 'rm -f "$T.enc.mp4"' 2>/dev/null || true
+      warn "re-encode failed; publishing the original capture untouched."
+    fi
   fi
 
   # When the renderer wrote straight into the /out bind mount, the file is ALREADY on the host
