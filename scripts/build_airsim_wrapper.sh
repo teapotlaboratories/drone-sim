@@ -24,7 +24,6 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SVC=${SVC:-sim-ros2}
 ROOT=/airsim_root
-PATCHDIR=patches/cosys-airsim
 # The Unreal-vs-ROS2 routing predicate has ONE owner.                                   (SIM-25)
 . "$REPO/scripts/vendor_patches.sh"
 
@@ -70,7 +69,7 @@ shopt -s nullglob
 # exact thing SIM-25 closed elsewhere. If vp_list ever learns a rule (a .disabled suffix, an
 # order file, reaching into experimental/), this build would silently keep the old set.
 mapfile -t patches < <(vp_list "$REPO")
-[ ${#patches[@]} -gt 0 ] || die "no patches found in $PATCHDIR"
+[ ${#patches[@]} -gt 0 ] || die "no patches found in $VP_PATCHDIR"
 ros_side=0
 for pf in "${patches[@]}"; do
   # SKIP THE UNREAL-SIDE PATCHES. patches/cosys-airsim/ holds deviations for BOTH halves of
@@ -99,7 +98,7 @@ hand-written with LF endings against these CRLF sources. Re-generate it from the
 done
 # If the router ate everything, say THAT rather than letting the artifact assertions below
 # fail with a confusing message about callback groups.
-[ "$ros_side" -gt 0 ] || die "every patch in $PATCHDIR was routed to the Unreal side -- no ROS 2
+[ "$ros_side" -gt 0 ] || die "every patch in $VP_PATCHDIR was routed to the Unreal side -- no ROS 2
        wrapper patch was applied. Check the +++ b/ headers; this build needs 0001-0003."
 
 # Assert the ARTIFACTS of the patches, not that `patch` printed something friendly. A build

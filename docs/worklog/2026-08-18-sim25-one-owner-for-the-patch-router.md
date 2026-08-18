@@ -110,3 +110,10 @@ invariant.
 
 Rebuilt through the reworked owner: both paths exercised, and the artifact is still md5
 `20f5430c1a61`. 186 tests.
+
+**Correction to the paragraph above:** it says the three docs "now point at
+`scripts/vendor_patches.sh:47`". They no longer do, and the review was right that they should not
+have — a hard-coded line number in a 147-line file whose header is 35 lines of prose drifts on the
+next edit, which is *the same failure those docs exist to prevent*, reintroduced by the fix for it.
+Three stale references were replaced with three references to one line that would go stale
+together. They now name **`vp_list`**, and a test forbids the line-number form.
