@@ -81,3 +81,49 @@ scoring — which is where the owner parked it.
 
 157 tests. A 1-seed Blocks gate then flew the normal path clean: PASS, worst 0.786 m,
 `world_forced: false`, chase recorded. Torn down and verified afterwards.
+
+---
+
+## Correction — the guard I called "the important half" was dead code
+
+Review of the review fix found it, and it is the sharpest finding of the whole branch.
+
+`running_world()` called `sh(["docker", "inspect", SIM, ...])`. **There is no `SIM` in
+`run_scenario.py`** — the container constants are `ROS2` and `UNREAL`. The `NameError` was raised
+inside the `try` and swallowed by `except Exception: return ""`, so the function returned `""` for
+every input on every machine. The reused-stack guard never fired. `run_scenario.py --no-restart` —
+the exact command hard stop 5 prescribes for every flight test — would still have flown
+`square-10m.yaml` in whatever world happened to be up, silently.
+
+**And my test could not have caught it.** `test_running_world_returns_empty_when_undeterminable`
+stubs `sh` to raise and asserts `""` — which is what the broken function returns for *every* input,
+stub or not. It passed against dead code and would have kept passing forever. The verification
+table above lists that row as evidence; it was evidence of nothing. The end-to-end run was a 1-seed
+gate on the *normal* path, which never reaches the reused-stack check at all.
+
+Two fixes, and the second matters more than the first:
+
+- `UNREAL`, not `SIM`.
+- **`except (OSError, subprocess.SubprocessError)`**, not `except Exception`. "Docker cannot
+  answer" is an OSError or a subprocess failure. A typo is a bug in this function and must surface.
+  The bare except is what turned a `NameError` into a confident "no opinion" — and this file's own
+  test suite already forbids that pattern elsewhere, for exactly this reason.
+
+Tests that would have caught it, now written: one stubs a realistic `docker inspect` reply with a
+`/world=<dir>` line and asserts the `.uproject` comes back; one asserts the no-mount fallback to
+Blocks; one asserts the mismatch **raises** rather than exits.
+
+Also from the same pass:
+
+- **`sys.exit()` from inside `run_flight` strands the collision witness.** `run_gate` calls it after
+  `cw.start()` and outside any `SystemExit` handler, so exiting there leaves `watch_collisions.py`
+  running in the sim container with no report written — the two losses that the PR-53 and PR-58
+  comments in that file exist to prevent. Now a typed `WorldMismatchError` the gate catches, stops
+  the witness, records the seed and writes its report.
+- **The per-seed artifact reported the flag while the gate reported the fact**, so one run could
+  emit `world_forced: true` in `<tag>.json` and `false` in the gate report. Two artifacts from one
+  run disagreeing is the drift `same_world()` was extracted to prevent, reappearing one level down.
+
+The pattern across this branch and the last: **every defect was in code that decides what is true
+about a run**, and none of them failed loudly. A dead guard returns "fine". A swallowed NameError
+returns "no opinion". A test written against broken behaviour returns green.

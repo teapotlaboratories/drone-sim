@@ -387,6 +387,25 @@ def main() -> int:
             try:
                 result = rs.run_flight(scenario, seed, world, stack_restarted=not a.reuse,
                                        force_world=a.force_world)
+            except rs.WorldMismatchError as exc:
+                # Caught so the witness is stopped and the report is still written -- see the
+                # typed-exception note in run_scenario.                    (review, PR 59)
+                # A reused stack running the wrong world cannot be fixed by trying the next seed,
+                # so this stops, like the bring-up threshold does.
+                # Same shape as the EnvelopeError handler below: the witness was started with
+                # `docker exec -d`, so leaving without stopping it strands watch_collisions.py in
+                # the sim container with no report to explain it.
+                if witness:
+                    try:
+                        cw.stop_and_score()
+                    except Exception:
+                        pass
+                aborted = str(exc).splitlines()[0]
+                runs.append({"seed": seed, "passed": False, "reason": str(exc).splitlines()[0],
+                             "void": True, "collisions": None, "seconds": round(time.time() - t0, 1),
+                             "variant": variant, "spawn_pose_applied": not a.reuse})
+                print(f"\n  {exc}\n")
+                break
             except rs.EnvelopeError as exc:
                 # Stop the observer before leaving. It was started with `docker exec -d`, so
                 # exiting here would leave watch_collisions.py running in the sim container with

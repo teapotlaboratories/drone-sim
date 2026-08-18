@@ -173,6 +173,14 @@ class EnvelopeError(RuntimeError):
     """
 
 
+class WorldMismatchError(RuntimeError):
+    """A reused stack is running a different world than the scenario is written for.  (SIM-36)
+
+    Typed so run_gate can catch it, stop the collision witness and still write its report --
+    sys.exit() from inside run_flight leaks the witness and loses every completed seed.
+    """
+
+
 def apply_limits(limits: dict, tag: str) -> dict:
     """Put the scenario's flight envelope into PX4 before anything flies.        (SIM-31)
 
@@ -402,11 +410,18 @@ def running_world() -> str:
     Returns "" rather than guessing when docker cannot answer -- an unknown must not masquerade
     as a match, and must not block a run either.
     """
+    # UNREAL, not SIM -- there is no SIM in this module, and the NameError was swallowed by a
+    # bare `except Exception`, so this whole guard was dead code that returned "" for every input
+    # while its test asserted exactly that.                                (review, PR 59)
+    #
+    # The except is narrow for the same reason: "docker cannot answer" is an OSError or a
+    # subprocess failure. Anything else -- a typo, a bad format string -- is a bug in this
+    # function and must surface, not be reported as "no opinion".
     try:
-        r = sh(["docker", "inspect", SIM,
+        r = sh(["docker", "inspect", UNREAL,
                 "--format", "{{range .Mounts}}{{.Destination}}={{.Source}}\n{{end}}"],
                timeout=30)
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return ""
     if r.returncode != 0:
         return ""
@@ -429,7 +444,12 @@ def assert_reused_stack_matches(world: str, *, force: bool = False) -> str:
     if not running or force:
         return running
     if not same_world(running, world):
-        sys.exit(
+        # RAISE, do not sys.exit.                                          (review, PR 59)
+        # This runs inside run_flight, which run_gate calls AFTER starting the collision witness
+        # and outside any SystemExit handler -- so exiting here leaves watch_collisions.py running
+        # in the sim container and writes no report, which are the two losses the PR-53 and PR-58
+        # comments in run_gate.py exist to prevent. EnvelopeError is the established pattern.
+        raise WorldMismatchError(
             f"scenario/world mismatch on a REUSED stack: this scenario is for\n"
             f"    {world}\n"
             f"but the running renderer was brought up with\n"
@@ -620,7 +640,11 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     # pairing check never fires and the scenario is flown in whatever happens to be up -- the
     # flow the flight-test rule itself prescribes. Checked here instead, against the world the
     # running renderer was actually started with.                          (review, PR 59)
-    _world_forced = bool(force_world)
+    # THE FACT, not the flag -- and the same rule the gate applies, so two artifacts from one
+    # run cannot disagree about whether the world was overridden.         (review, PR 59)
+    _declared = str(scenario.get("world") or "").strip()
+    _world_forced = bool(force_world and world and _declared
+                         and not same_world(world, _declared))
     _reused_world = "" if stack_restarted else assert_reused_stack_matches(world, force=force_world)
 
     mission = scenario.get("mission", {})
