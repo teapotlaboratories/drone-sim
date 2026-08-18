@@ -628,3 +628,29 @@ def test_missing_chase_evidence_clears_met():
         "met must account for requested-but-missing chase evidence")
     assert 'if not r.get("void") and not r.get("chase_video")' in src, (
         "the missing-chase counter must exclude VOID runs -- they never flew")
+
+
+def test_void_reasons_read_the_key_the_records_actually_use():
+    """The run record stores `reason`; `failure_reason` never reaches it.
+
+    Reading the wrong key printed "unspecified" for every void -- strictly less diagnostic than
+    the hard-coded EKF text it replaced.                              (review, PR 58, 4th pass)
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    i = src.index("for why in sorted(")
+    assert 'r.get("reason")' in src[i:i + 200], "void listing must read `reason`"
+
+
+def test_display_num_guard_normalises_the_colon_form():
+    """`:99` is the documented spelling; sim_up.sh, record_chase.sh and qgc all normalise it."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    assert 'os.environ.get("DISPLAY_NUM", "").lstrip(":") == "99"' in src
+
+
+def test_ci_executes_the_chase_coupling_not_only_greps_it():
+    """Source-text tests cannot catch a functional regression in the coupling."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_local_ci.sh").read_text()
+    assert "ci-chase-smoke" in src, "local CI must run at least one seed with chase enabled"

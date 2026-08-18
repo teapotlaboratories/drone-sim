@@ -68,14 +68,27 @@ if [ "$RUN_GATE" = "1" ]; then
   echo
   echo "tier 2 — the flight gate (this is the part CI cannot run):"
   echo "  $SEEDS seeded runs against $SCENARIO, roughly $((SEEDS * 3)) minutes"
-  # --no-chase HERE, deliberately.                                    (review, PR 58)
+  # ONE SEED WITH CHASE, then the rest without.                    (review, PR 58, 4th pass)
   #
-  # SIM-34 made chase recording the gate's default, which is right for a gate run that has
-  # to stand as evidence. It is wrong for local CI: this would force the renderer onto an
-  # Xvfb display and write ~63 MB per seed (~630 MB for the default 10) on every
-  # invocation, where it previously wrote none. CI checks that the stack still flies; the
-  # chase video is for runs someone will actually look at. A CI run therefore does NOT
-  # satisfy the chase-camera rule -- and the gate's own report now says so.
+  # The smoke run exists because --no-chase everywhere meant the only automated caller of the
+  # gate never exercised the SIM_CHASE_VIDEO -> restart_stack --display -> recorder coupling,
+  # and the unit tests for it are source-text greps that cannot catch a functional regression.
+  # One chase seed costs ~63 MB and one bring-up, and it is the only thing standing between a
+  # broken coupling and another 40-run gate that reports success while recording nothing.
+  echo "  chase smoke (1 seed, chase ON — exercises the SIM-34 coupling):"
+  if python3 -u ./scripts/run_gate.py "$SCENARIO" --seeds 1 --outdir out/ci-chase-smoke; then
+    echo "  chase smoke                        PASS"
+  else
+    echo "  chase smoke                        FAIL"
+    FAILED+=("chase smoke")
+  fi
+  # --no-chase for the BULK of the seeds, deliberately.                    (review, PR 58)
+  #
+  # SIM-34 made chase the gate's default, which is right for a run that must stand as evidence.
+  # It is wrong for the CI sweep: ~63 MB per seed (~630 MB for the default 10) on every
+  # invocation, where it previously wrote none. The smoke above proves the coupling; this loop
+  # checks the stack still flies. So these 10 seeds do NOT satisfy the chase-camera rule, and
+  # the gate's own report now says so.
   if python3 -u ./scripts/run_gate.py "$SCENARIO" --seeds "$SEEDS" --outdir out --no-chase; then
     echo "  flight gate                        PASS"
   else
