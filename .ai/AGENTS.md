@@ -731,13 +731,21 @@ so the claim can be checked — don't report a bare conclusion.
   the repo (`vendor/`); throwaway scratch goes to `/tmp`. RGB-D at 640×480@30 Hz is ~tens
   of GB/hour — budget storage before a sweep.
 - **The simulator's live working set is the documented exception to that rule**
-  *(decided 2026-07-31)*. The engine image, the plugin build and the working project stay
-  on the **internal NVMe**, and Docker's data-root is not moved: the 7 TB volume is a
+  *(decided 2026-07-31; narrowed 2026-08-17)*. The engine image, the plugin build and
+  Docker's data-root stay on the **internal NVMe**: the 7 TB volume is a
   ST10000NE0008, a 7200 RPM **spinning disk** (`rotational=1`), and UE5 shader
   compilation, asset streaming and tile paging are latency-sensitive random I/O. Budget
   the space — the engine image alone is 24.0 GB compressed and **57.4 GB extracted**. The
   external-drive rule was written for archival data, and archival data still goes there.
   Full reasoning: `docs/docker/todo.md`.
+- **WORLDS ARE EXEMPT — a `.uproject` may live on either drive** *(owner's call, 2026-08-17)*.
+  It is not mandatory for a world to sit on the NVMe. The cost is real and should be stated
+  when it bites rather than treated as a fault: CitySample lives on the spinning disk and its
+  cold bring-up measures **5–10 minutes**, against **155 s** for Blocks on the NVMe — the
+  difference is asset streaming and shader paging, which is exactly the latency-sensitive
+  random I/O the NVMe preference was written for. So: report the slowness, size timeouts for
+  it, and **do not call it a rule violation**. Moving a world to the NVMe is a performance
+  option, not a requirement.
 - **On any other drive, write only under `<drive-root>/Developments/projects/drone-sim/`.**
   Mirror the project path from the root of that drive — e.g.
   `/var/mnt/<uuid>/Developments/projects/drone-sim/`. **Never create a top-level directory

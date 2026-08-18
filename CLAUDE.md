@@ -33,7 +33,10 @@ in [`.ai/AGENTS.md`](.ai/AGENTS.md).
    back-date or `--amend`/`--date` a timestamp to dodge the window.
 4. **`/review <PR#>` must run before any merge**, and its findings addressed; default merge
    is **`--rebase`**, not `--squash`. Code/feature changes → branch + PR; doc-only → may go
-   straight to `main`.
+   straight to `main`. **That direct push is OWNER-ONLY** *(2026-08-17)*: branch protection
+   requires a PR plus the `off-target-tests` check, so it lands via `--admin` and the push
+   reports `Bypassed rule violations`. That is accepted for the owner's own doc commits and
+   **not** for collaborators — anyone else sends a PR, docs included.
 5. **Verify by running it, end to end — a correct component is not a working flight.** The
    aircraft (sim or real) is the only real client: bring the stack up with
    `./scripts/sim_up.sh`, exercise the full ROS 2 graph on a seeded scenario, and record the
@@ -76,8 +79,11 @@ in [`.ai/AGENTS.md`](.ai/AGENTS.md).
    silently wins, so verify the artifact that *ran*.
 10. **Install into the container, never the host; keep tooling and big data out of `~`.**
     Repo `vendor/` for tooling, the 7 TB external drive (`/var/mnt/…`) for archival
-    rosbags/recordings/datasets, `/tmp` for scratch — but the simulator's live working set
-    stays on the **internal NVMe** (the 7 TB volume is a spinning disk). **On any other
+    rosbags/recordings/datasets, `/tmp` for scratch — and the engine image, plugin build and
+    Docker data-root stay on the **internal NVMe** (the 7 TB volume is a spinning disk).
+    **Worlds are exempt** *(2026-08-17)* — a `.uproject` may live on either drive; on the
+    spinning disk expect bring-up to take minutes rather than seconds, which is a speed cost,
+    not a rule violation. **On any other
     drive, write only under `<drive-root>/Developments/projects/drone-sim/`** — mirror the
     project path from that drive's root; never create a top-level directory on a drive you
     don't own.
