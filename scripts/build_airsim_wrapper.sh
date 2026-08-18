@@ -25,6 +25,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SVC=${SVC:-sim-ros2}
 ROOT=/airsim_root
 PATCHDIR=patches/cosys-airsim
+# The Unreal-vs-ROS2 routing predicate has ONE owner.                                   (SIM-25)
+. "$REPO/scripts/vendor_patches.sh"
 
 log() { printf '\033[36m[airsim-build]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[airsim-build] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -79,7 +81,7 @@ for pf in "${patches[@]}"; do
   # 0005 mentions this path 4 times but only twice in a `+++ b/` line -- so a future ROS-side
   # patch that merely DESCRIBES the Unreal plugin would be silently skipped by a plain content
   # grep. Silently skipping a patch is the exact failure this filter exists to prevent.
-  if grep -qE '^\+\+\+ b/Unreal/' "$pf"; then
+  if vp_is_unreal_side "$pf"; then
     log "skipping $(basename "$pf") -- Unreal-side patch, applied by convert_world.sh"
     continue
   fi

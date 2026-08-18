@@ -960,3 +960,84 @@ def test_final_claim_matches_what_was_checked():
     src = _sim_up()
     assert "nothing of ours is left running" not in src
     assert "containers, our processes, our display and the GPU are clear" in src
+
+
+# --- SIM-25: one owner for the Unreal-vs-ROS2 patch routing rule -------------------------------
+
+def _scripts(*names):
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "scripts"
+    return {n: (root / n).read_text() for n in names}
+
+
+def test_the_routing_predicate_has_exactly_one_implementation():
+    """It lived in three scripts. This repo has twice paid for a rule written twice: the witness
+    rule disagreed with itself inside one commit, and `0007` was called "applied to nothing" three
+    times because only one of the three globs had been checked."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "scripts"
+    owners = [f.name for f in root.glob("*.sh") if "b/Unreal/" in f.read_text()]
+    assert owners == ["vendor_patches.sh"], (
+        f"the predicate must live only in vendor_patches.sh; also found in {owners}")
+
+
+def test_all_three_callers_use_the_owner():
+    s = _scripts("build_airsim_wrapper.sh", "convert_world.sh", "build_blocks.sh")
+    for name, src in s.items():
+        assert "vendor_patches.sh" in src, f"{name} must source the owner"
+    assert "vp_is_unreal_side" in s["build_airsim_wrapper.sh"]
+    assert "vp_apply_unreal" in s["convert_world.sh"]
+    assert "vp_apply_unreal" in s["build_blocks.sh"]
+
+
+def test_no_caller_re_globs_the_patch_directory():
+    """A second glob is a second copy of "which patches exist" -- the same bug one level down."""
+    s = _scripts("convert_world.sh", "build_blocks.sh")
+    for name, src in s.items():
+        # CODE, not prose: build_blocks.sh's header mentions the glob in a comment, and matching
+        # that is the same substring-vs-real-check mistake this file has already made once today.
+        code = [l for l in src.splitlines() if not l.lstrip().startswith("#")]
+        assert not [l for l in code if "patches/cosys-airsim/*.patch" in l], (
+            f"{name} must go through vp_list, not glob again")
+
+
+def test_the_glob_is_non_recursive_so_experimental_stays_parked():
+    """`experimental/` is how a patch is parked -- 0004 and 0007 live there BECAUSE this glob
+    does not reach them. Making it recursive would ship a physics gate that kills bring-up."""
+    s = _scripts("vendor_patches.sh")["vendor_patches.sh"]
+    assert '"$repo"/patches/cosys-airsim/*.patch' in s
+    # No recursive descent: no globstar, and no `find` walking the tree. (`-r` is not a signal --
+    # `read -r` is unrelated, and asserting on it was a false positive.)
+    assert "globstar" not in s
+    assert not [l for l in s.splitlines()
+                if "find " in l and "patches" in l], "must not walk into experimental/"
+
+
+def test_counts_are_published_for_callers():
+    """build_blocks.sh skips the compile when nothing was newly applied; convert_world.sh uses it
+    twice. Extracting the loop without publishing them left `$applied` unbound under set -u."""
+    s = _scripts("vendor_patches.sh", "build_blocks.sh", "convert_world.sh")
+    assert "VP_APPLIED=" in s["vendor_patches.sh"] and "VP_ALREADY=" in s["vendor_patches.sh"]
+    assert "$VP_APPLIED" in s["build_blocks.sh"]
+    assert s["convert_world.sh"].count("$VP_APPLIED") == 2
+
+
+def test_routing_classifies_the_shipped_patches_correctly():
+    """Run the real predicate over the real patch set."""
+    import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    out = subprocess.run(
+        ["bash", "-c",
+         f'. {root}/scripts/vendor_patches.sh; '
+         f'for p in $(vp_list "{root}"); do '
+         f'  vp_is_unreal_side "$p" && echo "U $(basename $p)" || echo "R $(basename $p)"; done'],
+        capture_output=True, text=True, check=True).stdout.split("\n")
+    got = {l.split()[1]: l.split()[0] for l in out if l.strip()}
+    assert got.get("0005-worldpartition-streaming-source.patch") == "U"
+    assert got.get("0006-gpulidar-empty-readback.patch") == "U"
+    for ros in ("0001-mutually-exclusive-callback-group.patch",
+                "0002-camera-info-frame-id.patch",
+                "0003-per-timer-callback-groups.patch"):
+        assert got.get(ros) == "R", f"{ros} is a ROS 2 wrapper patch"
+    assert not [k for k in got if k.startswith("0007")], "0007 is parked in experimental/"

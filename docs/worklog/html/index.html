@@ -104,7 +104,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>30</b></span>
+    <span>Entries <b>31</b></span>
     <span>Newest <b>2026-08-18</b></span>
   </div>
 </header>
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-18-sim25-one-owner-for-the-patch-router.html">
+    <span class="k">2026-08-18 · SIM-25 · newest</span>
+    <h3>Three Copies Of One Rule</h3>
+    <p>Which half of Cosys-AirSim does a patch belong to — the ROS 2 wrapper or the Unreal plugin? Three scripts each answered separately, and all three already carried a <code>die</code> for the drift case, which is the tell: the risk was understood and the cause was not. Miss <code>0005</code> and the vehicle falls through a World Partition world forever; miss <code>0006</code> and the renderer dies mid-flight. <strong>The repo has paid for this three times</strong> — <code>collision_witness.py</code> exists because a rule written twice disagreed with itself inside one commit, and this week I called <code>0007</code> "applied to nothing" three times having checked one of the three globs, which would have shipped a physics gate that kills bring-up. Now one owner: the predicate, the apply loop, and the patch list. Verified by rebuilding: the resulting <code>.so</code> is <strong>byte-identical</strong> to the pre-refactor build. Building also caught what review would have had to reason about — <code>$applied</code> went unbound, used in two more places than I had seen.</p>
+    <div class="tags">
+      <span class="pill p-stop">paid for 3 times</span>
+      <span class="pill p-ok">byte-identical artifact</span>
+      <span class="pill p-warn">$applied unbound</span>
+      <span class="pill p-chrome">177 → 183 tests</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-18-sim33-a-teardown-that-can-fail.html">
-    <span class="k">2026-08-18 · SIM-33 · newest</span>
+    <span class="k">2026-08-18 · SIM-33</span>
     <h3>A Checker That Can Fail</h3>
     <p>The rule said <em>tear down after every flight and verify it</em> — and there was no command to do one: <code>teardown()</code> runs only at the <em>start</em> of a bring-up, so every teardown was hand-typed, and hand-typed lists consistently missed <code>sim-xrce</code>. Writing the command surfaced <strong>four separate ways a checker reports a clean machine that isn't</strong>, each found inside the checker itself: <code>set -e</code> turning pgrep's "no match" into a mid-report abort; a pattern truncated to 14 chars when <code>comm</code> truncates to 15, so a leaked <code>UnrealEditor-Cmd</code> printed "none"; a <em>substring</em> assertion that passed over that very defect; and a GPU line that printed "still holding" without touching the verdict. Review caught two more — a teardown that ran the bring-up's validation first and could die talking about spawns with the stack still up, and a final claim that outran its checks, since <code>pgrep -x</code> is blind to the detached bring-up that caused the two-hour incident.</p>
     <div class="tags">

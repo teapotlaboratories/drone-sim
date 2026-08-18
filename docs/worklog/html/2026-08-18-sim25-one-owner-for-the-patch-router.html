@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Three Copies Of One Rule</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-18 &middot; SIM-25</span>
+  <nav><a href="#three">Three copies</a><a href="#paid">Paid three times</a><a href="#shipped">The owner</a><a href="#caught">What building caught</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-18 &middot; SIM-25 &middot; build-path change</span>
+  <h1>Three Copies<br>Of One Rule</h1>
+  <p class="sub">Which half of Cosys-AirSim does this patch belong to? Three scripts each answered that separately &mdash; and all three already carried a <code>die</code> for the drift case, which is the tell: <strong>the risk was understood, the cause was not.</strong></p>
+  <div class="mastmeta"><span>Copies <b>3 &rarr; 1</b></span><span>Artifact <b>byte-identical</b></span><span>Paid for <b>3 times</b></span><span>Tests <b>177 &rarr; 183</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">Miss 0005</div><div class="v">falls forever</div><div class="n">through a World Partition world</div></div>
+<div class="stat stop"><div class="k">Miss 0006</div><div class="v">renderer dies</div><div class="n">mid-flight</div></div>
+<div class="stat ok"><div class="k">After</div><div class="v">one owner</div><div class="n">predicate, apply loop and patch list</div></div>
+</div>
+
+<h2 id="three"><span class="secnum">01</span> The same decision, written three times</h2>
+<div class="tw"><table>
+<thead><tr><th>script</th><th>what it did</th></tr></thead>
+<tbody>
+<tr><td class="mono">build_airsim_wrapper.sh</td><td>skipped Unreal-side patches &mdash; its tree has no <code>Unreal/</code></td></tr>
+<tr><td class="mono">convert_world.sh</td><td>applied them to a world&rsquo;s injected plugin</td></tr>
+<tr><td class="mono">build_blocks.sh</td><td>the same block, copy-pasted, differing in one remedy sentence</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="paid"><span class="secnum">02</span> The repo has paid for this three times</h2>
+<div class="callout stop"><span class="lbl">Twice before, and again this week</span>
+<p><code>collision_witness.py</code> exists because &ldquo;an absent witness is UNKNOWN&rdquo; was
+written twice, and the two copies disagreed <strong>within one commit</strong> &mdash; one scoring a
+run PASS that the other failed.</p>
+<p>And on 2026-08-17 I told the owner that <code>patches/cosys-airsim/0007</code> was &ldquo;applied
+to nothing&rdquo; <strong>three times</strong>. I had checked one script. All three globbed that
+directory and <code>0007</code> matched every one, so the next world conversion would have silently
+shipped a physics gate that kills bring-up. Caught by review &mdash; not by the claim being
+checkable.</p></div>
+
+<h2 id="shipped"><span class="secnum">03</span> One owner</h2>
+<p><code>scripts/vendor_patches.sh</code>, sourced by all three: <code>vp_is_unreal_side</code> (the
+predicate), <code>vp_apply_unreal</code> (apply / already / die, with the remedy sentence as a
+parameter &mdash; the only real difference between the copies) and <code>vp_list</code>, so no caller
+re-globs. A second glob is a second copy of &ldquo;which patches exist&rdquo;.</p>
+<div class="callout"><span class="lbl">It matches the diff header, never the prose</span>
+<p><code>0005</code> mentions the plugin path four times but only twice in a <code>+++ b/</code>
+line, so a content grep would misroute a ROS-side patch for merely <em>describing</em> the plugin.</p></div>
+<div class="callout warn"><span class="lbl">The non-recursive glob is load-bearing</span>
+<p><code>experimental/</code> is how a patch is parked &mdash; <code>0004</code> and <code>0007</code>
+live there <em>because</em> the glob does not reach them. Making it recursive would ship both. Now
+pinned by a test.</p></div>
+
+<h2 id="caught"><span class="secnum">04</span> What running it caught</h2>
+<div class="callout stop"><span class="lbl"><code>$applied</code> became unbound</span>
+<p>Extracting the loop removed the variable, but callers still used the count &mdash;
+<code>build_blocks.sh</code> to decide whether the compile can be skipped, and
+<code>convert_world.sh</code> in <strong>two further places I had not noticed</strong>. Under
+<code>set -u</code> the build died after patching. Counts are now published as
+<code>VP_APPLIED</code>/<code>VP_ALREADY</code>, deliberately not squeezed through a return status
+&mdash; that is an exit code, and would be the next person&rsquo;s mistake.</p></div>
+<div class="callout warn"><span class="lbl">And two new tests were wrong the same way as one earlier today</span>
+<p>One matched the glob inside a <em>comment</em>; the other rejected <code>-r</code> and hit
+<code>read -r</code>. Substring checks passing for the wrong reason &mdash; the identical mistake as
+the <code>UnrealEditor-C</code> assertion in <code>SIM-33</code>, made twice more within hours. Both
+now check code rather than text.</p></div>
+<div class="callout ok"><span class="lbl">The artifact settles it</span>
+<p>Both paths exercised &mdash; <code>already</code> when present, <code>applied</code> when reversed
+out and rebuilt. The resulting <code>libUnrealEditor-AirSim.so</code> is md5
+<strong><code>20f5430c1a61</code></strong>: <strong>byte-identical</strong> to the pre-refactor build
+from two days earlier. Same inputs, same artifact.</p></div>
+
+<footer>
+  <span>Worklog &middot; 2026-08-18 &middot; SIM-25</span>
+  <span>Build-path change &mdash; verified by rebuilding</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
