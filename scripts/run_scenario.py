@@ -376,7 +376,7 @@ def stack_is_up() -> bool:
     return r.returncode == 0 and r.stdout.strip() == "true"
 
 
-def resolve_world(scenario: dict, cli_world: str) -> str:
+def resolve_world(scenario: dict, cli_world: str, *, force: bool = False) -> str:
     """The world to fly, from the CLI or the scenario. NO DEFAULT -- one must say.
 
     The scenario's `world:` field used to be inert: it was declared, and nothing ever read it,
@@ -388,7 +388,45 @@ def resolve_world(scenario: dict, cli_world: str) -> str:
     There is also no bundled default any more. Falling back to Blocks whenever nobody said
     otherwise is how a gate run ends up describing a world it was never pointed at.
     """
-    world = (cli_world or "").strip() or str(scenario.get("world", "") or "").strip()
+    cli = (cli_world or "").strip()
+    declared = str(scenario.get("world", "") or "").strip()
+
+    # A DECLARED WORLD AND A --world THAT DISAGREE IS AN ERROR.                     (SIM-36)
+    #
+    # This used to be `cli or declared` with no comparison, which made the docstring above a
+    # statement of intent the code did not keep. MEASURED consequence, 2026-08-17: a 10-seed gate
+    # ran square-10m.yaml -- `world: Blocks`, "an empty world, no obstacles by design" -- against
+    # CitySample via --world, logged NOTHING, and produced ten failures whose collision counts
+    # were partly an artefact of flying an empty-box mission down a city street.
+    #
+    # It is silent because waypoints are HOME-relative: a 10 m square is geometrically valid
+    # anywhere, so nothing fails loudly. The run just stops meaning anything, which is worse than
+    # failing -- a failure gets investigated, a meaningless success gets quoted.
+    #
+    # --force-world stays available because flying one mission in several worlds is a legitimate
+    # thing to want; it just has to be said out loud and recorded in the provenance.
+    if cli and declared and not force:
+        cli_r = Path(cli) if Path(cli).is_absolute() else (REPO / cli)
+        dec_r = Path(declared) if Path(declared).is_absolute() else (REPO / declared)
+        try:
+            same = cli_r.resolve() == dec_r.resolve()
+        except OSError:
+            same = str(cli_r) == str(dec_r)
+        if not same:
+            sys.exit(
+                f"scenario/world mismatch: this scenario declares\n"
+                f"    world: {declared}\n"
+                f"and --world says\n"
+                f"    {cli}\n\n"
+                "A scenario's waypoints are chosen FOR its world, and they are HOME-relative, so "
+                "flying them somewhere else fails silently rather than loudly -- the mission is "
+                "still geometrically valid, it just stops meaning anything.\n\n"
+                "Either fly the world the scenario declares, write a scenario for the world you "
+                "want (waypoints that suit it: a route that clears the buildings, a landing site "
+                "that is not a traffic lane), or pass --force-world if you really mean it -- that "
+                "is recorded in the run's provenance.")
+
+    world = cli or declared
     if not world:
         sys.exit("no world: give --world PATH.uproject, or set `world:` in the scenario. "
                  "There is deliberately no default -- a run must state the world it flew.")
@@ -897,6 +935,7 @@ def main() -> int:
     ap.add_argument("--world", default="",
                     help=".uproject to load. Overrides the scenario's `world:`. One of the two "
                          "MUST be set -- there is no default.")
+    ap.add_argument("--force-world", action="store_true", help="fly --world even when the scenario declares a different one. The mismatch is an error by default because a scenario's waypoints are chosen for its world and are HOME-relative, so flying them elsewhere fails silently. Recorded in provenance.")
     ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
     ap.add_argument("--no-restart", action="store_true",
                     help="reuse the running stack; the spawn pose from the seed is then "
@@ -907,7 +946,7 @@ def main() -> int:
     variant = derive_variant(scenario, a.seed)
     if a.no_video:
         os.environ["SIM_NO_VIDEO"] = "1"
-    world = resolve_world(scenario, a.world)
+    world = resolve_world(scenario, a.world, force=a.force_world)
     a.outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"scenario : {scenario.get('name')}  seed {a.seed}")

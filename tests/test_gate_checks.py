@@ -654,3 +654,56 @@ def test_ci_executes_the_chase_coupling_not_only_greps_it():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "scripts" / "run_local_ci.sh").read_text()
     assert "ci-chase-smoke" in src, "local CI must run at least one seed with chase enabled"
+
+
+# --- SIM-36: a scenario's world and --world must agree ----------------------------------------
+
+def _rs_mod():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "rs_w", Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+BLOCKS = "vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject"
+
+
+def test_mismatched_world_is_an_error():
+    """The measured failure: square-10m (declares Blocks, 'no obstacles by design') was flown in
+    CitySample via --world with no warning at all, and the collision counts it produced were
+    partly an artefact of the pairing."""
+    import pytest
+    rs = _rs_mod()
+    with pytest.raises(SystemExit) as e:
+        rs.resolve_world({"world": BLOCKS}, "/some/other/World.uproject")
+    assert "scenario/world mismatch" in str(e.value)
+
+
+def test_force_world_allows_the_mismatch():
+    rs = _rs_mod()
+    # A path that does not exist still fails the is_file() check -- so assert we got PAST the
+    # mismatch guard and died on the later, different error.
+    import pytest
+    with pytest.raises(SystemExit) as e:
+        rs.resolve_world({"world": BLOCKS}, "/some/other/World.uproject", force=True)
+    assert "mismatch" not in str(e.value), "--force-world must skip the pairing check"
+    assert "world not found" in str(e.value)
+
+
+def test_matching_world_does_not_false_alarm():
+    """Same world by two spellings (relative vs absolute) must not trip the guard."""
+    from pathlib import Path
+    rs = _rs_mod()
+    repo = Path(__file__).resolve().parents[1]
+    got = rs.resolve_world({"world": BLOCKS}, str(repo / BLOCKS))
+    assert got == str((repo / BLOCKS).resolve())
+
+
+def test_scenario_only_world_still_works():
+    from pathlib import Path
+    rs = _rs_mod()
+    repo = Path(__file__).resolve().parents[1]
+    assert rs.resolve_world({"world": BLOCKS}, "") == str((repo / BLOCKS).resolve())

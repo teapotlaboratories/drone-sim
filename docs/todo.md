@@ -3925,7 +3925,26 @@ decorative.
 
 ## SIM-36 — A scenario's declared world can be silently overridden
 
-**Status:** 🔵 **open, raised 2026-08-17** — and it invalidated part of a gate run the same day.
+**Status:** ✅ **done 2026-08-18.** `resolve_world()` now compares the scenario's declared
+`world:` against `--world` and **exits** on disagreement, naming both and explaining why it
+matters (waypoints are chosen for a world and are HOME-relative, so flying them elsewhere
+fails silently rather than loudly). `--force-world` overrides and is recorded as
+`world_forced` in the gate report, because flying one mission across several worlds is
+legitimate — it just has to be said out loud.
+
+Verified against the exact case that went silent on 2026-08-17: `square-10m.yaml` +
+`--world CitySample.uproject` now exits 1 with the mismatch message; `--force-world` proceeds;
+and a matching world passes silently, including when spelled relative vs absolute. Four tests.
+
+**The other half — bring-your-own-world means bring-your-own-scenario — is documented rather
+than enforced**, because the harness cannot know where a landing site is in someone's world.
+`scenarios/README.md` says what to change when adapting a mission, and `docs/worlds.md` sends
+the world-bringer there. The item singled out is the **landing point**: `square-10m.yaml`
+returns to its takeoff corner, which is harmless in an empty box and is exactly how a landed
+aircraft ends up under a crowd in a city — which is what `SIM-35` was parked into this ticket
+for.
+
+**Original status:** 🔵 open, raised 2026-08-17 — and it invalidated part of a gate run the same day.
 
 `resolve_world()` (`scripts/run_scenario.py:391`) is `cli_world or scenario["world"]`. The CLI wins
 and **nothing compares the two**. Its own docstring says the baseline scenario is *"an empty world,

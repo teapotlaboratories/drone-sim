@@ -258,7 +258,10 @@ def main() -> int:
                     help="where to write <scenario>-gate.json. Per-seed bags and results are "
                          "NOT affected: they always go to <repo>/out, the path mounted into "
                          "the containers.")
-    ap.add_argument("--world", default="", help=".uproject to load (default: bundled Blocks)")
+    ap.add_argument("--world", default="",
+                    help=".uproject to load. Must match the scenario's `world:` unless "
+                         "--force-world is given.")
+    ap.add_argument("--force-world", action="store_true", help="fly --world even when the scenario declares a different one. The mismatch is an error by default because a scenario's waypoints are chosen for its world and are HOME-relative, so flying them elsewhere fails silently. Recorded in provenance.")
     ap.add_argument("--settings", default="", help="settings.json selecting/tuning sensors")
     ap.add_argument("--no-video", action="store_true",
                     help="skip the per-seed VEHICLE-camera video (~37 MB each). ON by default.")
@@ -283,7 +286,7 @@ def main() -> int:
     seeds = list(range(a.start_seed, a.start_seed + a.seeds))
     # Resolve the world BEFORE anything is brought up: a wrong path should fail in a second,
     # not after the first stack restart.
-    world = rs.resolve_world(scenario, a.world)
+    world = rs.resolve_world(scenario, a.world, force=a.force_world)
     # FAIL IN A SECOND, NOT AFTER THE FIRST BRING-UP.             (review, PR 58, 3rd pass)
     #
     # Chase-by-default makes `sim_up.sh --display` a precondition, and sim_up.sh *dies* when
@@ -497,6 +500,8 @@ def main() -> int:
         "aborted": aborted or None,
         "seeds_requested": len(seeds),
         "seeds_attempted": len(runs),
+        # A forced pairing must be visible in the artifact, not just argv.        (SIM-36)
+        "world_forced": bool(a.force_world),
         "chase_requested": chase_requested,
         # NON-VOID ONLY: a seed that never took off produced no video because there was no
         # flight, not because the recorder failed. score() already excludes voids from the rate

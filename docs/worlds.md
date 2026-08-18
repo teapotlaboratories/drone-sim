@@ -127,6 +127,22 @@ underground-spawn trap. The cvar route does not work either.
 
 ---
 
+## Your world needs a scenario, not just a conversion                  (`SIM-36`)
+
+A converted world is not yet flyable *evidence*. The missions in `scenarios/` are written for the
+world each one declares, and their waypoints are **ENU relative to HOME** — so pointing an existing
+scenario at your world with `--world` is now an **error**, not a shortcut:
+
+```
+scenario/world mismatch: this scenario declares … and --world says …
+```
+
+Write a scenario for your world — `scenarios/README.md` lists exactly what to change, and the one
+that matters most is the **landing point**: `square-10m.yaml` returns to its takeoff corner, which
+is harmless in an empty box and is how a landed aircraft ends up under a crowd in a city.
+
+`--force-world` overrides the check and is recorded in the run's provenance.
+
 ## Verifying — the part people skip
 
 A level that renders is not a world that flies. **Judge by resting `z`, not by the log.**
