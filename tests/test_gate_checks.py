@@ -804,3 +804,64 @@ def test_running_world_does_not_hide_bugs_behind_a_bare_except():
                      if not l.lstrip().startswith("#"))
     assert "except (OSError, subprocess.SubprocessError):" in body
     assert "except Exception" not in body, "a bare except is what hid the NameError"
+
+
+# --- SIM-33: the teardown command must be able to FAIL ----------------------------------------
+
+def _sim_up() -> str:
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[1] / "scripts" / "sim_up.sh").read_text()
+
+
+def test_down_flag_exists_and_is_documented():
+    src = _sim_up()
+    assert "--down)               DOWN=1;" in src
+    assert "--down                tear the stack down and VERIFY" in src
+
+
+def test_teardown_verification_uses_the_canonical_five_container_list():
+    """Hand-typed lists have consistently missed sim-xrce, whose stale copy holds udp/8888
+    while MicroXRCEAgent exits 0 on a bind failure."""
+    src = _sim_up()
+    assert 'docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce "$SIM"' in src
+    assert "down_and_verify()" in src and "teardown\n  verify_down" in src
+
+
+def test_pgrep_patterns_are_truncated_to_the_comm_limit():
+    """`comm` is truncated to 15 chars, so a longer pattern can never match -- and pgrep exits
+    non-zero, which reads exactly like 'nothing running'."""
+    import re
+    src = _sim_up()
+    m = re.search(r"for proc in ([^\n;]+); do", src)
+    assert m, "the process loop should be greppable"
+    for name in m.group(1).split():
+        assert len(name) <= 15, f"{name!r} is {len(name)} chars -- pgrep -x can never match it"
+    assert "UnrealEditor-C" in m.group(1), "the -Cmd process must be checked, truncated"
+    assert "CrashReportClie" in m.group(1)
+
+
+def test_xvfb_check_is_scoped_to_our_display():
+    """QGC runs its own Xvfb on :99 and the operator may run theirs -- a name-only match either
+    reports a failure we did not cause or kills someone else's process."""
+    src = _sim_up()
+    assert 'pgrep -x -a Xvfb 2>/dev/null | grep -E " :$DISPLAY_NUM( |$)"' in src
+
+
+def test_gpu_check_attributes_memory_to_pids():
+    src = _sim_up()
+    assert "--query-compute-apps=pid,used_gpu_memory" in src
+    assert "--query-gpu=index,memory.used" not in src, (
+        "whole-GPU totals cannot say whether THIS stack let go")
+
+
+def test_no_match_is_not_an_abort_under_set_e():
+    """pgrep exits 1 when it finds nothing, which is the normal answer here. An unguarded
+    capture under `set -euo pipefail` aborts the verifier mid-report -- and a report that stops
+    early looks exactly like a clean one."""
+    import re
+    src = _sim_up()
+    body = src[src.index("verify_down()"):src.index("down_and_verify()")]
+    for line in body.splitlines():
+        if "$(pgrep" in line or "$(docker ps" in line or "$(nvidia-smi" in line:
+            assert "|| true" in line or "|| echo" in line, (
+                f"unguarded capture aborts under set -e: {line.strip()}")
