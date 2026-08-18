@@ -69,3 +69,51 @@ are now code with tests — 171 total, ten covering this command, including that
 **The pattern worth keeping:** every defect here was in a checker, and none of them failed loudly.
 An aborted report looks clean. An off-by-one pattern prints "none". A substring assertion passes.
 A printed warning with no verdict change exits 0. A checker that cannot fail is not a check.
+
+---
+
+## Second review pass — four more ways, including the same dead-guard class again
+
+**The GPU cross-check could never change the verdict.** I compared GPU-holding PIDs against
+`ours` — but `ours` is only appended where `bad=1` already fires, so `ours` non-empty ⟺ the run
+had already failed. And the case it was written for is precisely the one where `pgrep` *didn't*
+see the process. Identical shape to the guard that never executed two branches ago. It now asks
+the PID itself: `/proc/<pid>/cmdline` for `UnrealEditor`/`.uproject`/`AirSim`/`px4`, which is an
+ownership test independent of whatever the name checks found. A bystander's GPU use is printed and
+explicitly left alone.
+
+**A failing `docker ps` read as "none running".** `|| true` swallowed daemon-unreachable,
+docker-not-on-PATH, permission-denied and a wrong `DOCKER_HOST` alike, so the *primary* check
+printed a clean line and exited 0 having seen nothing. Demonstrated by the reviewer with a stub.
+Now distinguishes "docker answered, nothing matched" from "docker did not answer", and fails.
+
+**The detached-bring-up scan matched mentions, not ownership.** `tail -f scripts/sim_up.sh` and
+`vim scripts/sim_up.sh` both tripped it — demonstrated — so an operator with the file open in
+another pane could never pass the teardown the rules mandate. Now the process must actually *be*
+an interpreter (`/proc/<pid>/exe` is bash/sh/dash/python), which is the same "a name is not
+ownership" test already applied to Xvfb: `tail`'s exe is `tail`.
+
+**And my own fix for that had the same flaw one level down.** Piping `--down` through `grep`
+flagged *itself*: a pipeline shares a process group, so a sibling shell whose cmdline contains
+`sim_up.sh` is not an ancestor and the ancestor walk let it through. `--down | tee log` is
+ordinary usage. Now excludes our whole process group.
+
+Smaller: `ffmpeg` was matched host-wide although it only ever runs inside `$SIM` via `docker exec`,
+so it could only ever catch the operator's own transcode — and then label their PID "one of OURS";
+a missing `nvidia-smi` silently dropped its row while the success line claimed the GPU was clear;
+`DOWN` was environment-readable, so a stray `export DOWN=1` would turn every bring-up into a
+teardown; and every ordinary `--down` opened with a red `[chase] FATAL: no recording in progress`
+because `record_chase.sh stop` dies when the state file is absent.
+
+**Verified in all three directions**, because a checker that only prints "none" is worthless:
+`tail -f` on the file → not flagged; the same command piped → not flagged; a real bash process
+running it → flagged, exit 1.
+
+**And I walked into the trap again while testing this.** `pkill -f "scripts/sim_up.sh"` killed my
+own shell — the exact failure this command encodes, typed by hand, in the session that encoded it.
+It also killed a bring-up mid-container-creation, which left docker throwing
+`can't get final child's PID from pipe` and a `sim-ros2` container stuck in `Created`. Docker was
+fine once cleaned up. The lesson is not "be careful": it is that the command exists so nobody has
+to be.
+
+177 tests.
