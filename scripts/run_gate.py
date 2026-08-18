@@ -291,7 +291,11 @@ def main() -> int:
     # QGC owns that display. Without this the fault surfaces once per seed, and with the abort
     # threshold the whole run produces three voids and stops. Same reasoning as resolving the
     # world above: a configuration fault should cost a second, not a stack restart.
-    if not a.no_chase and os.environ.get("DISPLAY_NUM", "") == "99":
+    # .lstrip(":") because ":99" is the documented spelling -- sim_up.sh, record_chase.sh and
+    # chase_available() all normalise it, and qgc-entrypoint.sh defaults to ":99". Comparing the
+    # raw value would skip the one-second exit and burn three bring-ups instead.
+    #                                                                 (review, PR 58, 4th pass)
+    if not a.no_chase and os.environ.get("DISPLAY_NUM", "").lstrip(":") == "99":
         sys.exit("DISPLAY_NUM=99 is QGroundControl's display, and sim_up.sh refuses it — the "
                  "chase camera needs its own. Unset DISPLAY_NUM (the default is 77) or pass "
                  "--no-chase, which records no chase video and does not satisfy hard stop 5.")
@@ -486,6 +490,13 @@ def main() -> int:
         # and still produce nothing (chase_available() false after a renderer repair, a
         # DISPLAY_NUM mismatch, ffmpeg already running, a full disk), which would score green
         # with no evidence -- SIM-34's exact failure mode one layer down.
+        # AN ABORTED RUN MUST SAY SO IN THE FILE.                  (review, PR 58, 4th pass)
+        # Without these, a 40-seed run that stopped at seed 13 reads identically to a 13-seed
+        # gate that happened to have voids -- and this branch's own argument is that the console
+        # is scrollback while this file is what gets cited.
+        "aborted": aborted or None,
+        "seeds_requested": len(seeds),
+        "seeds_attempted": len(runs),
         "chase_requested": chase_requested,
         # NON-VOID ONLY: a seed that never took off produced no video because there was no
         # flight, not because the recorder failed. score() already excludes voids from the rate
@@ -570,7 +581,10 @@ def main() -> int:
         print(f"  INCONCLUSIVE — {verdict['voids']} run(s) VOID: they did not measure the flight")
         print("                 code at all. Voids are excluded from the rate above, never")
         print("                 counted as failures. Reasons given:")
-        for why in sorted({(r.get("failure_reason") or "unspecified")
+        # `reason`, not `failure_reason`: the latter lives only on run_flight's transient result
+        # dict and never reaches the run record, so this printed "unspecified" for every void --
+        # strictly less than the hard-coded EKF text it replaced.     (review, PR 58, 4th pass)
+        for why in sorted({(r.get("reason") or "unspecified")
                            for r in runs if r.get("void")}):
             print(f"                   · {why}")
     elif a.reuse and summary["sr_perfect"]:
