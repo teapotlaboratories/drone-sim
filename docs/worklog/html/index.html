@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>26</b></span>
-    <span>Newest <b>2026-08-16</b></span>
+    <span>Entries <b>27</b></span>
+    <span>Newest <b>2026-08-17</b></span>
   </div>
 </header>
 
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-17-two-gates-blocks-passes-city-does-not.html">
+    <span class="k">2026-08-17 · Gate · newest</span>
+    <h3>Two Gates, Two Verdicts</h3>
+    <p>The 40-seed gate had never been run — every claim in the backlog rested on 3–5 runs. Blocks passed <strong>40/40</strong>, sd 0.013 m, and exercised almost nothing: the <code>simPause</code> repair fired <strong>zero</strong> times, because Blocks has no World Partition and the vehicle never falls. City Sample failed <strong>10/10</strong> with <em>identical tracking</em> — 0.775–0.814 m against 0.778–0.829 m. Every failure is in landing, ground contact and origin init; none in flying. <code>SIM-27</code>, carried at ~1.7%, reproduced on <strong>9 of 10</strong> seeds, eight between 27.767 and 28.682 m, every one descending at <code>MPC_LAND_SPEED</code> — the sample-size problem was never the obstacle, the <em>world</em> was. <code>pose_z</code> freezes on the ground while <code>phys_z</code> keeps integrating, and ~28 m turns out to be the state timeout rather than a floor. The actor it jams on, <code>FastGeoSurrogateActor_0</code>, is the same surrogate that broke <code>SIM-32</code>'s streaming gate. And a correction that qualifies the whole run: the scenario declares Blocks and says "no obstacles by design", <code>--world</code> overrode it silently, and nothing warned.</p>
+    <div class="tags">
+      <span class="pill p-ok">Blocks 40/40</span>
+      <span class="pill p-stop">City 0/10</span>
+      <span class="pill p-warn">SIM-27 is 9/10</span>
+      <span class="pill p-chrome">simPause exonerated</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-16-sim32-gating-physics-on-streaming.html">
-    <span class="k">2026-08-16 · SIM-32 · newest</span>
+    <span class="k">2026-08-16 · SIM-32</span>
     <h3>The Ground That Was Not There</h3>
     <p>The gate that stops the vehicle falling during bring-up rather than repairing the fall afterwards. The first cut asked <code>IsStreamingCompleted(nullptr)</code> — "is the whole world settled" — which on CitySample never went true, so every bring-up paid the full <strong>300 s</strong> ceiling. Scoping the query to the cells under the vehicle fixed that: a verdict in <strong>0.4 s</strong>. <strong>And 0.4 s is the wrong answer.</strong> The on-screen log named the mechanism — <code>Collision#2 with FastGeoSurrogateActor_0</code> — the vehicle had come to rest on the <em>far-field surrogate</em>, whose cells are legitimately <code>Activated</code>, so the query answers truthfully about a world that is complete for the detail level requested at that instant. Five minutes later the real city replaced the surrogate, the support vanished, and the vehicle fell <strong>32 m</strong> before landing on the actual ground. Instrumenting the query every tick for 600 s then killed the obvious fix: <strong>one transition, <code>TRUE</code> at 0.400 s and never <code>FALSE</code> again</strong> — straight through the swap — so a dwell requirement cannot help, because dwell only helps if the signal changes. <code>IsStreamingCompleted</code> has no notion of “the ground under me is the ground that will still be here in a minute”. A negative result about the <em>predicate</em>, not the gate. <strong>Parked</strong> — <code>SIM-30</code>’s pause-and-probe is the official solution for now, with the leading hypothesis for a revisit written down: CitySample lives on a <strong>spinning disk</strong>, and while slow storage doesn’t cause the predicate bug it sets its blast radius — on NVMe the gap the vehicle falls through should shrink with the load time. Also demonstrated rather than predicted: holding physics starves PX4's HIL stream — <strong>166 <code>poll timeout</code></strong> errors and no finite EKF origin — so <code>SIM-10</code> is not a separate task. And a trap walked into by being careful: the plugin <em>backup</em> put a second <code>AirSim.uplugin</code> inside UE's recursive scan root.</p>
     <div class="tags">

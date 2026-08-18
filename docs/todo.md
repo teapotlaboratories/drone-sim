@@ -3135,8 +3135,40 @@ on the evidence drive is not worth it; new runs are correct.
 
 ## `SIM-27` — a landing that never terminates, and physics that disagrees with the render
 
-**Status:** 🟡 **open** — found **2026-08-09** by the 10-seed gate on `main` @ `f153384`. This is
-the thing standing between this gate and a quotable 100%.
+**Status:** ⏸️ **PARKED 2026-08-18 by the owner**, together with `SIM-32` — *"let's park SIM-27
+and SIM-32 for now, don't bring it up again unless the issue happens."* The mechanism is
+understood and written up (`docs/worklog/2026-08-17-two-gates-blocks-passes-city-does-not.md`);
+no further work, and it is not to be raised proactively. **Re-open it only if the symptom
+recurs** — a landing that does not terminate, or an actor/integrator split reported by
+`probe_landing.py`. Everything needed to resume is in that worklog and the entry below.
+
+**Previously:** 🟡 open — found **2026-08-09** by the 10-seed gate on `main` @ `f153384`.
+
+**RATE CORRECTED 2026-08-17 — it is not ~1.7%.** A 10-seed CitySample gate reproduced the split on
+**9 of 10** seeds, eight of them between **27.767 m and 28.682 m**, every one descending at
+`vz ≈ 0.694–0.699` against `MPC_LAND_SPEED = 0.7`. Six split for *exactly* 29% of their trace. The
+~1.7% figure came from Blocks, where the fault essentially cannot occur — **the sample-size problem
+was never the obstacle, the world was.** For contrast, 40 cold Blocks seeds the same day: zero
+splits, zero ground repairs, zero stale origins, 40/40 PASS.
+
+**Why ~28 m:** 40 s of descent at 0.7 m/s. That is the state timeout, not a physical floor — the
+vehicle never touches down, so the split grows until the harness stops asking. The number is the
+timeout looking back at us.
+
+**The actor it rests on is named:** `FastGeoSurrogateActor_0` — the same far-field surrogate that
+made `SIM-32`'s streaming gate release 0.4 s early. Leading hypothesis, **not proven**: the surrogate
+carries collision the integrator does not honour as ground, so the actor jams on it while physics
+keeps integrating downward. That would make `SIM-27` and `SIM-32` one defect with two faces, and it
+is a better target than either ticket alone. Confirming it needs per-contact timestamps showing the
+collisions clustering inside the descent window — not yet checked.
+
+**Seed 7 is the lever.** The only seed with **no** split (0% of samples) was the only one struck by a
+traffic car, `vz = -1.814`, ascending. An external impulse appears to break the stuck state. One
+sample, but it is a testable clue rather than a curiosity.
+
+**Caveat, per `SIM-36`:** that run flew a Blocks-declared scenario in CitySample, silently. It does
+not affect the split — a landing-physics defect does not care which square was flown — but it does
+affect the collision counts quoted alongside it.
 
 **This entry was rewritten the same day.** Its first version asserted "the vehicle lands through
 the ground" as established fact and cited the flight video as confirmation. The video does not
@@ -3888,6 +3920,105 @@ this ("a run could silently contradict its own scenario and the report would not
 a deliberately bad parameter name failing the run rather than being ignored; and a measured
 difference — a low `velocity_xy_max_mps` must produce a visibly slower flight, or the knob is
 decorative.
+
+---
+
+## SIM-36 — A scenario's declared world can be silently overridden
+
+**Status:** 🔵 **open, raised 2026-08-17** — and it invalidated part of a gate run the same day.
+
+`resolve_world()` (`scripts/run_scenario.py:391`) is `cli_world or scenario["world"]`. The CLI wins
+and **nothing compares the two**. Its own docstring says the baseline scenario is *"an empty world,
+no obstacles by design", and its results mean nothing if it is flown somewhere else* — then the code
+permits exactly that without a warning. It guards "no world named at all" and not "the world
+contradicts the scenario".
+
+**Measured:** the 10-seed CitySample gate on 2026-08-17 ran `scenarios/square-10m.yaml`, which
+declares `world: …/Blocks.uproject`, against CitySample via `--world`. **Zero warnings logged.**
+A 10 m square at 20 m altitude, *relative to HOME*, landing back on a city street — a mission
+designed for an empty box, flown into traffic and crowds. The collision failures in that run are
+therefore at least as much a wrong-pairing artefact as a defect in the stack.
+
+Waypoints being HOME-relative is why it is silent: the square is geometrically valid anywhere, so
+nothing fails loudly. It simply means nothing about the world it was flown in.
+
+**The work:**
+
+1. **Disagreement is an error**, not an override — with an explicit opt-out (`--force-world`) for
+   the deliberate case, which must then be recorded in the run's provenance.
+2. **Bring-your-own-world means bring-your-own-scenario — this is now the headline of this ticket**,
+   with `SIM-35` parked into it *(2026-08-18)*. The project's stated purpose is flying your own
+   `.uproject`; that has to arrive with a scenario declaring that world and **waypoints chosen for
+   it** — a route between real buildings, and a landing site that is not a traffic lane. Most of the
+   crowd/traffic collisions that looked like a scoring defect were really an empty-box mission flown
+   into a city. Fixing the pairing removes them at the source; only what survives that is a genuine
+   scoring problem.
+3. Consider **world-frame waypoints** as an option. HOME-relative coordinates cannot express "land
+   on that roof", which is the first thing a real world wants to say.
+
+---
+
+## SIM-35 — The collision criterion cannot tell a crash from being walked into
+
+**Status:** ⏸️ **PARKED 2026-08-18 by the owner** — *"a world that users provide needs to also be
+bundled with a proper waypoint for testing."* The crowd and traffic collisions are a **symptom of
+the wrong mission being flown in the world**, not of the scoring being too strict: a 10 m square
+landing back on a busy pavement is what put the aircraft under pedestrians in the first place. A
+world supplied with waypoints chosen *for that world* — a landing site that is not a traffic lane —
+removes most of these contacts without touching the criterion.
+
+**So the work moves to `SIM-36`**, which becomes the ticket that requires a world to arrive with its
+own scenario. Re-open this only if collisions with dynamic actors still fail runs *after* worlds ship
+with their own waypoints — at that point it is genuinely a scoring problem and not a pairing one.
+
+**Original status:** 🔵 open, raised 2026-08-17 by the 10-seed CitySample gate.
+
+Any contact fails the run. That is right on Blocks, where the only thing to hit is terrain. On a
+populated world it means **the gate can never pass**, for reasons unrelated to flight quality.
+
+**Measured, 10 seeds:** seed 3 collided with `BP_CrowdCharacter_C_0`/`_C_4` — pedestrians walking
+into a landed aircraft — and seed 7 with `BP_vehCar_vehicle07_Sandbox_C_0`, a traffic car. Both
+tracked their waypoints at 0.809–0.814 m, indistinguishable from the 40/40 Blocks runs.
+
+Two categories are being scored identically:
+
+| | example | is it a defect? |
+|---|---|---|
+| the aircraft hit the world | `FastGeoSurrogateActor_0` during descent | **yes** — this is `SIM-27` |
+| the world hit a parked aircraft | crowd, traffic, after landing | **no** |
+
+**The work:** discriminate by actor class *and* by whether the vehicle was still flying at contact
+time. Note the confound recorded in `SIM-36`: some of those collisions came from flying an
+empty-world scenario in a city, so fixing the scoring without fixing the pairing would paper over
+the wrong thing.
+
+---
+
+## SIM-34 — The flight gate cannot record the chase camera
+
+**Status:** 🔵 **open, raised 2026-08-17** by the first 40-seed gate run — the project's headline
+evidence tool structurally cannot satisfy the project's own evidence rule.
+
+**Measured:** a 40-seed run of `scenarios/square-10m.yaml` produced `chase_video: None` on **all
+40** runs. `run_gate.py` writes that field into its JSON (line 343) but never sets
+`SIM_CHASE_VIDEO` and never brings the stack up with `--display`, so `run_scenario.py`'s
+`chase_available()` (line 203) is false every time and the chase recorder never starts. The 40
+videos it *does* write are the **vehicle** camera.
+
+**Why that is the whole problem:** hard stop 5 requires the chase camera on every flight test
+precisely because *"vehicle cameras can never show the aircraft, and this project has twice been
+wrong in a way only the video caught."* So the gate records exactly the view the rule exists to
+reject, 40 times, and reports success.
+
+**The work:** `run_gate.py` should bring its stack up with `--display` and set `SIM_CHASE_VIDEO=1`
+(or grow a `--chase` flag defaulting on), then populate `chase_video` from the result instead of
+recording a field nobody fills. Note the storage: chase videos measured ~270–290 MB each on
+CitySample against ~37 MB for the vehicle camera, so 40 seeds is ~11 GB — `--no-video` should
+probably grow a middle setting (chase only), and `out/` is already **74 GB** on the internal NVMe,
+against the rule that archival recordings belong on the 7 TB drive.
+
+**Until it is fixed, every gate run must say plainly that no chase video exists** rather than let
+`video_written: True` imply the rule was met.
 
 ---
 

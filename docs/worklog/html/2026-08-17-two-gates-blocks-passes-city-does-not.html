@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Two Gates, Two Verdicts</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-17 &middot; Gate</span>
+  <nav><a href="#blocks">Blocks 40/40</a><a href="#city">City 0/10</a><a href="#sim27">SIM-27</a><a href="#pause">simPause</a><a href="#correction">Correction</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-17 &middot; the first 40-seed gate &middot; SITL only</span>
+  <h1>Two Gates,<br>Two Verdicts</h1>
+  <p class="sub">Blocks passed <strong>40/40</strong> and exercised almost nothing. City Sample failed <strong>10/10</strong> with identical tracking. Every failure is in landing, ground contact and origin init &mdash; <strong>none in flying</strong>.</p>
+  <div class="mastmeta"><span>Blocks <b>40/40</b></span><span>City <b>0/10</b></span><span>SIM-27 <b>9/10</b>, not 1.7%</span><span>Tracking <b>identical</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Blocks, 40 cold seeds</div><div class="v">PASS</div><div class="n">sd 0.013 m &mdash; and zero repairs, because nothing can go wrong there</div></div>
+<div class="stat stop"><div class="k">City Sample, 10 seeds</div><div class="v">0 PASS</div><div class="n">same tracking, 9 stuck landings, 2 stale origins</div></div>
+<div class="stat warn"><div class="k">SIM-27 rate</div><div class="v">9 of 10</div><div class="n">carried as ~1.7% &mdash; measured where the fault cannot occur</div></div>
+</div>
+
+<h2 id="blocks"><span class="secnum">01</span> Blocks: a clean pass that proves less than it looks</h2>
+<p>The gate&rsquo;s own criterion &mdash; <code>SR == 1.0</code> with zero VOID &mdash; met on a
+40-sample basis for the first time. Worst-error min 0.778, median 0.786, max 0.829 m, <strong>sd
+0.013 m</strong>.</p>
+<div class="callout warn"><span class="lbl">And the repair fired zero times</span>
+<p>Blocks has no World Partition, so the vehicle never falls: <code>ensure_grounded</code> finds it
+already resting at <code>z &asymp; +0.620</code> and releases. The 40/40 is a real baseline for the
+flight path and says <strong>nothing</strong> about <code>SIM-30</code>&rsquo;s repair,
+<code>SIM-10</code>&rsquo;s stale origin, or <code>SIM-27</code>.</p></div>
+
+<h2 id="city"><span class="secnum">02</span> City Sample: 0 of 10, and the same flying</h2>
+<div class="tw"><table>
+<thead><tr><th>seed</th><th>worst m</th><th>coll</th><th>max split</th><th>vz@max</th><th>actor</th></tr></thead>
+<tbody>
+<tr><td class="mono">1</td><td class="mono">0.782</td><td class="mono">172</td><td class="mono"><b>28.553</b></td><td class="mono">0.693</td><td>surrogate</td></tr>
+<tr><td class="mono">2</td><td class="mono">0.799</td><td class="mono">513</td><td class="mono"><b>28.682</b></td><td class="mono">0.697</td><td>surrogate</td></tr>
+<tr><td class="mono">3</td><td class="mono">0.814</td><td class="mono">265</td><td class="mono">9.825</td><td class="mono">0.684</td><td>crowd</td></tr>
+<tr><td class="mono">4</td><td class="mono">0.784</td><td class="mono">200</td><td class="mono"><b>27.767</b></td><td class="mono">0.695</td><td>surrogate</td></tr>
+<tr><td class="mono">5</td><td class="mono">0.775</td><td class="mono">198</td><td class="mono"><b>28.103</b></td><td class="mono">0.697</td><td>surrogate</td></tr>
+<tr><td class="mono">6</td><td class="mono">0.792</td><td class="mono">197</td><td class="mono"><b>28.298</b></td><td class="mono">0.699</td><td>surrogate</td></tr>
+<tr><td class="mono">7</td><td class="mono">0.809</td><td class="mono">18</td><td class="mono">&minus;0.640</td><td class="mono">&minus;1.814</td><td><b>car</b></td></tr>
+<tr><td class="mono">8</td><td class="mono">0.805</td><td class="mono">170</td><td class="mono"><b>28.123</b></td><td class="mono">0.694</td><td>surrogate</td></tr>
+<tr><td class="mono">9</td><td class="mono">0.814</td><td class="mono">181</td><td class="mono"><b>28.005</b></td><td class="mono">0.694</td><td>surrogate</td></tr>
+<tr><td class="mono">10</td><td class="mono">0.783</td><td class="mono">217</td><td class="mono"><b>28.017</b></td><td class="mono">0.698</td><td>surrogate</td></tr>
+</tbody>
+</table></div>
+<p><strong>Tracking is identical to Blocks</strong> &mdash; 0.775&ndash;0.814 m against 0.778&ndash;0.829 m.
+The controller does the same job in both worlds.</p>
+
+<h2 id="sim27"><span class="secnum">03</span> SIM-27 is not a 1.7% flake</h2>
+<pre>t=136.26  phys_z=28.896  pose_z=0.763  dz=28.13  vz=0.696
+t=136.86  phys_z=29.315  pose_z=0.763  dz=28.55  vz=0.693</pre>
+<p><code>pose_z</code> <strong>frozen</strong> &mdash; the actor is on the ground, which is what the
+cameras see and why the video always looked like a normal landing. <code>phys_z</code> still growing
+at the last sample, at exactly <code>MPC_LAND_SPEED = 0.7</code>.</p>
+<div class="callout stop"><span class="lbl">~28 m is the timeout, not a floor</span>
+<p>40 s of descent at 0.7 m/s. The vehicle never touches down, so the split grows until the harness
+stops asking. The number is the timeout looking back at us. And the ~1.7% figure came from Blocks:
+<strong>the sample-size problem was never the obstacle &mdash; the world was.</strong></p></div>
+<figure>
+<svg viewBox="0 0 880 260" role="img" aria-label="The actor rests frozen on the far-field surrogate at 0.763 metres while the physics body keeps descending at 0.7 metres per second, the two diverging until the state timeout at about 28 metres" style="max-width:100%;height:auto">
+  <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <line x1="70" y1="40" x2="70" y2="220" stroke="currentColor" stroke-width="1.5"/>
+  <text x="16" y="44" font-size="11.5" fill="currentColor">z = 0</text>
+  <text x="8" y="216" font-size="11.5" fill="currentColor">z = 28 m</text>
+  <line x1="70" y1="225" x2="840" y2="225" stroke="currentColor" stroke-width="1.5" marker-end="url(#a2)"/>
+  <text x="800" y="245" font-size="11.5" fill="currentColor">40 s</text>
+  <line x1="70" y1="52" x2="700" y2="52" stroke="currentColor" stroke-width="2.5"/>
+  <text x="712" y="56" font-size="12.5" fill="currentColor">pose_z = 0.763 &mdash; frozen (what cameras see)</text>
+  <line x1="70" y1="52" x2="700" y2="212" stroke="#A3341F" stroke-width="2.5"/>
+  <text x="712" y="208" font-size="12.5" fill="#A3341F">phys_z &mdash; still descending at 0.7 m/s</text>
+  <line x1="700" y1="52" x2="700" y2="212" stroke="#C8892B" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="600" y="132" font-size="12.5" fill="#C8892B" text-anchor="end">split reaches 28 m</text>
+  <circle cx="70" cy="52" r="5" fill="currentColor"/>
+  <text x="82" y="34" font-size="12" fill="currentColor">actor jams on FastGeoSurrogateActor_0</text>
+</svg>
+<figcaption>The actor stops on the surrogate; the integrator does not. The gap is bounded by the state timeout, not by any ground.</figcaption>
+</figure>
+<p>The surrogate is the same actor that made <code>SIM-32</code>&rsquo;s streaming gate release
+0.4&nbsp;s early &mdash; leading hypothesis, <strong>not proven</strong>: it carries collision the
+integrator does not honour as ground. One defect, two faces. <strong>Seed 7 is the lever</strong>:
+the only seed with no split was the only one struck by a car (<code>vz = &minus;1.814</code>,
+ascending). An external impulse appears to break the stuck state.</p>
+
+<h2 id="pause"><span class="secnum">04</span> simPause did not fail</h2>
+<div class="callout ok"><span class="lbl">Worth stating plainly</span>
+<p>Only <strong>1 of 10</strong> seeds needed a ground repair &mdash; it caught the vehicle at
+<strong>z = +1159 m</strong> and put it back at +0.745 in 125 s. Seeds 4, 5, 6 and 8 split by ~28 m
+with <strong>no</strong> repair and no origin restart, so the split happens without
+<code>simPause</code> ever intervening. That rules out both &ldquo;the repair causes it&rdquo; and
+&ldquo;the repair failed to prevent it&rdquo;. <code>SIM-30</code> fixes the <em>bring-up</em> fall;
+it never claimed to fix landing, and City Sample is the first place we could see landing was broken
+at all.</p></div>
+<p><code>SIM-10</code> appeared twice &mdash; origins 875 m and 975 m out, both repaired by a PX4
+restart, both correctly scored <strong>VOID, not FAIL</strong>. Seed 2 showed
+<code>on ground at z=+0.000</code> and <em>still</em> had an origin 875 m out: PX4 had built its EKF
+during the descent before <code>ensure_grounded</code> ever looked.</p>
+
+<h2 id="correction"><span class="secnum">05</span> The correction that qualifies all of it</h2>
+<div class="callout stop"><span class="lbl">I flew the wrong scenario in the wrong world, silently</span>
+<p><code>scenarios/square-10m.yaml</code> declares <code>world: &hellip;/Blocks.uproject</code> and
+describes itself as <em>&ldquo;an empty world. No obstacles by design&rdquo;</em>. I flew it in City
+Sample via <code>--world</code> and <strong>nothing warned</strong>:
+<code>resolve_world()</code> is <code>cli_world or scenario["world"]</code>, with no comparison. Its
+own docstring says the scenario&rsquo;s <em>&ldquo;results mean nothing if it is flown somewhere
+else&rdquo;</em> &mdash; and the code permits exactly that.</p>
+<p>A 10 m square at 20 m altitude, <em>relative to HOME</em>, landing back on a city street. Waypoints
+being HOME-relative is why it is silent: the square is geometrically valid anywhere, so nothing fails
+loudly.</p></div>
+<div class="grid g2">
+<div class="callout ok"><span class="lbl">What survives</span>
+<p>The <code>SIM-27</code> split and the stale origins. A landing-physics defect and an EKF init
+defect do not care which square was flown.</p></div>
+<div class="callout warn"><span class="lbl">What is now suspect</span>
+<p>The collision failures, which I first reported as a gate scoring problem. They are at least as much
+a wrong-pairing artefact I created &mdash; filed as <code>SIM-36</code> alongside
+<code>SIM-35</code> (crash vs being walked into) and <code>SIM-34</code> (the gate cannot record the
+chase camera).</p></div>
+</div>
+
+<footer>
+  <span>Worklog &middot; 2026-08-17 &middot; the first 40-seed gate</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
