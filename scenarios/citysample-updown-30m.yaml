@@ -1,0 +1,58 @@
+# City Sample: takeoff to 30 m, forward 10 m, back 10 m, land.
+#
+# The FIRST scenario written for a world other than Blocks, and the reason SIM-36 exists: a
+# scenario's waypoints are chosen FOR its world, and they are ENU relative to HOME, so a mission
+# written for an empty box is geometrically valid over a city street and means nothing there.
+# `square-10m.yaml` flown here landed a drone on a pavement among pedestrians and traffic.
+#
+# DELIBERATELY MINIMAL. This is the first flight in this world, so it does the least that still
+# exercises takeoff, translation, return and landing. Widen it only once this passes.
+name: citysample-updown-30m
+description: >-
+  Take off to 30 m over City Sample, translate 10 m north, return, and land at the takeoff point.
+  The smallest mission that still exercises the full flight path in a streaming world.
+
+world: /var/mnt/11d5da46-aef5-4b40-a085-40c23f52cc30/Developments/projects/drone-sim/worlds/CitySample/CitySample.uproject
+
+mission:
+  # 30 m as asked. Higher than the Blocks scenarios' 20 m, which matters here: City Sample has
+  # real buildings, and clearing them is the whole reason to go up before translating.
+  takeoff_altitude_m: 30.0
+  # ENU RELATIVE TO HOME (docs/conventions.md §3): +X east, +Y north, +Z up. NOT body-frame, so
+  # "forward" has to be an axis rather than "where the nose points" -- the seed jitters spawn yaw,
+  # and a body-frame reading would send each seed somewhere different. North is the choice.
+  #
+  # UNVERIFIED ASSUMPTION, and the first thing to check if this fails: that 10 m north of spawn
+  # at 30 m altitude is clear. The spawn sits on a street; a building face within 10 m would put
+  # the aircraft into it. If that happens the fix is a different bearing, not a lower altitude.
+  waypoints_enu:
+    - [0.0, 10.0, 30.0]    # forward (north) 10 m
+    - [0.0,  0.0, 30.0]    # back to the takeoff point, still at altitude
+  # The last waypoint is directly above HOME, so the landing happens where the vehicle took off --
+  # on this world that is a pavement, which is exactly why the mission returns rather than landing
+  # wherever it ended up. `SIM-35` was parked into `SIM-36` on this reasoning.
+
+record_topics:
+  - /fmu/out/vehicle_local_position
+  - /fmu/out/vehicle_status_v1
+  # SIM-27: the one topic that says why PX4 does not consider itself landed. On this world that
+  # is not hypothetical -- the 10-seed gate on 2026-08-17 saw a non-terminating landing on 9 of
+  # 10 seeds, with the actor frozen on the ground while the physics body kept descending.
+  - /fmu/out/vehicle_land_detected
+  - /mission/status
+  - /mission/result
+
+tolerances:
+  accept_radius_m: 1.0
+  hold_seconds: 2.0
+  # 180 s, not the Blocks scenarios' 60. A cold City Sample bring-up on the spinning disk took
+  # 5-10 minutes in the 2026-08-17 gate, and streaming continues into the flight -- a budget cut
+  # for an empty box would fail this world for being slow rather than for flying badly.
+  state_timeout_s: 180.0
+
+seeded:
+  # Same jitter as the Blocks scenarios. A seed moves the SPAWN POSE and nothing else, so ten
+  # seeded runs here are ten repeats from slightly different points on the same street -- worth
+  # running for flakiness, never describable as varied conditions.
+  spawn_xy_jitter_m: 5.0
+  spawn_yaw_jitter_rad: 3.14159
