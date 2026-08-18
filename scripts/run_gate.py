@@ -385,7 +385,8 @@ def main() -> int:
         else:
             witness = cw.start()
             try:
-                result = rs.run_flight(scenario, seed, world, stack_restarted=not a.reuse)
+                result = rs.run_flight(scenario, seed, world, stack_restarted=not a.reuse,
+                                       force_world=a.force_world)
             except rs.EnvelopeError as exc:
                 # Stop the observer before leaving. It was started with `docker exec -d`, so
                 # exiting here would leave watch_collisions.py running in the sim container with
@@ -500,8 +501,16 @@ def main() -> int:
         "aborted": aborted or None,
         "seeds_requested": len(seeds),
         "seeds_attempted": len(runs),
-        # A forced pairing must be visible in the artifact, not just argv.        (SIM-36)
-        "world_forced": bool(a.force_world),
+        # THE FACT, NOT THE FLAG.                                       (review, PR 59)
+        # bool(a.force_world) is true even with no --world at all -- nothing was overridden, the
+        # scenario's own world flew, and the artifact still carried a marker inviting a reader to
+        # discount the run. Forced means: a --world was given AND it differed from the declared
+        # one. Recording both worlds makes the field self-describing.
+        "world": world,
+        "world_declared": str(scenario.get("world") or "") or None,
+        "world_forced": bool(a.force_world and a.world
+                             and str(scenario.get("world") or "").strip()
+                             and rs.same_world(a.world, str(scenario.get("world")))is False),
         "chase_requested": chase_requested,
         # NON-VOID ONLY: a seed that never took off produced no video because there was no
         # flight, not because the recorder failed. score() already excludes voids from the rate
