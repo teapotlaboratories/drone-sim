@@ -3545,6 +3545,22 @@ vehicle 80 m during every bring-up is worth understanding before blaming a landi
 
 ## SIM-29 — Chase-camera video as a scenario artifact
 
+**Post-capture compression landed 2026-08-18.** Capture keeps `-preset ultrafast` because
+encoding competes with the renderer and this repo does not accept "two passing flights" as
+evidence that capture leaves flight timing alone — so `record_chase.sh stop` re-encodes
+afterwards instead. **Measured, and it inverts the usual x264 trade:** `veryfast` is both the
+fastest and the smallest (17.5 MB / 43 s) against `slow` (25.2 MB / 78 s), because the source
+carries ultrafast's blocking artifacts and slower presets spend bits reproducing them. A 232 s
+CitySample capture goes 200 MB → 17.5 MB. The original is never discarded until the re-encode's
+duration is verified; `--no-compress` skips it, and the **gate path passes it** — 43 s per seed
+is ~29 min across 40 seeds, four times the mpdecimate pass already disabled there.
+
+**`SIM-36` follow-on, same day:** `world:` now expands environment variables, so a scenario for
+a user's world can say `${DRONE_SIM_WORLDS}/CitySample/CitySample.uproject` instead of one
+machine's absolute path — which would otherwise force `--force-world` and stain the run's
+provenance with a "forced mismatch" for the correct world. First such scenario:
+`scenarios/citysample-updown-30m.yaml`.
+
 **Status:** 🟢 **first slice LANDED 2026-08-13** — capture works from the repo alone; the
 `run_scenario.py` integration is still open. The throwaway probe image is gone: `xvfb`, `ffmpeg`
 and `x11-utils` now live in `docker/unreal.Dockerfile` (178 MB on a 57.4 GB base, measured), so
