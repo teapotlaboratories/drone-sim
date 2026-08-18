@@ -104,7 +104,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>29</b></span>
+    <span>Entries <b>30</b></span>
     <span>Newest <b>2026-08-18</b></span>
   </div>
 </header>
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-18-sim33-a-teardown-that-can-fail.html">
+    <span class="k">2026-08-18 · SIM-33 · newest</span>
+    <h3>A Checker That Can Fail</h3>
+    <p>The rule said <em>tear down after every flight and verify it</em> — and there was no command to do one: <code>teardown()</code> runs only at the <em>start</em> of a bring-up, so every teardown was hand-typed, and hand-typed lists consistently missed <code>sim-xrce</code>. Writing the command surfaced <strong>four separate ways a checker reports a clean machine that isn't</strong>, each found inside the checker itself: <code>set -e</code> turning pgrep's "no match" into a mid-report abort; a pattern truncated to 14 chars when <code>comm</code> truncates to 15, so a leaked <code>UnrealEditor-Cmd</code> printed "none"; a <em>substring</em> assertion that passed over that very defect; and a GPU line that printed "still holding" without touching the verdict. Review caught two more — a teardown that ran the bring-up's validation first and could die talking about spawns with the stack still up, and a final claim that outran its checks, since <code>pgrep -x</code> is blind to the detached bring-up that caused the two-hour incident.</p>
+    <div class="tags">
+      <span class="pill p-stop">4 lies in one checker</span>
+      <span class="pill p-warn">off by one = "none"</span>
+      <span class="pill p-ok">proven able to fail</span>
+      <span class="pill p-chrome">~50 caveats → code</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-18-sim36-a-scenario-belongs-to-a-world.html">
-    <span class="k">2026-08-18 · SIM-36 · newest</span>
+    <span class="k">2026-08-18 · SIM-36</span>
     <h3>A Mission Without A World</h3>
     <p>A scenario declaring <em>"an empty world, no obstacles by design"</em> was flown down a city street, and <strong>nothing objected</strong>. <code>resolve_world()</code> was <code>cli_world or scenario["world"]</code> — the CLI won and nothing compared them, making the function's own docstring an intention the code didn't keep. It went unnoticed because waypoints are HOME-relative: a 10 m square is geometrically valid over a test box, a street, or a motorway, so the run <em>completes</em> and simply stops meaning anything — worse than failing, because a failure gets investigated and a meaningless success gets quoted. Disagreement now exits naming both worlds, with <code>--force-world</code> as a recorded escape. Review then found <strong>the other door, and it was the important half</strong>: the guard only fired on <code>--world</code>, while <code>--no-restart</code>/<code>--reuse</code> never pass it — the flow the project's own flight-test rule prescribes. Closed by asking the container what world it was actually started with. Also: <code>world_forced</code> reported the flag rather than the fact, and two copies of "is this the same world" were the exact drift <code>SIM-34</code> was made of.</p>
     <div class="tags">

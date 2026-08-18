@@ -193,6 +193,13 @@ done
 # The settings file the simulator is actually given. Rewritten only when a spawn is requested,
 # so a plain run still mounts the committed artifact unchanged.
 BASE_SETTINGS="${SETTINGS_FILE:-$REPO/sim/ue5/settings.json}"
+# --down is a TEARDOWN, so none of the bring-up preparation below applies to it. Running it
+# meant `--down` could die on "settings file not found" or "spawn rejected" -- with the stack
+# still up and a message about spawns -- and could write sim/ue5/.settings.run.json as a side
+# effect of a command that is supposed to remove things.                     (review, PR 60)
+# The dispatch itself still happens after the function definitions, which is the earliest point
+# bash can call them; this guard is what keeps everything in between from firing.
+if [ -z "$DOWN" ]; then
 [ -f "$BASE_SETTINGS" ] || die "settings file not found: $BASE_SETTINGS"
 
 # A user-supplied settings file is NORMALISED into the run-time copy rather than mounted from
@@ -232,6 +239,8 @@ if [ -n "$SPAWN" ] || [ -n "$ORIGIN" ]; then
   python3 "$REPO/scripts/apply_spawn.py" "${args[@]}" || die "spawn rejected; not starting"
 fi
 
+fi   # end of the bring-up-only preparation skipped by --down
+
 # --------------------------------------------------------------------------------------
 teardown() {
   log "removing any previous stack"
@@ -257,32 +266,42 @@ teardown() {
 #     `bash -c` the whole command string is there, so the [b]racket trick fails too.
 #   * `pgrep -x` matches comm, which the kernel truncates to 15 CHARS. UnrealEditor-Cmd (16) and
 #     CrashReportClient (17) can never match: pgrep warns and exits non-zero, which reads exactly
-#     like "nothing running". The patterns below are pre-truncated for that reason.
+#     like "nothing running". The patterns below are pre-truncated to EXACTLY 15 -- the
+#     first cut used UnrealEditor-C (14) and could never have matched UnrealEditor-Cm.
 #   * `pgrep -x Xvfb` cannot say WHOSE. QGC runs its own on :99 and the operator may run theirs,
 #     so matching by name alone risks reporting a failure we did not cause -- or killing someone
 #     else's process while "cleaning up".
 verify_down() {
-  local bad=0 n out proc
+  local bad=0 n out proc ours=""
   log "verifying teardown"
 
   # RUNNING containers hold the resources. `-a` adds only STOPPED ones, which hold nothing -- the
   # two-hour incident was a re-creation by a detached bring-up, not a stopped container, so `-a`
   # would not have caught it and is not the lesson.
-  n=$(docker ps --filter "name=sim-" --format '{{.Names}}' 2>/dev/null | wc -l || echo 0)
+  # 8: the FIVE canonical names, not a substring filter. `name=sim-` is a regex match, so an
+  # unrelated container merely containing "sim-" would make --down fail forever with nothing that
+  # fixes it -- the same "a name is not ownership" argument this file makes for Xvfb.
+  # 7: the guard goes on `docker ps`, not the pipeline: `| wc -l || echo 0` prints "0\n0" under
+  # pipefail, because wc has already emitted its own 0.
+  local live
+  live=$(docker ps --format '{{.Names}}  {{.Status}}' 2>/dev/null || true)
+  live=$(printf '%s\n' "$live" | grep -E '^(sim-ros2|sim-qgc|sim-px4|sim-xrce|'"$SIM"')  ' || true)
+  n=$(printf '%s' "$live" | grep -c . || true)
   if [ "$n" -eq 0 ]; then
     printf '  %-32s %s\n' "containers (sim-*)" "none running"
   else
     printf '  %-32s %s\n' "containers (sim-*)" "STILL UP:"
-    docker ps --filter "name=sim-" --format '    {{.Names}}  {{.Status}}' 2>/dev/null
+    printf '    %s\n' "$live"
     bad=1
   fi
 
-  for proc in UnrealEditor UnrealEditor-C CrashReportClie px4 ffmpeg; do
+  for proc in UnrealEditor UnrealEditor-Cm CrashReportClie px4 ffmpeg; do
     out=$(pgrep -x "$proc" 2>/dev/null | tr '\n' ' ' || true)
     if [ -z "$out" ]; then
       printf '  %-32s %s\n' "pgrep -x $proc" "none"
     else
       printf '  %-32s %s\n' "pgrep -x $proc" "STILL RUNNING: $out"
+      ours="$ours $out"
       bad=1
     fi
   done
@@ -303,13 +322,54 @@ verify_down() {
     if [ -z "$out" ]; then
       printf '  %-32s %s\n' "GPU compute apps" "none holding memory"
     else
-      printf '  %-32s %s\n' "GPU compute apps" "still holding (may be another project):"
+      # ATTRIBUTE IT. Printing "still holding" without touching the verdict let a leaked
+      # renderer keep GBs of VRAM under an "exit 0, nothing left running" report -- which is the
+      # false all-clear this command exists to stop. --query-compute-apps gives PIDs, so cross-
+      # check them against the leftovers we just found rather than guessing.  (review, PR 60)
+      printf '  %-32s %s\n' "GPU compute apps" "still holding:"
       printf '    %s\n' "$out"
+      local gpid
+      for gpid in $(printf '%s\n' "$out" | cut -d, -f1 | tr -d ' '); do
+        case " $ours " in
+          *" $gpid "*)
+            printf '    %s\n' "^ PID $gpid is one of OURS -- not released"
+            bad=1 ;;
+        esac
+      done
     fi
   fi
 
+  # A DETACHED BRING-UP IS THE ONE THING pgrep -x CANNOT SEE, and it is exactly what caused the
+  # two-hour incident: the containers were RE-CREATED afterwards by a bring-up nobody re-checked.
+  # A `#!/usr/bin/env bash` script has comm=bash and a runner has comm=python3, so every check
+  # above is blind to them. Walk /proc instead, skipping our own process and its ancestors --
+  # this script's cmdline contains "sim_up.sh" too.                        (review, PR 60)
+  local anc="" a=$$ cmd pid
+  while [ "$a" -gt 1 ] 2>/dev/null; do
+    anc="$anc $a"
+    a=$(awk '{print $4}' "/proc/$a/stat" 2>/dev/null) || break
+    [ -n "$a" ] || break
+  done
+  out=""
+  for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+    case " $anc " in *" $pid "*) continue ;; esac
+    # PIDs vanish between listing /proc and reading it; the redirect error is bash's own, so
+    # suppressing it needs the group, not a 2>/dev/null on tr.
+    { cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline"); } 2>/dev/null || continue
+    case "$cmd" in
+      *sim_up.sh*|*run_scenario.py*|*run_gate.py*) out="$out $pid" ;;
+    esac
+  done
+  if [ -z "$out" ]; then
+    printf '  %-32s %s\n' "detached bring-up / runner" "none"
+  else
+    printf '  %-32s %s\n' "detached bring-up / runner" "STILL RUNNING:$out"
+    printf '    %s\n' "a bring-up in flight will RE-CREATE the stack seconds from now"
+    bad=1
+  fi
+
   if [ "$bad" -eq 0 ]; then
-    log "teardown verified -- nothing of ours is left running"
+    log "teardown verified -- containers, our processes, our display and the GPU are clear"
   else
     printf '\033[31m[sim] TEARDOWN INCOMPLETE:\033[0m %s\n' "see the lines marked STILL above" >&2
   fi
@@ -323,7 +383,11 @@ verify_down() {
 # stale out/.chase-recording that makes the next `start` refuse.
 down_and_verify() {
   if [ -x "$REPO/scripts/record_chase.sh" ]; then
-    "$REPO/scripts/record_chase.sh" stop >/dev/null 2>&1 || true
+    # STDERR THROUGH, and --no-distinct.                                (review, PR 60)
+    # Discarding both meant a "recording found but never written" path -- which happens when the
+    # stack was restarted mid-capture -- lost the flight video silently, under a clean report.
+    # --no-distinct skips the ~10 s mpdecimate pass, which nobody is reading here.
+    "$REPO/scripts/record_chase.sh" stop --no-distinct >/dev/null || true
   fi
   teardown
   verify_down
