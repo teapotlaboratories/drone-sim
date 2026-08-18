@@ -125,7 +125,7 @@ _abort_capture() {
 usage() {
   cat <<'EOF'
 usage: record_chase.sh start [--out PATH.mp4]
-       record_chase.sh stop [--no-distinct]
+       record_chase.sh stop [--no-distinct] [--no-compress]
        record_chase.sh status
 
   start   begin grabbing the renderer's screen. Default output out/chase-<UTC>.mp4.
@@ -134,7 +134,8 @@ usage: record_chase.sh start [--out PATH.mp4]
           --no-compress skips the post-capture re-encode (~43 s, ~11x smaller).
   status  is a recording running, and how many frames it has ingested.
 
-Environment: SIM, DISPLAY_NUM, FPS (60), CRF (23), MAX_SECONDS (1800).
+Environment: SIM, DISPLAY_NUM, FPS (60), CRF (23), MAX_SECONDS (1800),
+             COMPRESS_CRF (28), COMPRESS_PRESET (veryfast).
 EOF
 }
 
@@ -273,7 +274,7 @@ cmd_start() {
 }
 
 cmd_stop() {
-  local no_distinct="" no_compress="" raw_b enc_b enc_dur
+  local no_distinct="" no_compress="" raw_b enc_b enc_dur enc_err
   while [ $# -gt 0 ]; do
     case "$1" in
       # Skip the mpdecimate pass. It decodes the whole file (~10 s per flight-length capture),
@@ -371,26 +372,43 @@ cmd_stop() {
   # output is thrown away and the capture published untouched: losing a flight video to a
   # compression step is strictly worse than storing a large one.
   if [ -z "$no_compress" ]; then
-    raw_b=$(docker exec -e T="$partial" "$SIM" bash -lc 'stat -c%s "$T"' 2>/dev/null | tr -d '\r' || echo 0)
+    # _as_caller on EVERY exec here, like the rest of this script.        (review, PR 62)
+    # ue4's uid matches the host user on this machine by luck and on a fresh one by nothing at
+    # all. On the /out direct-write path ffmpeg could not create the output at all, so the whole
+    # feature would be silently dead on exactly the fresh machine rule 6 is about.
+    raw_b=$(docker exec $(_as_caller) -e T="$partial" "$SIM" bash -lc 'stat -c%s "$T"' 2>/dev/null | tr -d '\r')
     log "compressing (x264 crf $COMPRESS_CRF preset $COMPRESS_PRESET; ~43 s per flight-length capture, --no-compress to skip)"
-    if docker exec -e T="$partial" -e CRF="$COMPRESS_CRF" -e PRE="$COMPRESS_PRESET" "$SIM" bash -lc \
-         'ffmpeg -v error -y -i "$T" -c:v libx264 -preset "$PRE" -crf "$CRF" -an "$T.enc.mp4"' 2>/dev/null
+    # ffmpeg's stderr is KEPT, not discarded. The realistic failures -- permission denied, disk
+    # full, an invalid COMPRESS_PRESET -- each print one line, and a warning that names no cause
+    # makes a permanently broken step look benign.                        (review, PR 62)
+    if enc_err=$(docker exec $(_as_caller) -e T="$partial" -e CRF="$COMPRESS_CRF" -e PRE="$COMPRESS_PRESET" "$SIM" bash -lc \
+         'ffmpeg -v error -y -i "$T" -c:v libx264 -preset "$PRE" -crf "$CRF" -an "$T.enc.mp4"' 2>&1)
     then
-      enc_dur=$(docker exec -e T="$partial" "$SIM" bash -lc \
+      enc_dur=$(docker exec $(_as_caller) -e T="$partial" "$SIM" bash -lc \
         'ffprobe -v error -show_entries format=duration -of csv=p=0 "$T.enc.mp4"' 2>/dev/null | tr -d '\r' || true)
       if [ -n "$enc_dur" ] && [ -n "${dur:-}" ] \
          && awk -v a="$enc_dur" -v b="$dur" 'BEGIN{exit !(a>0 && (a-b<1) && (b-a<1))}'; then
-        enc_b=$(docker exec -e T="$partial" "$SIM" bash -lc 'stat -c%s "$T.enc.mp4"' 2>/dev/null | tr -d '\r' || echo 0)
-        docker exec -e T="$partial" "$SIM" bash -lc 'mv -f "$T.enc.mp4" "$T"'
-        log "  compressed      $(awk -v r="$raw_b" -v e="$enc_b" 'BEGIN{printf "%.1f MB -> %.1f MB (%.1fx smaller)", r/1048576, e/1048576, (e>0? r/e : 0)}')"
+        enc_b=$(docker exec $(_as_caller) -e T="$partial" "$SIM" bash -lc 'stat -c%s "$T.enc.mp4"' 2>/dev/null | tr -d '\r')
+        # GUARDED, like its siblings. This was the one unguarded command in a block whose whole
+        # contract is "never lose the file": under set -e a failed mv kills cmd_stop BEFORE
+        # publishing and before clearing $STATE, so the video is never delivered and every later
+        # `start` refuses with "a recording is already running" -- the permanent wedge the
+        # comments upstream exist to prevent, reintroduced by the safety feature.
+        if docker exec $(_as_caller) -e T="$partial" "$SIM" bash -lc 'mv -f "$T.enc.mp4" "$T"'; then
+          log "  compressed      $(awk -v r="${raw_b:-0}" -v e="${enc_b:-0}" 'BEGIN{printf "%.1f MB -> %.1f MB (%.1fx smaller)", r/1048576, e/1048576, (e>0? r/e : 0)}')"
+        else
+          docker exec $(_as_caller) -e T="$partial" "$SIM" bash -lc 'rm -f "$T.enc.mp4"' 2>/dev/null || true
+          warn "could not replace the capture with the compressed copy; publishing the original."
+        fi
       else
-        docker exec -e T="$partial" "$SIM" bash -lc 'rm -f "$T.enc.mp4"' 2>/dev/null || true
+        docker exec $(_as_caller) -e T="$partial" "$SIM" bash -lc 'rm -f "$T.enc.mp4"' 2>/dev/null || true
         warn "re-encode duration '${enc_dur:-none}' does not match the capture's '${dur:-unknown}' --
        discarding it and publishing the original. The capture is intact."
       fi
     else
-      docker exec -e T="$partial" "$SIM" bash -lc 'rm -f "$T.enc.mp4"' 2>/dev/null || true
-      warn "re-encode failed; publishing the original capture untouched."
+      docker exec $(_as_caller) -e T="$partial" "$SIM" bash -lc 'rm -f "$T.enc.mp4"' 2>/dev/null || true
+      warn "re-encode failed; publishing the original capture untouched.
+       ffmpeg said: $(printf '%s' "${enc_err:-(no output)}" | tail -2 | tr '\n' ' ')"
     fi
   fi
 

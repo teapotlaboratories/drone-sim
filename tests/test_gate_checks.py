@@ -1105,3 +1105,65 @@ def test_docs_cite_the_glob_by_function_not_by_line_number():
         src = (root / rel).read_text()
         assert "vendor_patches.sh:47" not in src, (
             f"{rel} cites a line number that will drift; name vp_list instead")
+
+
+# --- PR 62: post-capture compression, and a portable world path -------------------------------
+
+def _chase():
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[1] / "scripts" / "record_chase.sh").read_text()
+
+
+def test_every_compression_exec_runs_as_the_caller():
+    """ue4's uid matches the host user here by luck and on a fresh machine by nothing at all.
+    On the /out direct-write path the re-encode could not create its output at all, so the
+    feature would be silently dead on exactly the fresh machine rule 6 is about."""
+    src = _chase()
+    body = src[src.index('if [ -z "$no_compress" ]'):]
+    body = body[:body.index("\n  fi\n")]
+    execs = [l for l in body.splitlines() if "docker exec" in l]
+    assert execs, "expected docker execs in the compression block"
+    for l in execs:
+        assert "$(_as_caller)" in l, f"exec without _as_caller: {l.strip()}"
+
+
+def test_the_replace_is_guarded_like_its_siblings():
+    """Under set -e an unguarded mv kills cmd_stop before publishing AND before clearing $STATE,
+    so the video is never delivered and every later `start` refuses -- the permanent wedge."""
+    src = _chase()
+    i = src.index("mv -f \"$T.enc.mp4\" \"$T\"")
+    line = src[:i].splitlines()[-1] + src[i:].splitlines()[0]
+    assert line.lstrip().startswith("if "), f"the replace must be guarded, got: {line.strip()}"
+
+
+def test_reencode_failure_reports_a_cause():
+    """A warning that names no cause makes a permanently broken step look benign."""
+    src = _chase()
+    assert "enc_err=$(" in src, "ffmpeg stderr must be captured"
+    assert "ffmpeg said:" in src
+
+
+def test_the_gate_path_does_not_pay_for_compression():
+    """~43 s per capture is ~29 min across a 40-seed gate -- four times the mpdecimate pass this
+    repo already disables on this path."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    stops = [l for l in src.splitlines() if 'chase("stop"' in l and "--no-distinct" in l]
+    assert stops, "expected chase stop call sites"
+    for l in stops:
+        assert "--no-compress" in l, f"gate path must not compress: {l.strip()}"
+
+
+def test_world_paths_may_reference_the_environment():
+    """A user's world is not part of the repo. Hard-coding one checkout's absolute path makes a
+    scenario unusable elsewhere -- and forces --force-world, staining provenance for what is
+    actually the correct world."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "scripts" / "run_scenario.py").read_text()
+    assert "os.path.expandvars" in src
+    assert '"${" in world' in src, "an unexpanded variable must name its own cause"
+    sc = (root / "scenarios" / "citysample-updown-30m.yaml").read_text()
+    assert "${DRONE_SIM_WORLDS}" in sc
+    assert "/var/mnt/" not in sc.split("world:")[1].splitlines()[0], (
+        "the world: line must not hard-code this machine's path")

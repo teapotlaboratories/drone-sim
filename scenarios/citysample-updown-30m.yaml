@@ -12,7 +12,18 @@ description: >-
   Take off to 30 m over City Sample, translate 10 m north, return, and land at the takeoff point.
   The smallest mission that still exercises the full flight path in a streaming world.
 
-world: /var/mnt/11d5da46-aef5-4b40-a085-40c23f52cc30/Developments/projects/drone-sim/worlds/CitySample/CitySample.uproject
+# ${DRONE_SIM_WORLDS} rather than an absolute path: a user's world is not part of the repo and
+# lives wherever that machine keeps it. Hard-coding this checkout's location would make the
+# scenario unusable elsewhere -- and worse, an operator whose CitySample sits somewhere else would
+# have to pass --force-world, which records a "forced world mismatch" in the run's provenance for
+# what is actually the correct world.
+#
+# On this machine:
+#   export DRONE_SIM_WORLDS=/var/mnt/11d5da46-aef5-4b40-a085-40c23f52cc30/Developments/projects/drone-sim/worlds
+#
+# Unset it and the path resolves to a file that does not exist, and the runner says so with the
+# resolved path. That is the intended failure: readable, not a silent fallback.
+world: ${DRONE_SIM_WORLDS}/CitySample/CitySample.uproject
 
 mission:
   # 30 m as asked. Higher than the Blocks scenarios' 20 m, which matters here: City Sample has
@@ -45,9 +56,15 @@ record_topics:
 tolerances:
   accept_radius_m: 1.0
   hold_seconds: 2.0
-  # 180 s, not the Blocks scenarios' 60. A cold City Sample bring-up on the spinning disk took
-  # 5-10 minutes in the 2026-08-17 gate, and streaming continues into the flight -- a budget cut
-  # for an empty box would fail this world for being slow rather than for flying badly.
+  # 180 s, not the Blocks scenarios' 60. This is a PER-STATE flight budget handed to
+  # offboard_control, NOT a bring-up allowance -- bring-up has its own 1200 s cap in
+  # restart_stack, and describing this key as covering it would be wrong.
+  #
+  # What 180 actually buys, and costs: the harness cap becomes 180*7 + 120 = 1380 s per seed, and
+  # a 180 s LAND state under the known SIM-27 non-terminating landing is what let the pose split
+  # reach 107 m on seed 1 rather than the ~28 m the 60 s scenarios produce. That is a longer wait
+  # for the same failure, and it is deliberate: this world streams during flight, and a budget cut
+  # for an empty box would fail it for being slow rather than for flying badly.
   state_timeout_s: 180.0
 
 seeded:

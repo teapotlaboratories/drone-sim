@@ -472,8 +472,20 @@ def resolve_world(scenario: dict, cli_world: str, *, force: bool = False) -> str
     There is also no bundled default any more. Falling back to Blocks whenever nobody said
     otherwise is how a gate run ends up describing a world it was never pointed at.
     """
-    cli = (cli_world or "").strip()
-    declared = str(scenario.get("world", "") or "").strip()
+    # ENVIRONMENT EXPANSION, because a world is not part of the repo.               (SIM-36)
+    #
+    # Blocks is vendored and can be named repo-relative. A user's world cannot: it lives wherever
+    # that machine keeps it, and hard-coding an absolute path makes the scenario unusable
+    # anywhere else -- and worse under the pairing guard, since an operator whose copy sits
+    # elsewhere would have to pass --force-world, staining the run's provenance with a "forced
+    # mismatch" for what is actually the correct world.
+    #
+    # So `world:` may reference environment variables: ${DRONE_SIM_WORLDS}/MyCity/MyCity.uproject.
+    # An unset variable expands to nothing and the resulting path simply will not exist, which
+    # the "world not found" error below reports with the resolved path -- a readable failure
+    # rather than a silent fallback to somewhere else.
+    cli = os.path.expandvars((cli_world or "").strip())
+    declared = os.path.expandvars(str(scenario.get("world", "") or "").strip())
 
     # `world: default` first: it is not a world, so comparing it produces a mismatch message
     # whose remedy ("fly the world the scenario declares") is impossible.  (review, PR 59)
@@ -527,6 +539,13 @@ def resolve_world(scenario: dict, cli_world: str, *, force: bool = False) -> str
     if not p.is_absolute():
         p = (REPO / p).resolve()
     if not p.is_file():
+        # Name the cause when an unexpanded ${VAR} survived: "world not found" pointing at a path
+        # with a literal ${DRONE_SIM_WORLDS} in it is a missing export, not a missing world.
+        if "${" in world:
+            sys.exit(f"world not found: {world}\n"
+                     "That path still contains an unexpanded variable, so the environment does "
+                     "not define it. Export it (e.g. DRONE_SIM_WORLDS=/path/to/worlds) and "
+                     "re-run.")
         sys.exit(f"world not found: {world}"
                  + (f" (resolved to {p})" if str(p) != world else ""))
     return str(p)
@@ -819,7 +838,14 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     if chase_on and (REPO / "out" / ".chase-recording").exists():
         # Stale state from a previous run that died between start and stop would refuse this
         # one. `stop` is the documented way to clear it and is safe when nothing is recording.
-        chase("stop", "--no-distinct")
+        # --no-compress HERE for the same reason --no-distinct is here.  (review, PR 62)
+        #
+        # Compression is ~43 s per capture (measured), i.e. ~29 minutes across a 40-seed
+        # gate -- four times the cost of the mpdecimate pass this repo already disables
+        # here as "post-processing for a per-seed number nobody reads". A gate wants the
+        # evidence to EXIST; whoever sits down to watch one can compress it then, and
+        # record_chase.sh compresses by default for exactly that case.
+        chase("stop", "--no-distinct", "--no-compress")
     # UNLINK AFTER the stale-state stop, not before.          (review, PR 58, 3rd pass)
     #
     # `chase("stop")` PUBLISHES a leftover .partial to this exact path (record_chase.sh does
@@ -912,7 +938,7 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
         # mpdecimate pass decodes the whole file (~10 s), which across a 40-seed gate is ~7
         # minutes spent on a per-seed number nobody reads.
         if chase_on:
-            chase("stop", "--no-distinct")
+            chase("stop", "--no-distinct", "--no-compress")
         try:
             recorder.wait(timeout=60)
         except subprocess.TimeoutExpired:
