@@ -67,6 +67,12 @@ VP_ALREADY=0
 vp_apply_unreal() {
   local repo="$1" plugin="$2" remedy="$3"
   local applied=0 already=0 p name
+  # Reset ON ENTRY, not only on the success path.                        (review, PR 61)
+  # Both early exits below used to leave the PREVIOUS values in place, so a caller with a
+  # non-exiting `die` would read stale counts and take the "nothing applied" branch -- a dead
+  # contract of exactly the kind two guards on this branch already turned out to be.
+  VP_APPLIED=0
+  VP_ALREADY=0
 
   [ -d "$plugin" ] || { vp_die "plugin root does not exist: $plugin"; return 1; }
 
@@ -77,7 +83,15 @@ vp_apply_unreal() {
     # makes re-runs idempotent; --batch stops patch prompting on stdin if the strip level is ever
     # wrong, because an interactive prompt here would hang the caller with no output.
     if patch -p4 -d "$plugin" --forward --batch --dry-run < "$p" >/dev/null 2>&1; then
-      patch -p4 -d "$plugin" --forward --batch --silent < "$p" >/dev/null
+      # CHECK THE REAL APPLY.                                             (review, PR 61)
+      # --dry-run writes nothing, so it passes on a read-only or root-owned tree that the actual
+      # write then fails. Inline in three `set -euo pipefail` scripts that was survivable; as a
+      # library whose fallbacks exist to support being sourced anywhere, an unchecked write
+      # reports "applied", increments the count, and lets a caller compile unpatched source.
+      patch -p4 -d "$plugin" --forward --batch --silent < "$p" >/dev/null \
+        || { vp_die "$name passed --dry-run but FAILED to apply to $plugin.
+         The dry run writes nothing, so this is usually a permission or read-only mount problem.
+         Refusing to report it as applied."; return 1; }
       vp_log "  applied  $name"; applied=$((applied + 1))
     elif patch -p4 -R -d "$plugin" --batch --dry-run < "$p" >/dev/null 2>&1; then
       # Reverse-applies cleanly => already in the tree. Benign, and the common case on a re-run.
@@ -97,6 +111,33 @@ vp_apply_unreal() {
   [ "$applied" -gt 0 ] || [ "$already" -gt 0 ] \
     || vp_warn "no Unreal-side patches found under patches/cosys-airsim/ -- nothing to apply"
   return 0
+}
+
+# Is a rebuild needed? ONE answer, because "already applied" is a statement about SOURCE and the
+# thing that flies is the BINARY.                                          (review, PR 61)
+#
+#   vp_needs_rebuild <plugin_root> <so_path>   -> 0 (yes, build) / 1 (no, skip)
+#
+# build_blocks.sh earned this the hard way: if a previous run patched and the compile then failed,
+# a re-run reported "nothing to rebuild" and exited 0 with patched source and an UNPATCHED .so.
+# convert_world.sh still had the un-earned version -- `TIER = A1 && VP_APPLIED -eq 0` skips on
+# source state alone, so --no-build followed by a normal run shipped a plugin without 0005, and
+# the vehicle falls through a World Partition world forever. Same rule, one owner.
+vp_needs_rebuild() {
+  local plugin="$1" so="$2"
+  if [ ! -f "$so" ]; then
+    vp_warn "every patch is already applied, but there is NO plugin binary at
+         $so
+         Building rather than reporting success for an artifact that does not exist."
+    return 0
+  fi
+  if [ -n "$(find "$plugin/Source" -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
+                  -newer "$so" -print -quit 2>/dev/null)" ]; then
+    vp_warn "every patch is already applied, but plugin SOURCE is newer than $(basename "$so") --
+         the binary predates the source and cannot contain those patches. Building."
+    return 0
+  fi
+  return 1
 }
 
 # Each caller has its own log/die/warn with its own prefix; use them when present so output keeps

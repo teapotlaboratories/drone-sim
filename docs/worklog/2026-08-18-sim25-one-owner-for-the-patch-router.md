@@ -61,3 +61,52 @@ wrong reason — the identical mistake as the `UnrealEditor-C` assertion in `SIM
 within a few hours. Both now check code rather than text.
 
 183 tests, up from 177.
+
+---
+
+## Review pass — the extraction left a third copy, and found a live bug next door
+
+**The third caller kept its own enumeration.** `build_airsim_wrapper.sh` adopted the predicate but
+still globbed the directory itself, with `PATCHDIR` as a second spelling of the path — so the PR's
+own stated invariant ("no caller re-globs; a second glob is a second copy of *which patches
+exist*") was violated by the PR, and the guard test deliberately checked only the other two. If
+`vp_list` ever learns a rule, that build silently keeps the old set. Now `mapfile -t patches <
+<(vp_list "$REPO")`.
+
+**A live bug in the neighbouring skip logic.** `convert_world.sh` decided "no build needed" from
+`TIER = A1 && VP_APPLIED -eq 0` — *source* state alone. Run it once with `--no-build` (0005
+applies), then run again normally: every patch reverse-applies, so `VP_APPLIED` is 0, the build is
+skipped, and the world ships a `.so` **without 0005** — the vehicle falls through a World Partition
+world forever, which is the exact failure that patch exists to prevent. `build_blocks.sh` had
+already learned this and carried the earned version in a comment explaining why. So the rebuild
+rule became the second thing with one owner: `vp_needs_rebuild`.
+
+That is the ticket's own thesis arriving from the other direction. The duplication was not just the
+routing rule — it was *every* decision these three scripts share, and the second copy was already
+wrong.
+
+**The real apply was unchecked.** `patch --forward --batch --silent` had its exit status ignored:
+`--dry-run` writes nothing, so it passes on a read-only or root-owned tree where the actual write
+fails, and the loop would report `applied`, increment the count, and let a caller compile unpatched
+source. Survivable while inline in three `set -euo pipefail` scripts; not survivable in a library
+whose own fallbacks exist to support being sourced anywhere.
+
+**And the counts were only assigned on the success path**, so both early exits left the previous
+values in place — a dead contract of exactly the kind two guards on the previous branch turned out
+to be. Reset on entry now.
+
+**Documentation that had become load-bearing and wrong.** `experimental/README.md`,
+`docs/vendor/cosys-airsim.md` and `docs/todo.md` all cited `build_blocks.sh:65` and
+`convert_world.sh:154` as the globs — the record of *why* `0007` is parked. After this change
+neither globs. A maintainer re-verifying "is 0007 really out of reach?" would grep the cited line,
+find nothing, and reasonably conclude the rationale was stale. All three now point at
+`scripts/vendor_patches.sh:47`. The same citations in the 2026-08-16 worklog are **left alone** —
+worklogs are frozen, and that one correctly records what was true when it was written.
+
+**Two more of my tests were checking text rather than structure.** The one-owner guard was a
+substring scan that a fourth copy spelled `^+++ b/Unreal` would pass, and the count assertion
+pinned an exact `== 2` that a third legitimate use would break for no reason. Both now assert the
+invariant.
+
+Rebuilt through the reworked owner: both paths exercised, and the artifact is still md5
+`20f5430c1a61`. 186 tests.

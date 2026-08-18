@@ -65,7 +65,11 @@ docker exec "$SVC" bash -lc "
 # Apply every patch in order. Numbered so the sequence is explicit rather than
 # filesystem-order-dependent. vendor/ is never touched -- these land on the container copy.
 shopt -s nullglob
-patches=("$REPO/$PATCHDIR"/*.patch)
+# vp_list, not a second glob.                                            (review, PR 61)
+# Keeping its own enumeration made this caller a second copy of "which patches exist" -- the
+# exact thing SIM-25 closed elsewhere. If vp_list ever learns a rule (a .disabled suffix, an
+# order file, reaching into experimental/), this build would silently keep the old set.
+mapfile -t patches < <(vp_list "$REPO")
 [ ${#patches[@]} -gt 0 ] || die "no patches found in $PATCHDIR"
 ros_side=0
 for pf in "${patches[@]}"; do
