@@ -4064,8 +4064,28 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 ## SIM-33 — Give the stack a teardown command
 
-**Status:** 🔵 **open, raised 2026-08-16** by the review of PR 55 (the teardown rule) — the rule
-demands a verified teardown after every flight, and **the repo has no way to do one**.
+**Status:** ✅ **done 2026-08-18.** `./scripts/sim_up.sh --down` tears the stack down and
+**prints every check**, exiting non-zero if anything survives. It stops `record_chase.sh`
+first (so ffmpeg gets SIGINT and the mp4 keeps its moov atom) and removes the canonical five
+containers from `sim_up.sh`'s own list, including `sim-xrce`.
+
+**Proven able to FAIL, not just to report success** — which is the point, after a branch whose
+worst defect was a guard that never executed. Against a live stack it reported the four
+containers with ages, `UnrealEditor` 931470, `px4` 931985, `Xvfb :77` 931530 with its full
+command line, and the GPU holder 931470 at 4569 MiB — the same PID as the renderer, which is a
+free cross-check. Exit 1. Then `--down` on that same stack returned all-clear, exit 0.
+
+**A real bug surfaced while testing it, and it is this ticket's own failure mode.** Under
+`set -euo pipefail`, `pgrep` exiting 1 for "no match" — the *normal* answer — aborted the
+verifier mid-report. It printed one line and exited 1; had it aborted a few lines later it
+would have printed an all-clear having checked almost nothing. Guarded, and pinned by a test
+that walks the function for unguarded captures.
+
+The ~50 lines of hand-verification caveats in `.ai/AGENTS.md` are replaced by the command plus
+the reasons each trap exists — every one having produced false evidence here.
+
+**Original status:** 🔵 open, raised 2026-08-16 by the review of PR 55 (the teardown rule) — the
+rule demands a verified teardown after every flight, and the repo had no way to do one.
 
 `sim_up.sh` has a `teardown()` (line 219) but it is only called at the *start* of a bring-up
 (line 735) to clear a previous stack. `scripts/sim_down.sh` does not exist, despite being reached

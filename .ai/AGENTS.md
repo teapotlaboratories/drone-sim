@@ -331,69 +331,48 @@ no green component-level check will show.
     more, and hammers whichever disk the world lives on. Leaving one running is not untidy, it
     is taking someone else's machine.
 
-    **The verification is the rule, not the teardown.** Teardown reporting success is not
-    evidence that it worked. **Stop the recorder first** — `record_chase.sh` SIGINTs ffmpeg so
-    the mp4's moov atom is written, and `docker rm -f` SIGKILLs it instead, leaving an unplayable
-    video (the evidence hard stop 5 requires) and a stale `out/.chase-recording` that makes the
-    next `start` refuse:
+    **The verification is the rule, not the teardown — and there is now a command for it.**
+    *(`SIM-33`, 2026-08-18)*
 
     ```bash
-    ./scripts/record_chase.sh stop || true        # BEFORE teardown, not after
-    docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce sim-unreal    # match sim_up.sh:224 EXACTLY
-    docker ps --format '{{.Names}}\t{{.Status}}'   # RUNNING containers are the ones holding resources
-    pgrep -x UnrealEditor; pgrep -x px4           # exact process NAME — see the caveats below
-    pgrep -x -a Xvfb                              # then match the DISPLAY, not the name
-    nvidia-smi --query-compute-apps=pid,used_gpu_memory --format=csv,noheader
+    ./scripts/sim_up.sh --down
     ```
 
-    **There is no teardown command** — `sim_up.sh`'s `teardown()` runs only at the *start* of a
-    bring-up, and `scripts/sim_down.sh` does not exist, so the list above has to be kept in sync
-    with `sim_up.sh:224` by hand until `SIM-33` adds a real entry point. Copy that line, do not
-    retype it from memory: the five-name list includes **`sim-xrce`**, which every hand-written
-    four-name `docker rm` in this repo's history has missed. A stale `sim-xrce` still holds
-    udp/8888, and `MicroXRCEAgent` **exits 0 when it fails to bind** — so the next bring-up breaks
-    silently, with a symptom nowhere near the cause.
+    It stops the chase recorder first (`docker rm -f` SIGKILLs ffmpeg and the mp4 loses its moov
+    atom), removes the canonical **five** containers from `sim_up.sh`'s own list — including
+    `sim-xrce`, which every hand-typed list in this repo's history has missed — then **prints
+    every check and what it found**, and exits non-zero if anything survives:
 
-    `--query-compute-apps`, not `--query-gpu`: the latter reports whole-GPU totals with no
-    attribution, so on a machine where the operator is also rendering it can prove nothing about
-    whether *this* stack let go. The former names the PIDs still holding memory.
+    ```
+    containers (sim-*)               none running
+    pgrep -x UnrealEditor            none
+    pgrep -x UnrealEditor-C          none
+    pgrep -x CrashReportClie         none
+    pgrep -x px4                     none
+    pgrep -x ffmpeg                  none
+    Xvfb on :77                      none (other displays ignored)
+    GPU compute apps                 none holding memory
+    ```
 
-    **Three ways this has already gone wrong:**
+    Use it rather than hand-typing a teardown. The traps it encodes are all ones that produced
+    **false evidence here**, and each is a way to report a clean machine that is not one:
 
-    - **A teardown was reported successful and four containers were found up TWO HOURS later**
-      (2026-08-14) — recreated afterwards by a detached bring-up nobody re-checked. The lesson is
-      **re-check after a delay, and confirm detached bring-ups dead by PID**; it is *not* "use
-      `docker ps -a`", which only adds *stopped* containers and would not have caught this.
-    - **The check itself was the bug** (2026-08-14). `for p in UnrealEditor Xvfb ffmpeg …; do
-      pgrep -f "$p"` puts every one of those names into the asking shell's own argv, so `pgrep -f`
-      matched itself and reported 2–4 of everything — numbers that looked like evidence and were
-      an artifact of how the question was asked.
-    - **The fix for it was also wrong** (2026-08-16). "Use `pgrep -x`" is right about false
-      *positives* — `-x` matches the executable name, so a shell merely mentioning that name
-      cannot match — but it introduced two silent false *negatives*, and a clean check that
-      cannot see anything reads exactly like a clean machine.
+    - **`pgrep -f` matches the asking shell**, because the pattern sits in its own argv — and
+      under `bash -c` the whole command string does, so the `[b]racket` trick fails too. Three
+      separate false reports came from this.
+    - **`pgrep -x` matches `comm`, truncated by the kernel to 15 chars.** `UnrealEditor-Cmd` (16)
+      and `CrashReportClient` (17) can *never* match; pgrep warns and exits non-zero, which reads
+      exactly like "nothing running". The command's patterns are pre-truncated.
+    - **A name is not ownership.** QGC runs its own Xvfb on `:99` and the operator may run theirs,
+      so the check is scoped to *our* `DISPLAY_NUM` — otherwise you report a failure you did not
+      cause, or kill someone else's process while "cleaning up".
+    - **`nvidia-smi --query-gpu` cannot attribute memory**; `--query-compute-apps` names the PIDs.
+    - **`set -e` turns "no match" into an abort.** `pgrep` exits 1 when it finds nothing, which is
+      the *normal* answer here — an unguarded capture aborted the verifier mid-report, and had it
+      aborted a few lines later it would have printed an all-clear having checked almost nothing.
 
-    **`pgrep` cannot verify this on its own. Know both failure modes before trusting a zero:**
-
-    - **`-x` matches `comm`, which the kernel truncates to 15 characters.** `pgrep -x
-      UnrealEditor-Cmd` (16) and `pgrep -x CrashReportClient` (17) match **nothing, ever** —
-      measured, `pgrep` even warns and still exits non-zero. Truncate the pattern to 15 chars.
-    - **`-x` cannot see a script by its own name.** A `#!/usr/bin/env bash` script has `comm` =
-      `bash`, so `pgrep -x sim_up.sh` returns nothing — measured. The same is true of every
-      Python leftover (`run_scenario.py`, `watch_collisions.py`, `ros2 bag record`), which is
-      most of what actually gets left behind.
-    - **`-f` from an agent shell is unsound and cannot be patched into soundness.** Excluding
-      `$$` is not enough: the harness's own `bash -c '<whole command string>'` wrapper carries
-      your pattern in its argv and is *not* `$$`, and inside `$( )` the forked subshell is
-      `$BASHPID`, not `$$` either — both reproduced against a pattern with zero real matches.
-      If you must use `-f`, drop every hit whose `/proc/<pid>/comm` is a shell **and** exclude
-      `$$`, `$BASHPID`, `$PPID` and every ancestor. Prefer not to: check inside the container
-      (`docker exec … pgrep`), or use a PID file.
-    - **A name is not ownership on a shared machine.** QGC runs its own Xvfb on `:99` and the
-      operator may be running Xvfb or ffmpeg for their own work, so `pgrep -x Xvfb` cannot say
-      whose it is — following it blindly means either reporting a failure you did not cause or
-      **killing someone else's process while "cleaning up"**. Disambiguate:
-      `pgrep -x -a Xvfb | grep -qE " :$DISPLAY_NUM( |$)"`.
+    A teardown reported as successful once left **four containers running for two hours** — they
+    were re-created afterwards by a detached bring-up nobody re-checked. So:
 
     A backgrounded or detached bring-up (`nohup`, `setsid`, `run_in_background`) **must** be
     confirmed dead by PID, not assumed dead because the foreground command returned.

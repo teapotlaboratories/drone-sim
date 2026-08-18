@@ -68,6 +68,7 @@ WORLD=${WORLD:-}                        # .uproject to load; default is the vend
 # capture is 1.3 fps of 32.0 (4.2%), but two passing flights are NOT evidence that a windowed
 # renderer leaves flight timing alone, and the gate is the thing that must not move.
 DISPLAY_MODE=${DISPLAY_MODE:-}
+DOWN=${DOWN:-}
 # Accept BOTH `99` and `:99`. docker/qgc-entrypoint.sh:9 reads this same variable name WITH the
 # colon (`${DISPLAY_NUM:-:99}`), so an operator following the repo's existing script would
 # otherwise get `Xvfb ::99` and a bring-up that fails 20 s later with a confusing message.
@@ -157,6 +158,8 @@ usage: sim_up.sh [--world PATH.uproject] [--settings PATH.json]
   --allow-below-origin  permit a positive Z (i.e. genuinely below the origin).
   --origin LAT,LON,ALT  where the world sits on Earth (AirSim OriginGeopoint). The simulated
                         GPS derives from it, so PX4's EKF origin follows it.      (SIM-31)
+  --down                tear the stack down and VERIFY it is gone, then exit. Prints every
+                        check and what it found; exits non-zero if anything survives.
   --display             run the renderer on an Xvfb screen instead of -RenderOffScreen, so
                         AirSim's chase camera can be recorded with scripts/record_chase.sh.
                         Off by default: headless is the gate's path. (SIM-29)
@@ -181,6 +184,7 @@ while [ $# -gt 0 ]; do
     --origin)             ORIGIN="${2:-}";        shift 2 ;;
     --origin=*)           ORIGIN="${1#*=}";       shift ;;
     --display)            DISPLAY_MODE=1;         shift ;;
+    --down)               DOWN=1;                 shift ;;
     -h|--help)            usage; exit 0 ;;
     *)                    usage >&2; die "unknown argument: $1" ;;
   esac
@@ -235,6 +239,94 @@ teardown() {
   # sim-ros2, and a stale sim-xrce left by an older checkout would still hold udp/8888,
   # so the new agent would fail to bind -- and it exits 0 when it does.
   docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce "$SIM" >/dev/null 2>&1 || true
+}
+
+# --------------------------------------------------------------------------------------
+# TEARDOWN THAT PROVES ITSELF.                                                    (SIM-33)
+#
+# The rule is "tear down after every flight AND VERIFY it" -- and until now there was no way to
+# do one: teardown() runs only at the START of a bring-up, and scripts/sim_down.sh does not exist
+# despite being reached for by name. Every teardown was therefore a hand-typed `docker rm -f`,
+# and hand-typed lists have consistently missed sim-xrce.
+#
+# It PRINTS WHAT IT CHECKED. "Clean" with no evidence is exactly what this rule exists to stop:
+# a teardown once reported success while four containers ran on for two hours.
+#
+# The pgrep traps below are not hypothetical -- every one has produced false evidence here:
+#   * `pgrep -f <name>` matches the ASKING SHELL, because the pattern sits in its own argv. Under
+#     `bash -c` the whole command string is there, so the [b]racket trick fails too.
+#   * `pgrep -x` matches comm, which the kernel truncates to 15 CHARS. UnrealEditor-Cmd (16) and
+#     CrashReportClient (17) can never match: pgrep warns and exits non-zero, which reads exactly
+#     like "nothing running". The patterns below are pre-truncated for that reason.
+#   * `pgrep -x Xvfb` cannot say WHOSE. QGC runs its own on :99 and the operator may run theirs,
+#     so matching by name alone risks reporting a failure we did not cause -- or killing someone
+#     else's process while "cleaning up".
+verify_down() {
+  local bad=0 n out proc
+  log "verifying teardown"
+
+  # RUNNING containers hold the resources. `-a` adds only STOPPED ones, which hold nothing -- the
+  # two-hour incident was a re-creation by a detached bring-up, not a stopped container, so `-a`
+  # would not have caught it and is not the lesson.
+  n=$(docker ps --filter "name=sim-" --format '{{.Names}}' 2>/dev/null | wc -l || echo 0)
+  if [ "$n" -eq 0 ]; then
+    printf '  %-32s %s\n' "containers (sim-*)" "none running"
+  else
+    printf '  %-32s %s\n' "containers (sim-*)" "STILL UP:"
+    docker ps --filter "name=sim-" --format '    {{.Names}}  {{.Status}}' 2>/dev/null
+    bad=1
+  fi
+
+  for proc in UnrealEditor UnrealEditor-C CrashReportClie px4 ffmpeg; do
+    out=$(pgrep -x "$proc" 2>/dev/null | tr '\n' ' ' || true)
+    if [ -z "$out" ]; then
+      printf '  %-32s %s\n' "pgrep -x $proc" "none"
+    else
+      printf '  %-32s %s\n' "pgrep -x $proc" "STILL RUNNING: $out"
+      bad=1
+    fi
+  done
+
+  # OUR Xvfb, by display number -- not every Xvfb on the machine.
+  out=$(pgrep -x -a Xvfb 2>/dev/null | grep -E " :$DISPLAY_NUM( |$)" | tr '\n' ' ' || true)
+  if [ -z "$out" ]; then
+    printf '  %-32s %s\n' "Xvfb on :$DISPLAY_NUM" "none (other displays ignored)"
+  else
+    printf '  %-32s %s\n' "Xvfb on :$DISPLAY_NUM" "STILL RUNNING: $out"
+    bad=1
+  fi
+
+  # --query-compute-apps NAMES the PIDs still holding memory. --query-gpu reports whole-GPU
+  # totals with no attribution, so on a shared box it proves nothing about THIS stack.
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    out=$(nvidia-smi --query-compute-apps=pid,used_gpu_memory --format=csv,noheader 2>/dev/null || true)
+    if [ -z "$out" ]; then
+      printf '  %-32s %s\n' "GPU compute apps" "none holding memory"
+    else
+      printf '  %-32s %s\n' "GPU compute apps" "still holding (may be another project):"
+      printf '    %s\n' "$out"
+    fi
+  fi
+
+  if [ "$bad" -eq 0 ]; then
+    log "teardown verified -- nothing of ours is left running"
+  else
+    printf '\033[31m[sim] TEARDOWN INCOMPLETE:\033[0m %s\n' "see the lines marked STILL above" >&2
+  fi
+  # `return "$bad"` under `set -e` in some call contexts is fine, but be explicit: this value
+  # IS the verdict and the caller exits on it.
+  [ "$bad" -eq 0 ]
+}
+
+# Stop the chase recorder BEFORE removing containers: record_chase.sh SIGINTs ffmpeg so the mp4
+# gets its moov atom, and `docker rm -f` SIGKILLs it instead -- leaving an unplayable video and a
+# stale out/.chase-recording that makes the next `start` refuse.
+down_and_verify() {
+  if [ -x "$REPO/scripts/record_chase.sh" ]; then
+    "$REPO/scripts/record_chase.sh" stop >/dev/null 2>&1 || true
+  fi
+  teardown
+  verify_down
 }
 
 start_sim() {
@@ -830,6 +922,12 @@ if [ -n "$DISCOVERY_SERVER" ]; then
   log "discovery: SERVER $DISCOVERY_SERVER (multicast not used; it must already be running)"
 else
   log "discovery: multicast (default)"
+fi
+
+# --down is a complete request on its own: tear down, prove it, exit with the verdict.
+if [ -n "$DOWN" ]; then
+  down_and_verify
+  exit $?
 fi
 
 teardown
