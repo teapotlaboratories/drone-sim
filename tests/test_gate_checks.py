@@ -707,3 +707,50 @@ def test_scenario_only_world_still_works():
     rs = _rs_mod()
     repo = Path(__file__).resolve().parents[1]
     assert rs.resolve_world({"world": BLOCKS}, "") == str((repo / BLOCKS).resolve())
+
+
+# --- SIM-36, review pass: the other door, and the fact-vs-flag ---------------------------------
+
+def test_world_default_is_rejected_before_the_mismatch_check():
+    """`world: default` is not a world, so a mismatch message whose remedy is 'fly the world the
+    scenario declares' is impossible advice.                              (review, PR 59)"""
+    import pytest
+    rs = _rs_mod()
+    with pytest.raises(SystemExit) as e:
+        rs.resolve_world({"world": "default"}, "/x/Y.uproject")
+    assert "mismatch" not in str(e.value)
+    assert "no longer accepted" in str(e.value)
+
+
+def test_same_world_matches_across_spellings():
+    from pathlib import Path
+    rs = _rs_mod()
+    assert rs.same_world(BLOCKS, str((Path(__file__).resolve().parents[1] / BLOCKS)))
+    assert not rs.same_world(BLOCKS, "/x/Other.uproject")
+    assert not rs.same_world("", BLOCKS)
+
+
+def test_running_world_returns_empty_when_undeterminable():
+    """An unknown must not masquerade as a match, and must not block a run either."""
+    rs = _rs_mod()
+    rs.sh = lambda *a, **k: (_ for _ in ()).throw(OSError("no docker"))
+    assert rs.running_world() == ""
+
+
+def test_reused_stack_check_is_wired_into_run_flight():
+    """--no-restart / --reuse never passes --world, so the pairing check has to happen here."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    assert "assert_reused_stack_matches(world, force=force_world)" in src
+    i = src.index("def run_flight(")
+    assert "force_world: bool = False" in src[i:i + 300], "must be keyword-only, per the PR 53 bug"
+
+
+def test_gate_forwards_force_world_and_records_the_pair():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    assert "rs.resolve_world(scenario, a.world, force=a.force_world)" in src
+    assert "force_world=a.force_world" in src, "run_flight must receive it too"
+    assert '"world_declared"' in src, "the report must name what was forced away from"
+    assert '"world_forced": bool(a.force_world and a.world' in src, (
+        "world_forced must report the FACT -- --force-world with no --world overrode nothing")

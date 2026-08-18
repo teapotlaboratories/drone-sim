@@ -3936,6 +3936,17 @@ Verified against the exact case that went silent on 2026-08-17: `square-10m.yaml
 `--world CitySample.uproject` now exits 1 with the mismatch message; `--force-world` proceeds;
 and a matching world passes silently, including when spelled relative vs absolute. Four tests.
 
+**Review found the other door, and it mattered more than the front one** *(PR 59)*: the guard
+only fired when `--world` was passed, but `--no-restart`/`--reuse` never pass it — and that is
+the flow the flight-test rule itself prescribes. Closed by asking the container: `sim_up.sh`
+bind-mounts the world's directory at `/world`, so `running_world()` recovers it via
+`docker inspect`, returning `""` when docker cannot answer so an unknown neither masquerades
+as a match nor blocks a run. Also fixed there: `world_forced` reported the flag rather than the
+fact (true even with no `--world` at all), `world: default` got a mismatch message whose remedy
+was impossible, and the guard and the provenance each had their own copy of "is this the same
+world" — now one `same_world()`. Worklog:
+`docs/worklog/2026-08-18-sim36-a-scenario-belongs-to-a-world.md`.
+
 **The other half — bring-your-own-world means bring-your-own-scenario — is documented rather
 than enforced**, because the harness cannot know where a landing site is in someone's world.
 `scenarios/README.md` says what to change when adapting a mission, and `docs/worlds.md` sends

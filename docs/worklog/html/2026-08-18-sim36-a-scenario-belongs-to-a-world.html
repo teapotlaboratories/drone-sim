@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A Mission Without A World</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-18 &middot; SIM-36</span>
+  <nav><a href="#silent">Why it was silent</a><a href="#shipped">What shipped</a><a href="#door">The other door</a><a href="#docs">Documented</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-18 &middot; SIM-36 &middot; SITL only</span>
+  <h1>A Mission<br>Without A World</h1>
+  <p class="sub">A scenario declaring <em>&ldquo;an empty world, no obstacles by design&rdquo;</em> was flown down a city street, and nothing objected. It did not fail &mdash; it <strong>stopped meaning anything</strong>, which is worse.</p>
+  <div class="mastmeta"><span>Warnings logged <b>0</b></span><span>Seeds invalidated <b>10</b></span><span>Doors found <b>2</b></span><span>Tests <b>152 &rarr; 157</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">The old code</div><div class="v">cli or declared</div><div class="n">no comparison &mdash; the docstring was intent the code didn't keep</div></div>
+<div class="stat warn"><div class="k">Why silent</div><div class="v">HOME-relative</div><div class="n">a 10 m square is valid over a box, a street, or a motorway</div></div>
+<div class="stat ok"><div class="k">Now</div><div class="v">exit 1</div><div class="n">both worlds named, with <code>--force-world</code> recorded as the escape</div></div>
+</div>
+
+<h2 id="silent"><span class="secnum">01</span> Why it went unnoticed</h2>
+<p><code>resolve_world()</code> was <code>cli_world or scenario["world"]</code>. The CLI won, nothing
+compared the two, and the function&rsquo;s own docstring &mdash; <em>&ldquo;its results mean nothing if
+it is flown somewhere else&rdquo;</em> &mdash; described an intention the code did not keep.</p>
+<div class="callout stop"><span class="lbl">The measured incident, 2026-08-17</span>
+<p>A 10-seed gate ran <code>square-10m.yaml</code> against CitySample via <code>--world</code>, logged
+<strong>nothing</strong>, and produced ten failures whose collision counts were partly an artefact of
+landing an empty-box mission on a busy pavement.</p></div>
+<figure>
+<svg viewBox="0 0 880 240" role="img" aria-label="The same ten metre square mission is geometrically valid over an empty test box and over a city street, so flying it in the wrong world produces a completed run rather than a failure" style="max-width:100%;height:auto">
+  <rect x="60" y="60" width="330" height="140" fill="none" stroke="currentColor" stroke-width="1.4"/>
+  <text x="70" y="50" font-size="12.5" fill="currentColor">Blocks &mdash; the world it was written for</text>
+  <polyline points="150,170 250,170 250,110 150,110 150,170" fill="none" stroke="#3F7A34" stroke-width="2.4"/>
+  <circle cx="150" cy="170" r="5" fill="#3F7A34"/>
+  <text x="150" y="192" font-size="11.5" text-anchor="middle" fill="#3F7A34">lands where it started &mdash; empty ground</text>
+
+  <rect x="490" y="60" width="330" height="140" fill="none" stroke="currentColor" stroke-width="1.4"/>
+  <text x="500" y="50" font-size="12.5" fill="currentColor">CitySample &mdash; where it was actually flown</text>
+  <rect x="490" y="150" width="330" height="50" fill="currentColor" opacity="0.10"/>
+  <text x="655" y="182" font-size="11" text-anchor="middle" fill="currentColor" opacity="0.75">pavement · traffic · crowds</text>
+  <polyline points="580,170 680,170 680,110 580,110 580,170" fill="none" stroke="#A3341F" stroke-width="2.4"/>
+  <circle cx="580" cy="170" r="5" fill="#A3341F"/>
+  <text x="580" y="205" font-size="11.5" text-anchor="middle" fill="#A3341F">lands in the street</text>
+  <text x="60" y="228" font-size="12" fill="currentColor">Identical mission. Identical geometry. Only one of them means anything &mdash; and neither one fails.</text>
+</svg>
+<figcaption>Waypoints are ENU relative to HOME, so the square is valid anywhere. The run completes either way; that is exactly why nothing caught it.</figcaption>
+</figure>
+
+<h2 id="shipped"><span class="secnum">02</span> What shipped</h2>
+<p>Disagreement exits, naming both worlds. <code>--force-world</code> overrides and is recorded,
+because flying one mission across several worlds is legitimate &mdash; it just has to be said out loud.</p>
+<div class="callout"><span class="lbl">The false alarm mattered as much as the guard</span>
+<p>The same world spelled relatively and absolutely must <strong>not</strong> trip it. A guard that
+cries wolf on two spellings of one path trains people to pass <code>--force-world</code> reflexively,
+which defeats it more thoroughly than not having it at all.</p></div>
+
+<h2 id="door"><span class="secnum">03</span> Review found the other door &mdash; the important half</h2>
+<div class="callout stop"><span class="lbl">The guard only fired on <code>--world</code></span>
+<p>But <code>--no-restart</code> and <code>--reuse</code> never pass it &mdash; and that is the flow the
+project&rsquo;s <em>own</em> flight-test rule prescribes: <code>sim_up.sh --display</code>, then
+<code>run_scenario.py &hellip; --no-restart</code>. So a scenario could still be flown in whatever
+happened to be running, silently, <strong>by the route the documentation recommends</strong>.</p>
+<p>Closed by asking the container: <code>sim_up.sh</code> bind-mounts the world&rsquo;s directory at
+<code>/world</code>, so the running world is recoverable through <code>docker inspect</code>. No
+<code>/world</code> mount means the vendored Blocks environment. <code>running_world()</code> returns
+<code>""</code> when docker cannot answer &mdash; an unknown must not masquerade as a match, and must
+not block a run either.</p></div>
+<div class="grid g2">
+<div class="callout warn"><span class="lbl">world_forced reported the flag, not the fact</span>
+<p><code>bool(a.force_world)</code> is true even with no <code>--world</code> at all: nothing was
+overridden, the scenario&rsquo;s own world flew, and the artifact still carried a marker inviting a
+reader to discount the run. It now means a <code>--world</code> was given <em>and</em> differed, with
+<code>world</code> and <code>world_declared</code> recorded so the field explains itself.</p></div>
+<div class="callout warn"><span class="lbl">Two answers to one question</span>
+<p>The guard and the provenance both had to decide &ldquo;is this the same world&rdquo;, and two copies
+of that answer is the exact class of drift <code>SIM-34</code> was made of. Extracted to
+<code>same_world()</code>. Also: <code>world: default</code> hit the mismatch message, whose remedy is
+impossible &mdash; that rejection moved above the comparison.</p></div>
+</div>
+
+<h2 id="docs"><span class="secnum">04</span> The half that stays documentation</h2>
+<p><strong>Bring-your-own-world means bring-your-own-scenario</strong> &mdash; but the harness cannot
+know where a landing site is in someone else&rsquo;s world, so enforcing it would be guessing.
+<code>scenarios/README.md</code> says what to change; <code>docs/worlds.md</code> and its render send
+the world-bringer there.</p>
+<div class="callout ok"><span class="lbl">The item listed first is the landing point</span>
+<p><code>square-10m.yaml</code> returns to its takeoff corner &mdash; harmless in an empty box, and
+exactly how a landed aircraft ends up under a crowd in a city. That is the substance of
+<code>SIM-35</code>, addressed in the pairing rather than in the collision scoring, which is where it
+was parked.</p></div>
+<div class="tw"><table>
+<thead><tr><th>case</th><th>result</th></tr></thead>
+<tbody>
+<tr><td><code>square-10m.yaml</code> + <code>--world CitySample</code></td><td class="mono"><b>exit 1</b></td></tr>
+<tr><td>same, <code>--force-world</code></td><td class="mono">proceeds</td></tr>
+<tr><td><code>--world</code> matching the declared world</td><td class="mono">silent (rel &amp; abs)</td></tr>
+<tr><td>scenario-declared world, no <code>--world</code></td><td class="mono">unchanged</td></tr>
+<tr><td><code>world: default</code></td><td class="mono">its own message</td></tr>
+<tr><td><code>running_world()</code>, docker unavailable</td><td class="mono">"" — neither match nor block</td></tr>
+</tbody>
+</table></div>
+<p>157 tests. A 1-seed Blocks gate flew the normal path clean afterwards: PASS, worst 0.786 m,
+<code>world_forced: false</code>, chase recorded.</p>
+
+<footer>
+  <span>Worklog &middot; 2026-08-18 &middot; SIM-36</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

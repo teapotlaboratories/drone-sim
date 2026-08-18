@@ -376,6 +376,70 @@ def stack_is_up() -> bool:
     return r.returncode == 0 and r.stdout.strip() == "true"
 
 
+def same_world(a: str, b: str) -> bool:
+    """Do these two spellings name the same .uproject? Relative paths anchor to REPO.
+
+    Shared so the guard and the provenance cannot disagree about what "the same world" means --
+    the class of drift SIM-34 was made of.                                 (review, PR 59)
+    """
+    if not a or not b:
+        return False
+    pa = Path(a) if Path(a).is_absolute() else (REPO / a)
+    pb = Path(b) if Path(b).is_absolute() else (REPO / b)
+    try:
+        return pa.resolve() == pb.resolve()
+    except OSError:
+        return str(pa) == str(pb)
+
+
+def running_world() -> str:
+    """The .uproject the ALREADY-RUNNING renderer was started with, or "" if undeterminable.
+
+    `sim_up.sh` bind-mounts the world's directory at /world in the UE5 container (sim_up.sh:266),
+    so the running world is recoverable from the container itself. No /world mount means the
+    vendored Blocks environment, which is the script's own default.
+
+    Returns "" rather than guessing when docker cannot answer -- an unknown must not masquerade
+    as a match, and must not block a run either.
+    """
+    try:
+        r = sh(["docker", "inspect", SIM,
+                "--format", "{{range .Mounts}}{{.Destination}}={{.Source}}\n{{end}}"],
+               timeout=30)
+    except Exception:
+        return ""
+    if r.returncode != 0:
+        return ""
+    for line in (r.stdout or "").splitlines():
+        dest, _, src = line.partition("=")
+        if dest.strip() == "/world" and src.strip():
+            d = Path(src.strip())
+            ups = sorted(d.glob("*.uproject"))
+            return str(ups[0]) if len(ups) == 1 else ""
+    return str(REPO / "vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject")
+
+
+def assert_reused_stack_matches(world: str, *, force: bool = False) -> str:
+    """SIM-36's other door: --no-restart / --reuse never passes --world, so the pairing check
+    never fired and a scenario could be flown in whatever happened to be up.  (review, PR 59)
+
+    Returns the running world when it could be determined, "" otherwise.
+    """
+    running = running_world()
+    if not running or force:
+        return running
+    if not same_world(running, world):
+        sys.exit(
+            f"scenario/world mismatch on a REUSED stack: this scenario is for\n"
+            f"    {world}\n"
+            f"but the running renderer was brought up with\n"
+            f"    {running}\n\n"
+            "Waypoints are chosen for a world and are HOME-relative, so this flies without "
+            "failing and without meaning anything. Bring the stack up on the scenario's world, "
+            "use a scenario written for the running one, or pass --force-world.")
+    return running
+
+
 def resolve_world(scenario: dict, cli_world: str, *, force: bool = False) -> str:
     """The world to fly, from the CLI or the scenario. NO DEFAULT -- one must say.
 
@@ -390,6 +454,13 @@ def resolve_world(scenario: dict, cli_world: str, *, force: bool = False) -> str
     """
     cli = (cli_world or "").strip()
     declared = str(scenario.get("world", "") or "").strip()
+
+    # `world: default` first: it is not a world, so comparing it produces a mismatch message
+    # whose remedy ("fly the world the scenario declares") is impossible.  (review, PR 59)
+    if declared == "default":
+        sys.exit("`world: default` is no longer accepted -- it was never resolved to anything "
+                 "and read as a fallback that did not exist. Give a real .uproject path, e.g. "
+                 "vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject")
 
     # A DECLARED WORLD AND A --world THAT DISAGREE IS AN ERROR.                     (SIM-36)
     #
@@ -406,13 +477,7 @@ def resolve_world(scenario: dict, cli_world: str, *, force: bool = False) -> str
     # --force-world stays available because flying one mission in several worlds is a legitimate
     # thing to want; it just has to be said out loud and recorded in the provenance.
     if cli and declared and not force:
-        cli_r = Path(cli) if Path(cli).is_absolute() else (REPO / cli)
-        dec_r = Path(declared) if Path(declared).is_absolute() else (REPO / declared)
-        try:
-            same = cli_r.resolve() == dec_r.resolve()
-        except OSError:
-            same = str(cli_r) == str(dec_r)
-        if not same:
+        if not same_world(cli, declared):
             sys.exit(
                 f"scenario/world mismatch: this scenario declares\n"
                 f"    world: {declared}\n"
@@ -540,7 +605,8 @@ def restart_stack(variant: dict, world: str = "", settings: str = "", *,
         raise RuntimeError(f"sim_up.sh failed (exit {r.returncode}) — stack not flyable")
 
 
-def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool = True) -> dict:
+def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool = True,
+               *, force_world: bool = False) -> dict:
     """Fly one seeded mission and return its result.
 
     ARTIFACTS ALWAYS GO TO <repo>/out, and that is not configurable. `sim_up.sh` bind-mounts
@@ -550,6 +616,13 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     never honoured. Removed rather than wired through: see run_gate.py --outdir, which
     controls the report and says so.
     """
+    # SIM-36's OTHER DOOR. --no-restart / --reuse never passes --world, so resolve_world's
+    # pairing check never fires and the scenario is flown in whatever happens to be up -- the
+    # flow the flight-test rule itself prescribes. Checked here instead, against the world the
+    # running renderer was actually started with.                          (review, PR 59)
+    _world_forced = bool(force_world)
+    _reused_world = "" if stack_restarted else assert_reused_stack_matches(world, force=force_world)
+
     mission = scenario.get("mission", {})
     tol = scenario.get("tolerances", {})
     limits = scenario.get("limits", {}) or {}
@@ -654,7 +727,13 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
         "waypoints_gps": gps_wps or None,
         "ekf_ref": ekf_ref,
         "waypoints_enu_flown": [list(e) for e in enu_from_gps] or None,
-        "world": (world or None) if stack_restarted else None,
+        # THE PAIR ACTUALLY USED, not just a flag.                      (review, PR 59)
+        # Under --no-restart this used to be null, so a reused-stack run recorded no world at
+        # all -- and a forced run was byte-indistinguishable from a properly paired one while
+        # --force-world's help promised the override was captured.
+        "world": (world or None) if stack_restarted else (_reused_world or None),
+        "world_declared": str(scenario.get("world") or "") or None,
+        "world_forced": bool(_world_forced),
         "origin_geopoint": (scenario.get("origin_geopoint") or None) if stack_restarted else None,
         "spawn_declared": (scenario.get("spawn") or None) if stack_restarted else None,
     }
@@ -963,7 +1042,8 @@ def main() -> int:
         print("stack    : cold-starting via sim_up.sh")
         restart_stack(variant, world, a.settings, scenario=scenario)
 
-    result = run_flight(scenario, a.seed, world, stack_restarted=not a.no_restart)
+    result = run_flight(scenario, a.seed, world, stack_restarted=not a.no_restart,
+                        force_world=a.force_world)
     result.update({
         "scenario": scenario.get("name"),
         "seed": a.seed,

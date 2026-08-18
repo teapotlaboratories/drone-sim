@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">drone-sim · Bring your own world</span>
-  <nav><a href="#check">Check</a><a href="#pipeline">Pipeline</a><a href="#wp">World Partition</a><a href="#verify">Verify</a><a href="#trouble">Trouble</a></nav>
+  <nav><a href="#check">Check</a><a href="#pipeline">Pipeline</a><a href="#wp">World Partition</a><a href="#scenario">Scenario</a><a href="#verify">Verify</a><a href="#trouble">Trouble</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -419,7 +419,28 @@ run 3   z = -1.0e-03 m   flew, 4/4 waypoints, worst 0.855 m</pre>
 <p><strong>Roughly 2 runs in 3 succeed &mdash; retry on failure.</strong> A real fix must hold the
 vehicle until streaming completes rather than race it. Unsolved; tracked as <code>SIM-21</code>.</p></div>
 
-<h2 id="verify"><span class="secnum">04</span> Verifying &mdash; the part people skip</h2>
+<h2 id="scenario"><span class="secnum">04</span> Your world needs a scenario, not just a conversion</h2>
+<p>A converted world is not yet flyable <em>evidence</em>. Every mission in <code>scenarios/</code> is
+written for the world it declares, and its waypoints are <strong>ENU relative to HOME</strong> &mdash;
+so pointing an existing scenario at your world with <code>--world</code> is an <strong>error</strong>,
+not a shortcut:</p>
+<pre>scenario/world mismatch: this scenario declares
+    world: vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject
+and --world says
+    &hellip;/worlds/CitySample/CitySample.uproject</pre>
+<p>It has to be an error because it does not fail on its own. A 10&nbsp;m square is geometrically
+valid over an empty test box, a city street or a motorway &mdash; the run completes and simply stops
+meaning anything, which is worse than failing, because a failure gets investigated and a meaningless
+success gets quoted.</p>
+<p><strong>Write a scenario for your world.</strong> <code>scenarios/README.md</code> lists what to
+change; the one that matters most is the <strong>landing point</strong>. <code>square-10m.yaml</code>
+returns to its takeoff corner, which is harmless in an empty box and is exactly how a landed aircraft
+ends up under a crowd in a city.</p>
+<p><code>--force-world</code> overrides the check and is recorded in the run&rsquo;s provenance,
+because flying one mission across several worlds is legitimate &mdash; it just has to be said out
+loud.</p>
+
+<h2 id="verify"><span class="secnum">05</span> Verifying &mdash; the part people skip</h2>
 
 <p>A level that renders is not a world that flies. <strong>Judge by resting <code>z</code>, not by
 the log.</strong></p>
@@ -485,7 +506,7 @@ subclass</em> (<code>BP_FlyingPawn_C</code>), not the C++ class, so a change tha
 looks identical from outside. If you are changing pawn C++, log from <code>BeginPlay</code> and read
 it back out of the running renderer &mdash; verify the artifact that <em>ran</em>.</p></div>
 
-<h2 id="trouble"><span class="secnum">05</span> Troubleshooting</h2>
+<h2 id="trouble"><span class="secnum">06</span> Troubleshooting</h2>
 
 <div class="tw"><table>
   <thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
@@ -501,7 +522,7 @@ it back out of the running renderer &mdash; verify the artifact that <em>ran</em
   </tbody>
 </table></div>
 
-<h2><span class="secnum">06</span> What it leaves behind, and what is still missing</h2>
+<h2><span class="secnum">07</span> What it leaves behind, and what is still missing</h2>
 
 <div class="grid g2">
   <div class="panel">
