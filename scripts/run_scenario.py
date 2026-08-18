@@ -663,7 +663,20 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     # that reported "success 4/4" from a file written twenty minutes earlier. This was nearly
     # unreachable while chase was opt-in; making the gate its default producer makes re-running
     # the same gate the routine case.
-    chase_mp4.unlink(missing_ok=True)
+    # ONLY WHEN WE ARE ABOUT TO REWRITE IT.                              (review, PR 58, 2nd pass)
+    #
+    # The first version of this clear was unconditional, which is strictly worse than the bug it
+    # fixed: with chase DISABLED it deletes the previous run's evidence and writes nothing back.
+    # And this branch added --no-chase to run_local_ci.sh, so `./scripts/run_local_ci.sh --gate`
+    # would have deleted square-10m-seed1..10-chase.mp4 -- including the two files this branch
+    # cites as its own verification -- from out/, which is the symlink to the 7 TB archive.
+    # Unrecoverable. Every other up-front delete here is already inside the branch that rewrites
+    # it (the vehicle video's rm -f sits inside `if not _env_true("SIM_NO_VIDEO")`).
+    #
+    # The stale-file cases this guards against all have chase_on true, so nothing is lost: when
+    # chase_on is false, chase_video is reported None regardless of what sits on disk.
+    if chase_on:
+        chase_mp4.unlink(missing_ok=True)
     if chase_on and (REPO / "out" / ".chase-recording").exists():
         # Stale state from a previous run that died between start and stop would refuse this
         # one. `stop` is the documented way to clear it and is safe when nothing is recording.

@@ -238,6 +238,10 @@ def _drops_total(runs) -> int:
                and r["lidar_readback_drops"] > 0)
 
 
+# Three in a row is a broken environment, not a run of bad luck.       (review, PR 58, 2nd pass)
+MAX_CONSECUTIVE_BRINGUP_FAILURES = 3
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="The simulator's success-rate flight gate.")
     ap.add_argument("scenario", type=Path)
@@ -310,7 +314,7 @@ def main() -> int:
         rs.restart_stack({"spawn_x": 0.0, "spawn_y": 0.0, "spawn_yaw": 0.0},
                          world, a.settings, scenario=scenario)
 
-    runs, started = [], time.time()
+    runs, started, consecutive_bringup_failures = [], time.time(), 0
     for i, seed in enumerate(seeds, 1):
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
@@ -325,10 +329,27 @@ def main() -> int:
             # operators are documented as exporting) or when Xvfb never binds. So a box that
             # previously ran the gate headless would now lose the entire run to the display.
             # VOID, not FAIL: the aircraft never flew, so there is no flight to judge.
+            # ONLY sim_up.sh's own failure is a per-seed VOID.        (review, PR 58, 2nd pass)
+            #
+            # A bare `except Exception` here turns faults that CANNOT succeed on any seed into N
+            # slow voids and an "inconclusive" report that never names the cause. restart_stack
+            # raises ValueError for a scenario whose `spawn:` is not a mapping, or an
+            # origin_geopoint missing a key -- configuration faults, handled 20 lines below for
+            # EnvelopeError by exiting and saying so. And it ends in sh(cmd, timeout=1200), so a
+            # wedged docker daemon raises TimeoutExpired: swallowing that burns 20 minutes per
+            # seed (~13 h over 40) while each retry stacks a bring-up on a half-dead one.
             try:
                 rs.restart_stack(variant, world, a.settings, scenario=scenario)
-            except Exception as exc:
-                bringup_failure = f"stack bring-up failed: {type(exc).__name__}: {exc}"
+                consecutive_bringup_failures = 0
+            except RuntimeError as exc:
+                bringup_failure = f"stack bring-up failed: {exc}"
+                consecutive_bringup_failures += 1
+                # A stack that will not come up N times running is broken, not unlucky. Stop
+                # rather than grinding through the remaining seeds producing voids.
+                if consecutive_bringup_failures >= MAX_CONSECUTIVE_BRINGUP_FAILURES:
+                    sys.exit(f"\nstack bring-up failed {consecutive_bringup_failures} times in a "
+                             f"row (last: {exc}) — this is an environment fault, not a flight "
+                             f"result. Aborting after {i - 1} completed run(s).")
         # Assert the stack is measurable BEFORE flying it. A stale EKF origin makes the
         # vehicle report an altitude tens of metres wrong; the run would look like a control
         # failure and would be indistinguishable from one in the report (SIM-10).
@@ -401,6 +422,7 @@ def main() -> int:
     passed, sr = verdict["passed"], verdict["success_rate"]
     elapsed = round(time.time() - started, 1)
 
+    _missing_chase = sum(1 for r in runs if not r.get("void") and not r.get("chase_video"))
     summary = {
         "scenario": name,
         "seeds": seeds,
@@ -415,7 +437,15 @@ def main() -> int:
         # spawn pose, so it cannot satisfy the criterion no matter how green it looks —
         # and a gate that prints "criterion met" next to "not a full gate run" is exactly
         # the kind of artifact that gets quoted without its caveat.
-        "met": verdict["met"],
+        # THE ARTIFACT THAT GETS QUOTED MUST NOT CLAIM THE CRITERION WITHOUT THE EVIDENCE.
+        #                                                          (review, PR 58, 2nd pass)
+        # Hard stop 5 requires the chase camera on every flight test. If chase was requested and
+        # some flown seed recorded none -- chase_available() going false after a renderer repair,
+        # a DISPLAY_NUM mismatch, a non-fatal ffmpeg start failure -- then every seed can pass and
+        # the run still lacks what the rule demands. A console warning is scrollback; this file is
+        # what gets cited, so the verdict itself has to carry it. A run that deliberately opted
+        # out with --no-chase is NOT downgraded: it declared that up front and says so below.
+        "met": verdict["met"] and not (chase_requested and _missing_chase),
         "sr_perfect": verdict["sr_perfect"],
         "mode": "reuse" if a.reuse else "restart-per-run",
         # SIM-24. Recorded so a re-score is possible later; see the print below for why it is
@@ -434,7 +464,10 @@ def main() -> int:
         # DISPLAY_NUM mismatch, ffmpeg already running, a full disk), which would score green
         # with no evidence -- SIM-34's exact failure mode one layer down.
         "chase_requested": chase_requested,
-        "runs_without_chase_video": sum(1 for r in runs if not r.get("chase_video")),
+        # NON-VOID ONLY: a seed that never took off produced no video because there was no
+        # flight, not because the recorder failed. score() already excludes voids from the rate
+        # for the same reason.                                      (review, PR 58, 2nd pass)
+        "runs_without_chase_video": _missing_chase,
         "lidar_readback_drops_unknown_runs": sum(
             1 for r in runs if r.get("lidar_readback_drops") is not None
             and r["lidar_readback_drops"] < 0),
@@ -485,9 +518,9 @@ def main() -> int:
         print("  chase        : NOT REQUESTED (--no-chase) — this run does not satisfy the "
               "chase-camera rule")
     elif summary["runs_without_chase_video"]:
-        print(f"  chase        : MISSING for {summary['runs_without_chase_video']} of "
-              f"{len(runs)} run(s) — requested but not recorded; the flight verdict below does "
-              "NOT carry the evidence hard stop 5 requires")
+        print(f"  chase        : MISSING for {summary['runs_without_chase_video']} flown run(s) — "
+              "requested but not recorded. The gate is NOT met: hard stop 5 requires this "
+              "evidence, and every seed passing does not supply it.")
     print(f"  report       : {out}")
     print()
     if summary["met"]:
