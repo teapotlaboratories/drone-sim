@@ -349,9 +349,9 @@ no green component-level check will show.
     pgrep -x UnrealEditor-Cm         none
     pgrep -x CrashReportClie         none
     pgrep -x px4                     none
-    pgrep -x ffmpeg                  none
     Xvfb on :77                      none (other displays ignored)
     GPU compute apps                 none holding memory
+    detached bring-up / runner       none
     ```
 
     Use it rather than hand-typing a teardown. The traps it encodes are all ones that produced

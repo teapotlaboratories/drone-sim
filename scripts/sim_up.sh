@@ -68,7 +68,9 @@ WORLD=${WORLD:-}                        # .uproject to load; default is the vend
 # capture is 1.3 fps of 32.0 (4.2%), but two passing flights are NOT evidence that a windowed
 # renderer leaves flight timing alone, and the gate is the thing that must not move.
 DISPLAY_MODE=${DISPLAY_MODE:-}
-DOWN=${DOWN:-}
+# NOT ${DOWN:-}: "DOWN" is a very generic name, and a stray export would turn every bring-up on
+# that shell into a teardown-and-exit.                                  (review, PR 60, 2nd pass)
+DOWN=
 # Accept BOTH `99` and `:99`. docker/qgc-entrypoint.sh:9 reads this same variable name WITH the
 # colon (`${DISPLAY_NUM:-:99}`), so an operator following the repo's existing script would
 # otherwise get `Xvfb ::99` and a bring-up that fails 20 s later with a confusing message.
@@ -283,11 +285,18 @@ verify_down() {
   # fixes it -- the same "a name is not ownership" argument this file makes for Xvfb.
   # 7: the guard goes on `docker ps`, not the pipeline: `| wc -l || echo 0` prints "0\n0" under
   # pipefail, because wc has already emitted its own 0.
-  local live
-  live=$(docker ps --format '{{.Names}}  {{.Status}}' 2>/dev/null || true)
+  local live docker_ok=1
+  # A FAILING docker ps IS NOT AN EMPTY ONE.                            (review, PR 60, 2nd pass)
+  # `|| true` swallowed daemon-unreachable, docker-not-on-PATH, permission-denied and a wrong
+  # DOCKER_HOST alike, leaving `live` empty -- so the primary check printed "none running" and
+  # the command exited 0 having seen nothing. That is this function's own header argument.
+  live=$(docker ps --format '{{.Names}}  {{.Status}}' 2>/dev/null) || docker_ok=0
   live=$(printf '%s\n' "$live" | grep -E '^(sim-ros2|sim-qgc|sim-px4|sim-xrce|'"$SIM"')  ' || true)
   n=$(printf '%s' "$live" | grep -c . || true)
-  if [ "$n" -eq 0 ]; then
+  if [ "$docker_ok" -eq 0 ]; then
+    printf '  %-32s %s\n' "containers (sim-*)" "UNKNOWN -- docker did not answer"
+    bad=1
+  elif [ "$n" -eq 0 ]; then
     printf '  %-32s %s\n' "containers (sim-*)" "none running"
   else
     printf '  %-32s %s\n' "containers (sim-*)" "STILL UP:"
@@ -295,7 +304,11 @@ verify_down() {
     bad=1
   fi
 
-  for proc in UnrealEditor UnrealEditor-Cm CrashReportClie px4 ffmpeg; do
+    # ffmpeg is NOT in this list: record_chase.sh execs it via `docker exec`, so it lives inside
+  # $SIM and dies with it. Matching it host-wide only ever catches the operator's own transcode
+  # on a shared machine -- failing their teardown, and then labelling their PID "one of OURS".
+  #                                                                     (review, PR 60, 2nd pass)
+  for proc in UnrealEditor UnrealEditor-Cm CrashReportClie px4; do
     out=$(pgrep -x "$proc" 2>/dev/null | tr '\n' ' ' || true)
     if [ -z "$out" ]; then
       printf '  %-32s %s\n' "pgrep -x $proc" "none"
@@ -317,7 +330,9 @@ verify_down() {
 
   # --query-compute-apps NAMES the PIDs still holding memory. --query-gpu reports whole-GPU
   # totals with no attribution, so on a shared box it proves nothing about THIS stack.
-  if command -v nvidia-smi >/dev/null 2>&1; then
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    printf '  %-32s %s\n' "GPU compute apps" "not checked (no nvidia-smi)"
+  else
     out=$(nvidia-smi --query-compute-apps=pid,used_gpu_memory --format=csv,noheader 2>/dev/null || true)
     if [ -z "$out" ]; then
       printf '  %-32s %s\n' "GPU compute apps" "none holding memory"
@@ -328,12 +343,24 @@ verify_down() {
       # check them against the leftovers we just found rather than guessing.  (review, PR 60)
       printf '  %-32s %s\n' "GPU compute apps" "still holding:"
       printf '    %s\n' "$out"
-      local gpid
+      # AN INDEPENDENT OWNERSHIP TEST.                                (review, PR 60, 2nd pass)
+      #
+      # Cross-checking against `ours` was dead code: `ours` is only appended where bad=1 already
+      # fires, so it could never change the verdict -- and the case it was written for is exactly
+      # the one where pgrep did NOT see the process (a script, a runner, an unrecognised binary).
+      # Same class as the guard that never executed in c27be30.
+      #
+      # So ask the PID itself what it is running. A renderer holding VRAM answers with its own
+      # cmdline whether or not any name check found it.
+      local gpid gcmd
       for gpid in $(printf '%s\n' "$out" | cut -d, -f1 | tr -d ' '); do
-        case " $ours " in
-          *" $gpid "*)
-            printf '    %s\n' "^ PID $gpid is one of OURS -- not released"
+        { gcmd=$(tr '\0' ' ' < "/proc/$gpid/cmdline"); } 2>/dev/null || gcmd=""
+        case "$gcmd" in
+          *UnrealEditor*|*.uproject*|*AirSim*|*px4*)
+            printf '    %s\n' "^ PID $gpid is OURS ($(printf '%s' "$gcmd" | cut -c1-56)…) -- not released"
             bad=1 ;;
+          *)
+            printf '    %s\n' "^ PID $gpid is not ours (left alone)" ;;
         esac
       done
     fi
@@ -344,7 +371,15 @@ verify_down() {
   # A `#!/usr/bin/env bash` script has comm=bash and a runner has comm=python3, so every check
   # above is blind to them. Walk /proc instead, skipping our own process and its ancestors --
   # this script's cmdline contains "sim_up.sh" too.                        (review, PR 60)
-  local anc="" a=$$ cmd pid
+  # OUR PROCESS GROUP, not just our ancestors.                      (review, PR 60, 2nd pass)
+  #
+  # A pipeline shares a process group, so `./scripts/sim_up.sh --down | tee log` puts a sibling
+  # shell alongside us whose cmdline contains "sim_up.sh" and whose exe is bash -- and it is not
+  # an ancestor, so the ancestor walk alone let it flag itself. Measured: piping --down through
+  # grep reported a detached bring-up and exited 1.
+  local mypgid=""
+  mypgid=$(awk '{ sub(/^.*\) /, ""); print $3 }' "/proc/$$/stat" 2>/dev/null) || mypgid=""
+  local anc="" a=$$ cmd pid pgid
   while [ "$a" -gt 1 ] 2>/dev/null; do
     anc="$anc $a"
     a=$(awk '{print $4}' "/proc/$a/stat" 2>/dev/null) || break
@@ -353,9 +388,26 @@ verify_down() {
   out=""
   for pid in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
     case " $anc " in *" $pid "*) continue ;; esac
+    if [ -n "$mypgid" ]; then
+      pgid=$(awk '{ sub(/^.*\) /, ""); print $3 }' "/proc/$pid/stat" 2>/dev/null) || pgid=""
+      [ "$pgid" = "$mypgid" ] && continue
+    fi
     # PIDs vanish between listing /proc and reading it; the redirect error is bash's own, so
     # suppressing it needs the group, not a 2>/dev/null on tr.
     { cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline"); } 2>/dev/null || continue
+    # THE PROCESS MUST BE RUNNING IT, NOT MENTIONING IT.            (review, PR 60, 2nd pass)
+    #
+    # A bare substring match flagged `tail -f scripts/sim_up.sh` and `vim scripts/sim_up.sh` --
+    # demonstrated -- so an operator with the file open in another pane could never get a passing
+    # teardown, and the post-flight verification the rules mandate would fail for a reason
+    # unrelated to the stack. Requiring the EXE to be a shell or python is the same "a name is
+    # not ownership" test this function already applies to Xvfb: tail's exe is tail, vim's is vim.
+    local exe=""
+    exe=$(basename "$(readlink -f "/proc/$pid/exe" 2>/dev/null)" 2>/dev/null) || exe=""
+    case "$exe" in
+      bash|sh|dash|python3|python) ;;
+      *) continue ;;
+    esac
     case "$cmd" in
       *sim_up.sh*|*run_scenario.py*|*run_gate.py*) out="$out $pid" ;;
     esac
@@ -387,7 +439,13 @@ down_and_verify() {
     # Discarding both meant a "recording found but never written" path -- which happens when the
     # stack was restarted mid-capture -- lost the flight video silently, under a clean report.
     # --no-distinct skips the ~10 s mpdecimate pass, which nobody is reading here.
-    "$REPO/scripts/record_chase.sh" stop --no-distinct >/dev/null || true
+    # ONLY WHEN A RECORDING IS ACTUALLY IN PROGRESS.                (review, PR 60, 2nd pass)
+    # record_chase.sh stop dies with "no recording in progress" when the state file is absent,
+    # and stderr is deliberately passed through here -- so every ordinary teardown opened with a
+    # red FATAL, in a command whose entire purpose is legible evidence.
+    if [ -f "$REPO/out/.chase-recording" ]; then
+      "$REPO/scripts/record_chase.sh" stop --no-distinct >/dev/null || true
+    fi
   fi
   teardown
   verify_down

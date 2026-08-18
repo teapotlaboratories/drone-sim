@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog &middot; 2026-08-18 &middot; SIM-33</span>
-  <nav><a href="#goal">Can it fail?</a><a href="#lies">Four lies</a><a href="#more">Two more</a><a href="#replaces">What it replaces</a><a href="index.html">Index</a></nav>
+  <nav><a href="#goal">Can it fail?</a><a href="#lies">Four lies</a><a href="#more">Two more</a><a href="#replaces">What it replaces</a><a href="#pass2">Pass two</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -252,6 +252,40 @@ it can fail.</p>
 <p>Every defect here was <strong>in a checker</strong>, and none failed loudly. An aborted report
 looks clean. An off-by-one pattern prints &ldquo;none&rdquo;. A substring assertion passes. A printed
 warning with no verdict change exits 0.</p></div>
+
+<h2 id="pass2"><span class="secnum">05</span> Second pass &mdash; four more, and the dead-guard class again</h2>
+<div class="callout stop"><span class="lbl">The GPU cross-check could never change the verdict</span>
+<p>I compared GPU-holding PIDs against <code>ours</code> &mdash; but <code>ours</code> is only
+appended where <code>bad=1</code> already fires, so <code>ours</code> non-empty &hArr; the run had
+already failed. And the case it was written for is <em>precisely</em> the one where
+<code>pgrep</code> did not see the process. Identical shape to the guard that never executed two
+branches ago. It now asks the PID itself via <code>/proc/&lt;pid&gt;/cmdline</code> &mdash; an
+ownership test independent of what the name checks found.</p></div>
+<div class="grid g2">
+<div class="callout warn"><span class="lbl">A failing docker ps read as &ldquo;none running&rdquo;</span>
+<p><code>|| true</code> swallowed daemon-unreachable, not-on-PATH and permission-denied alike, so
+the <em>primary</em> check printed a clean line and exited 0 having seen nothing.</p></div>
+<div class="callout warn"><span class="lbl">The scan matched mentions, not ownership</span>
+<p><code>tail -f scripts/sim_up.sh</code> tripped it &mdash; so an operator with the file open in
+another pane could never pass the mandated teardown. The process must now actually <em>be</em> an
+interpreter, the same test already applied to Xvfb: <code>tail</code>&rsquo;s exe is
+<code>tail</code>.</p></div>
+</div>
+<div class="callout stop"><span class="lbl">And my fix for that had the same flaw one level down</span>
+<p>Piping <code>--down</code> through <code>grep</code> flagged <strong>itself</strong>: a pipeline
+shares a process group, so a sibling shell whose cmdline contains <code>sim_up.sh</code> is not an
+ancestor, and the ancestor walk let it through. <code>--down | tee log</code> is ordinary usage.
+Now excludes our whole process group.</p></div>
+<p>Verified in all three directions, because a checker that only prints &ldquo;none&rdquo; is
+worthless: <code>tail -f</code> on the file &rarr; <strong>not</strong> flagged; the same command
+piped &rarr; <strong>not</strong> flagged; a real bash process running it &rarr; <strong>flagged,
+exit 1</strong>.</p>
+<div class="callout"><span class="lbl">I walked into the trap again while testing this</span>
+<p><code>pkill -f "scripts/sim_up.sh"</code> killed my own shell &mdash; the exact failure this
+command encodes, typed by hand, in the session that encoded it. It also killed a bring-up
+mid-container-creation, leaving docker throwing <code>can't get final child's PID from pipe</code>
+and a container stuck in <code>Created</code>. The lesson is not &ldquo;be careful&rdquo;; it is that
+the command exists so nobody has to be.</p></div>
 
 <footer>
   <span>Worklog &middot; 2026-08-18 &middot; SIM-33</span>

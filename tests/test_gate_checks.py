@@ -873,18 +873,67 @@ def test_no_match_is_not_an_abort_under_set_e():
     body = src[src.index("verify_down()"):src.index("down_and_verify()")]
     for line in body.splitlines():
         if "$(pgrep" in line or "$(docker ps" in line or "$(nvidia-smi" in line:
-            assert "|| true" in line or "|| echo" in line, (
+            # ANY `||` guard counts -- `|| docker_ok=0` is as valid as `|| true`, and what
+            # matters is that a non-zero exit cannot abort the function mid-report.
+            assert "||" in line, (
                 f"unguarded capture aborts under set -e: {line.strip()}")
 
 
-def test_gpu_holder_that_is_ours_fails_the_verdict():
-    """Printing "still holding" without touching the verdict let a leaked renderer keep GBs of
-    VRAM under an exit-0 all-clear.                                       (review, PR 60)"""
+def test_gpu_ownership_test_is_independent_of_pgrep():
+    """The first version cross-checked GPU PIDs against `ours` -- which is only appended where
+    bad=1 already fires, so it could never change the verdict, and the case it was written for
+    (a script or runner pgrep cannot see) is exactly where the PID is NOT in `ours`. Same dead-
+    guard class as c27be30.                                          (review, PR 60, 2nd pass)"""
     src = _sim_up()
     body = src[src.index("verify_down()"):src.index("down_and_verify()")]
-    assert 'ours="$ours $out"' in body, "leftover PIDs must be collected for the cross-check"
-    assert "is one of OURS -- not released" in body
-    assert body.count("bad=1") >= 5, "the GPU branch must be able to set bad"
+    assert "/proc/$gpid/cmdline" in body, (
+        "ownership must come from the PID itself, not from what pgrep already found")
+    assert "is not ours (left alone)" in body, "a bystander's GPU use must not fail our teardown"
+
+
+def test_docker_failure_is_not_reported_as_no_containers():
+    """`|| true` made daemon-unreachable indistinguishable from an empty list."""
+    src = _sim_up()
+    body = src[src.index("verify_down()"):src.index("down_and_verify()")]
+    assert "docker_ok=0" in body and "UNKNOWN -- docker did not answer" in body
+
+
+def test_detached_scan_requires_an_interpreter_not_a_mention():
+    """A bare substring match flagged `tail -f scripts/sim_up.sh`, so an operator with the file
+    open could never pass a teardown."""
+    src = _sim_up()
+    body = src[src.index("verify_down()"):src.index("down_and_verify()")]
+    assert "/proc/$pid/exe" in body
+    assert "bash|sh|dash|python3|python)" in body
+    assert "mypgid" in body, "a pipeline sibling shares our process group and must be skipped"
+
+
+def test_ffmpeg_is_not_matched_host_wide():
+    """ffmpeg runs inside $SIM via docker exec and dies with it; host-wide it only catches the
+    operator's own transcode -- and then labels their PID 'one of OURS'."""
+    import re
+    src = _sim_up()
+    m = re.search(r"for proc in ([^\n;]+); do", src)
+    assert "ffmpeg" not in m.group(1).split()
+
+
+def test_missing_nvidia_smi_is_reported_not_omitted():
+    src = _sim_up()
+    assert "not checked (no nvidia-smi)" in src
+
+
+def test_down_is_not_settable_from_the_environment():
+    """DOWN is a very generic name; a stray export would turn every bring-up into a teardown."""
+    src = _sim_up()
+    assert "DOWN=${DOWN:-}" not in src
+    assert "\nDOWN=\n" in src or "\nDOWN=" in src
+
+
+def test_chase_stop_only_runs_when_a_recording_exists():
+    """record_chase.sh stop dies when the state file is absent, and stderr is passed through --
+    so every ordinary teardown opened with a red FATAL."""
+    src = _sim_up()
+    assert '[ -f "$REPO/out/.chase-recording" ]' in src
 
 
 def test_detached_bringup_is_detected():
