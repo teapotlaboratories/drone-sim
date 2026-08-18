@@ -284,6 +284,17 @@ def main() -> int:
     # Resolve the world BEFORE anything is brought up: a wrong path should fail in a second,
     # not after the first stack restart.
     world = rs.resolve_world(scenario, a.world)
+    # FAIL IN A SECOND, NOT AFTER THE FIRST BRING-UP.             (review, PR 58, 3rd pass)
+    #
+    # Chase-by-default makes `sim_up.sh --display` a precondition, and sim_up.sh *dies* when
+    # DISPLAY_NUM resolves to 99 -- a value the repo documents operators as exporting, because
+    # QGC owns that display. Without this the fault surfaces once per seed, and with the abort
+    # threshold the whole run produces three voids and stops. Same reasoning as resolving the
+    # world above: a configuration fault should cost a second, not a stack restart.
+    if not a.no_chase and os.environ.get("DISPLAY_NUM", "") == "99":
+        sys.exit("DISPLAY_NUM=99 is QGroundControl's display, and sim_up.sh refuses it — the "
+                 "chase camera needs its own. Unset DISPLAY_NUM (the default is 77) or pass "
+                 "--no-chase, which records no chase video and does not satisfy hard stop 5.")
     # run_flight has no argparse of its own, so the flag is relayed through the environment it
     # already reads. Set here rather than in the caller's shell so --no-video works the same
     # way whether the gate was invoked by hand or by run_local_ci.sh.
@@ -315,6 +326,7 @@ def main() -> int:
                          world, a.settings, scenario=scenario)
 
     runs, started, consecutive_bringup_failures = [], time.time(), 0
+    aborted = ""
     for i, seed in enumerate(seeds, 1):
         variant = rs.derive_variant(scenario, seed)
         t0 = time.time()
@@ -347,9 +359,14 @@ def main() -> int:
                 # A stack that will not come up N times running is broken, not unlucky. Stop
                 # rather than grinding through the remaining seeds producing voids.
                 if consecutive_bringup_failures >= MAX_CONSECUTIVE_BRINGUP_FAILURES:
-                    sys.exit(f"\nstack bring-up failed {consecutive_bringup_failures} times in a "
-                             f"row (last: {exc}) — this is an environment fault, not a flight "
-                             f"result. Aborting after {i - 1} completed run(s).")
+                    # BREAK, do not exit.                        (review, PR 58, 3rd pass)
+                    #
+                    # sys.exit() here fires before the summary is written, so a 40-seed run that
+                    # flew 37 seeds over two hours and then hit three bring-up failures would
+                    # discard every completed flight -- which is precisely the loss the try/except
+                    # above exists to prevent, re-created three failures later.
+                    aborted = (f"stack bring-up failed {consecutive_bringup_failures} times in "
+                               f"a row (last: {exc}) — environment fault, not a flight result")
         # Assert the stack is measurable BEFORE flying it. A stale EKF origin makes the
         # vehicle report an altitude tens of metres wrong; the run would look like a control
         # failure and would be indistinguishable from one in the report (SIM-10).
@@ -410,6 +427,11 @@ def main() -> int:
             "probe_written": result.get("probe_written"),
             "seconds": round(time.time() - t0, 1),
         })
+        # Recorded first, then stop: the aborting seed's VOID belongs in the report like any
+        # other, and every seed already flown must survive.        (review, PR 58, 3rd pass)
+        if aborted:
+            print(f"\n  ABORTING: {aborted}")
+            break
         drops = runs[-1]["lidar_readback_drops"]
         print(f"  [{i:>2}/{len(seeds)}] seed {seed:<3} "
               f"{'VOID' if void_reason else ('PASS' if ok else 'FAIL'):4}  "
@@ -432,7 +454,8 @@ def main() -> int:
         "valid_total": verdict["valid_total"],
         "voids": verdict["voids"],
         "success_rate": sr,
-        "criterion": "SR == 1.0 over independent seeded runs, with zero VOID runs",
+        "criterion": ("SR == 1.0 over independent seeded runs, with zero VOID runs, "
+                      "and — when chase is requested — a chase video for every run that flew"),
         # `met` requires BOTH a perfect rate and a real gate run. --reuse never applies the
         # spawn pose, so it cannot satisfy the criterion no matter how green it looks —
         # and a gate that prints "criterion met" next to "not a full gate run" is exactly
@@ -525,12 +548,31 @@ def main() -> int:
     print()
     if summary["met"]:
         print("  PASS — flight gate criterion met")
+    elif aborted:
+        print(f"  ABORTED — {aborted}.")
+        print(f"            {len([r for r in runs if not r.get('void')])} run(s) actually flew; "
+              "their results are in the report above and were NOT discarded.")
+    elif (summary["chase_requested"] and summary["runs_without_chase_video"]
+          and verdict["met"]):
+        # MET-BUT-FOR-THE-EVIDENCE gets its own line.            (review, PR 58, 3rd pass)
+        # Falling through to "FAIL — criterion is SR = 100%" would print that after
+        # "success rate: 40/40 (100%)", naming a criterion that WAS met and pointing the reader
+        # at flight control when the fault is in the recorder.
+        print(f"  INCONCLUSIVE — every run passed, but {summary['runs_without_chase_video']} "
+              "run(s) recorded")
+        print("                 no chase video. Hard stop 5 requires it, so this does not")
+        print("                 satisfy the gate. The flight results above stand; the")
+        print("                 evidence does not. Check the renderer's display.")
     elif verdict["voids"]:
-        print(f"  INCONCLUSIVE — {verdict['voids']} run(s) VOID: the stack's EKF origin was")
-        print("                 not verified, so those runs did not measure the flight code")
-        print("                 at all. Fix the bring-up ordering (scripts/sim_up.sh)")
-        print("                 and re-run. Voids are excluded from the rate above, never")
-        print("                 counted as failures.")
+        # VOID HAS TWO CAUSES NOW.                              (review, PR 58, 3rd pass)
+        # Hard-coding the EKF-origin text sends an operator to the SIM-10 trap for what may be
+        # a display fault -- likelier since --display became a precondition of the default path.
+        print(f"  INCONCLUSIVE — {verdict['voids']} run(s) VOID: they did not measure the flight")
+        print("                 code at all. Voids are excluded from the rate above, never")
+        print("                 counted as failures. Reasons given:")
+        for why in sorted({(r.get("failure_reason") or "unspecified")
+                           for r in runs if r.get("void")}):
+            print(f"                   · {why}")
     elif a.reuse and summary["sr_perfect"]:
         print("  INCONCLUSIVE — every run passed, but --reuse never applied the spawn")
         print("                 pose, so this does not satisfy the criterion. Re-run")

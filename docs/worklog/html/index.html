@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>27</b></span>
-    <span>Newest <b>2026-08-17</b></span>
+    <span>Entries <b>28</b></span>
+    <span>Newest <b>2026-08-18</b></span>
   </div>
 </header>
 
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-18-sim34-the-gate-could-not-record-its-own-evidence.html">
+    <span class="k">2026-08-18 · SIM-34 · newest</span>
+    <h3>Evidence Of Nothing</h3>
+    <p>Hard stop 5 requires the chase camera on every flight test, because a camera bolted to the aircraft can never show the aircraft. The flight gate — the tool that exists to produce evidence — returned <code>chase_video: None</code> on <strong>all 40 runs</strong> of the first full gate, while the 40 videos it did write were the vehicle camera, reported alongside <code>video_written: True</code>. Nobody owned the coupling: chase needs an Xvfb screen only <code>--display</code> creates, and remembering that was each caller's job. The fix makes it <em>unrepresentable</em> — the display is derived from the same flag as the recorder. Then three review passes, and <strong>two of the three worst findings were defects introduced while fixing the previous one</strong>: an unconditional <code>unlink</code> that would have deleted ten archived recordings including this branch's own verification, and a three-strikes abort that discarded every completed flight — the exact loss it was added to prevent. Each fix touched the path that decides what counts as evidence, where a mistake doesn't fail loudly; it produces a confident report about a file that is wrong, missing, or someone else's.</p>
+    <div class="tags">
+      <span class="pill p-stop">40 videos, wrong camera</span>
+      <span class="pill p-warn">2 self-inflicted HIGHs</span>
+      <span class="pill p-ok">now unrepresentable</span>
+      <span class="pill p-chrome">139 → 145 tests</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-17-two-gates-blocks-passes-city-does-not.html">
-    <span class="k">2026-08-17 · Gate · newest</span>
+    <span class="k">2026-08-17 · Gate</span>
     <h3>Two Gates, Two Verdicts</h3>
     <p>The 40-seed gate had never been run — every claim in the backlog rested on 3–5 runs. Blocks passed <strong>40/40</strong>, sd 0.013 m, and exercised almost nothing: the <code>simPause</code> repair fired <strong>zero</strong> times, because Blocks has no World Partition and the vehicle never falls. City Sample failed <strong>10/10</strong> with <em>identical tracking</em> — 0.775–0.814 m against 0.778–0.829 m. Every failure is in landing, ground contact and origin init; none in flying. <code>SIM-27</code>, carried at ~1.7%, reproduced on <strong>9 of 10</strong> seeds, eight between 27.767 and 28.682 m, every one descending at <code>MPC_LAND_SPEED</code> — the sample-size problem was never the obstacle, the <em>world</em> was. <code>pose_z</code> freezes on the ground while <code>phys_z</code> keeps integrating, and ~28 m turns out to be the state timeout rather than a floor. The actor it jams on, <code>FastGeoSurrogateActor_0</code>, is the same surrogate that broke <code>SIM-32</code>'s streaming gate. And a correction that qualifies the whole run: the scenario declares Blocks and says "no obstacles by design", <code>--world</code> overrode it silently, and nothing warned.</p>
     <div class="tags">

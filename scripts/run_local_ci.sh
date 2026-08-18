@@ -93,7 +93,7 @@ fi
 echo
 if [ ${#FAILED[@]} -eq 0 ]; then
   echo "RESULT: PASS"
-  [ "$RUN_GATE" = "1" ] && echo "  (flight gate included — safe to quote as a gate run)" \
+  [ "$RUN_GATE" = "1" ] && echo "  (flight gate included, but --no-chase: NOT quotable as a gate run — hard stop 5 wants the chase video)" \
                         || echo "  (fast checks only — say so if you quote this)"
   exit 0
 fi
