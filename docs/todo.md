@@ -1811,9 +1811,30 @@ determinism sits on the C++ side of that line**, which matters because the gate 
 
 1. A user-supplied `.uproject` (A1) is loaded by `sim_up.sh` **without editing the repo** —
    pointed at by path/parameter — and the drone flies in it.
-2. `scripts/verify_sensors.py` passes against that world, with **re-measured** rates.
+2. ✅ **DONE 2026-08-19 — passes against CitySample, and the rates are the finding.**
+   Every check passed on values rather than topic presence: RGB carries 221 distinct byte
+   values (real imagery, not a blank frame), depth is 91% bounded over 0.26–725 m, 1499/1500
+   sampled LiDAR points are non-zero, IMU reads **9.807 m/s²** at rest, `camera_info`'s
+   frame_id resolves in `tf_static`, and `/clock` advanced 14.92 s over 15 s wall.
+
+   **Perception rates drop by about two thirds under real scene load**, which is exactly why
+   this criterion says *re-measured* — every rate this project quotes came from an empty grey
+   box:
+
+   | sensor | Blocks | CitySample |
+   |---|---|---|
+   | RGB | 31.2 Hz | **10.6 Hz** |
+   | Depth | 29.6 Hz | **10.5 Hz** |
+   | GPU-LiDAR | 17.4 Hz | **5.5 Hz** |
+   | IMU | 366 Hz / 311 distinct | 333 Hz / ~307 distinct |
+
+   Still well above the 2 Hz streaming floor `docs/conventions.md` cares about, but anyone
+   planning vision work at 30 Hz should be told 10 Hz. IMU is unaffected.
 3. Actors are present and moving, and the cameras see them.
-4. A bundled **example world** exists so the simulator is useful out of the box (see below).
+4. ⏸️ **PARKED 2026-08-19 by the owner.** A bundled **example world** so the simulator is
+   useful out of the box (see below). Independent of the mechanism this ticket is about --
+   the pipeline accepts a user's world today -- and nobody has started it. Re-open when the
+   out-of-the-box experience matters; until then Blocks is the bundled world.
 5. The steps a user must perform on a non-Linux machine are **documented**, not folklore.
 
 ### The bundled example world
@@ -4090,6 +4111,38 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 **Until it is fixed, every gate run must say plainly that no chase video exists** rather than let
 `video_written: True` imply the rule was met.
+
+---
+
+## SIM-37 — The AirSim ROS 2 wrapper is not part of bring-up
+
+**Status:** 🔵 **open, raised 2026-08-19** while trying to satisfy `SIM-11`'s acceptance
+criterion 2 — which could not be measured at all until this was done by hand.
+
+`build_airsim_wrapper.sh` compiles the wrapper **into a running container** at `/airsim_root`, so
+it does not survive a teardown, and **`sim_up.sh` never runs it**. A freshly brought-up stack
+therefore has no `airsim_ros_pkgs`: `perception.launch.py` dies with *"package 'airsim_ros_pkgs'
+not found"*, and there are **no camera, depth, LiDAR, AirSim-IMU, magnetometer or odometry
+topics** at all.
+
+**Measured consequence:** `verify_sensors.py` against a freshly-up CitySample stack reported
+**9 of 9 checks FAILED, "no messages"** — which reads exactly like a world whose sensors are
+broken. The sensors were fine; the graph was never running. After building the wrapper by hand,
+the same stack passed every check.
+
+**Why it has gone unnoticed:** nothing in the flight path needs it. The gate, `run_scenario.py`
+and every flight this project has flown use PX4 telemetry over uXRCE-DDS, which comes from
+`sim-px4` and `sim-ros2`'s own workspace. So the sensor half of the graph is exercised far less
+often than the flight half, and its absence is silent.
+
+**The work:** either have `sim_up.sh` build the wrapper when it is missing (a ~90 s step, so
+probably opt-in or cached), or bake it into the `drone-sim/ros2` image so a container comes up
+with it. The image is the better answer if the wrapper is version-locked to the pinned
+Cosys-AirSim SHA, which it is.
+
+**Until then, say so:** any claim about sensor rates or perception behaviour must state whether
+the wrapper was built for that run. A run without it is not evidence that sensors work, and — as
+above — is easily mistaken for evidence that they do not.
 
 ---
 
