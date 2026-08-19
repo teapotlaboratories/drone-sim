@@ -14,6 +14,11 @@ ros2 launch bringup perception.launch.py                 # after ./scripts/sim_u
 ros2 launch bringup control.launch.py use_sim_time:=true
 ```
 
+**Since `SIM-37` the wrapper is baked into `drone-sim/ros2`, so a stack brought up by
+`sim_up.sh` already has the sensor graph — this script is no longer part of bring-up.**
+It rebuilds the wrapper inside a running container (deleting the image's copy first), which
+is how a wrapper patch gets tested without a full image rebuild.
+
 `perception.launch.py` requires the Cosys-AirSim wrapper, which is **not** part of this
 workspace — build it with `./scripts/build_airsim_wrapper.sh` and source
 `/airsim_root/ros2/install/setup.bash` first.

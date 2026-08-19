@@ -361,6 +361,11 @@ docker exec -d sim-ros2 bash -lc '
   ros2 launch bringup perception.launch.py'
 ```
 
+**Since `SIM-37` the wrapper is baked into `drone-sim/ros2`, so a stack brought up by
+`sim_up.sh` already has the sensor graph — this script is no longer part of bring-up.**
+It rebuilds the wrapper inside a running container (deleting the image's copy first), which
+is how a wrapper patch gets tested without a full image rebuild.
+
 > **The wrapper must be rebuilt after every `sim_up.sh`** — that script does
 > `docker rm -f sim-ros2 …` on every bring-up, and the wrapper is built *inside* that
 > container (`/airsim_root`), not baked into the image. Run `./scripts/build_airsim_wrapper.sh`

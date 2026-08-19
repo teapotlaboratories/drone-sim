@@ -1,0 +1,12 @@
+# Build context sent to the daemon for EVERY image build.                (review, PR 63)
+#
+# vendor/ is 2.4 GB and was being shipped to the daemon for all four images even though none
+# COPYs from it -- the ros2 image clones Cosys-AirSim at its pinned SHA instead, precisely so a
+# fresh clone (where vendor/ does not exist yet) can still build.
+vendor/
+worlds/
+out/
+.git/
+docs/worklog/html/
+*.mcap
+*.mp4

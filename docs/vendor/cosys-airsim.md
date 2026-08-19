@@ -4,6 +4,11 @@ Upstream: https://github.com/Cosys-Lab/Cosys-AirSim
 **Pinned: tag `5.8-v3.4.1` · SHA `a552dd6c`** (a SHA, never a branch — `main` has already
 migrated 5.5 → 5.6dev → 5.7pdev → 5.8, and there is no `5.5` branch upstream at all).
 
+**Since `SIM-37` the wrapper is baked into `drone-sim/ros2`, so a stack brought up by
+`sim_up.sh` already has the sensor graph — this script is no longer part of bring-up.**
+It rebuilds the wrapper inside a running container (deleting the image's copy first), which
+is how a wrapper patch gets tested without a full image rebuild.
+
 **The vendored tree is byte-identical to upstream.** `git status --porcelain vendor/` reports
 zero modifications. The three applied deviations below live in `patches/cosys-airsim/` and are
 applied by `scripts/build_airsim_wrapper.sh` to a **container-local copy** at `/airsim_root`,
