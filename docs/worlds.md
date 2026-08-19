@@ -217,6 +217,11 @@ In your project (all reversible):
 
 ## Known gap
 
+**Since `SIM-37` the wrapper is baked into `drone-sim/ros2`, so a stack brought up by
+`sim_up.sh` already has the sensor graph — this script is no longer part of bring-up.**
+It rebuilds the wrapper inside a running container (deleting the image's copy first), which
+is how a wrapper patch gets tested without a full image rebuild.
+
 `inject_airsim.py` copies the **built** plugin from Blocks, so `patches/cosys-airsim/0005` does
 not reach a converted world through the plugin itself — `convert_world.sh` applies it to the
 project's own copy afterwards and rebuilds, which is why an A1 project with patches still needs a

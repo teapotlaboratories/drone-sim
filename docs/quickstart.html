@@ -429,6 +429,7 @@ throughput.</p></div>
   source /ros2_ws/install/setup.bash
   ros2 launch bringup perception.launch.py'</pre>
 <div class="callout warn"><span class="lbl">Rebuild the wrapper after every bring-up</span>
+<p><strong>Since <code>SIM-37</code> the wrapper is baked into <code>drone-sim/ros2</code>, so a stack brought up by <code>sim_up.sh</code> already has the sensor graph — this script is no longer part of bring-up.</strong> It rebuilds the wrapper inside a running container (deleting the image&rsquo;s copy first), which is how a wrapper patch gets tested without a full image rebuild.</p>
 <p><code>sim_up.sh</code> does <code>docker rm -f sim-ros2 …</code> on every bring-up, and the
 wrapper is built <em>inside</em> that container (<code>/airsim_root</code>), not baked into the
 image. If <code>ros2 launch</code> reports <code>package 'airsim_ros_pkgs' not found</code>, run

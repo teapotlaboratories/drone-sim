@@ -393,6 +393,7 @@ entry originally called it &ldquo;almost certainly the wrong metapackage&rdquo; 
 </div>
 
 <div class="callout stop"><span class="lbl">A smaller image that does not fly is a regression</span>
+<p><strong>Since <code>SIM-37</code> the wrapper is baked into <code>drone-sim/ros2</code>, so a stack brought up by <code>sim_up.sh</code> already has the sensor graph — this script is no longer part of bring-up.</strong> It rebuilds the wrapper inside a running container (deleting the image&rsquo;s copy first), which is how a wrapper patch gets tested without a full image rebuild.</p>
 <p>The acceptance gate is unchanged and has <strong>not</strong> been run: the wrapper builds, the
 stack comes up through all three bring-up barriers, and the example mission flies. Until then
 &ldquo;4.73 GB&rdquo; is a size, not a result.</p></div>

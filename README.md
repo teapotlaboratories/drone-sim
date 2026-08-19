@@ -33,6 +33,11 @@ get it working" is entirely whether the recipe is captured.
 
 Two rules follow from it, both learned the hard way here:
 
+**Since `SIM-37` the wrapper is baked into `drone-sim/ros2`, so a stack brought up by
+`sim_up.sh` already has the sensor graph — this script is no longer part of bring-up.**
+It rebuilds the wrapper inside a running container (deleting the image's copy first), which
+is how a wrapper patch gets tested without a full image rebuild.
+
 - **Pin what you actually built and smoke-tested — a SHA, never a branch.** A tagged upstream
   release in this stack became unbuildable retroactively because its superbuild pinned a
   dependency by *branch* and that branch was deleted (`fatal: invalid reference: 2.12.x`).

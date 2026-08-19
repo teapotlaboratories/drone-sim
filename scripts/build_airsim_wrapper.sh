@@ -32,6 +32,21 @@ die() { printf '\033[31m[airsim-build] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
 
 docker inspect "$SVC" >/dev/null 2>&1 || die "$SVC is not running - bring the stack up first"
 
+# THIS REPLACES THE WRAPPER THAT IS NOW BAKED INTO THE IMAGE.             (SIM-37)
+#
+# Since SIM-37 drone-sim/ros2 ships a built wrapper at /airsim_root, so a stack has its sensor
+# graph without this script. The layout step below does `rm -rf $ROOT` unconditionally, which
+# means running this REPLACES the image's copy -- and if a later step here fails (the apt guard
+# needs network, or a patch has drifted), the container is left with NO sensor graph where the
+# image had a working one.
+#
+# It is kept because it is still the way to test a wrapper patch without a 4-minute image
+# rebuild. Use it deliberately, not as part of routine bring-up.
+if docker exec "$SVC" test -x /airsim_root/ros2/install/airsim_ros_pkgs/lib/airsim_ros_pkgs/airsim_node 2>/dev/null; then
+  log "NOTE: this container already has a wrapper (baked into the image since SIM-37)."
+  log "      Continuing will delete and rebuild it. Ctrl-C now if that is not what you meant."
+fi
+
 log "confirming the wrapper's ROS deps (baked into drone-sim/ros2; this is a no-op guard)"
 docker exec "$SVC" bash -lc '
   set -e

@@ -145,6 +145,7 @@ RUN apt-get update \
         ros-${ROS_DISTRO}-mavros-msgs \
         ros-${ROS_DISTRO}-compressed-image-transport \
         python3-msgpack \
+        unzip \
         patch \
     && rm -rf /var/lib/apt/lists/* \
     # Assert on the artifacts, not on apt's exit status: a package that installs but ships
@@ -222,21 +223,68 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
 ARG COSYS_TAG=5.8-v3.4.1
 ARG COSYS_SHA=a552dd6cd517b8d5d26629ad88004356c3007326
 
-COPY vendor/Cosys-AirSim/cmake       /airsim_root/cmake
-COPY vendor/Cosys-AirSim/AirLib      /airsim_root/AirLib
-COPY vendor/Cosys-AirSim/MavLinkCom  /airsim_root/MavLinkCom
-COPY vendor/Cosys-AirSim/external    /airsim_root/external
-COPY vendor/Cosys-AirSim/ros2        /airsim_root/ros2
-# The ROS-side deviations. Routing is decided here the same way scripts/vendor_patches.sh decides
-# it -- match the DIFF HEADER, never the prose -- because 0005 names the Unreal plugin path four
-# times in its explanation and only twice in a `+++ b/` line.                          (SIM-25)
-COPY patches/cosys-airsim/*.patch    /tmp/patches/
+# CLONED, NOT COPIED FROM vendor/.                                        (review, PR 63)
+#
+# The first cut COPYd vendor/Cosys-AirSim -- and vendor/ is GITIGNORED, reconstructed by
+# `vcs import` in quickstart step 0.2, while the images build in step 0.1. So on a fresh clone
+# the COPY failed outright: this change broke "a fresh machine reaches a working stack from the
+# repo alone" while claiming to advance it.
+#
+# Cloning also makes the pin CHECKABLE. A COPY of a working tree carries no .git, so the SHA
+# echoed into /etc/drone-sim-versions asserted a provenance nothing could verify -- an operator
+# with local edits would ship an image whose manifest named a commit it did not contain, against
+# this project's "verify the artifact that RAN" rule. Same rev-parse assertion the XRCE and
+# px4_msgs blocks above already make.
+#
+# Sparse: the wrapper build reads five subtrees out of a 2.4 GB repository.
+# The two dependencies setup.sh downloads, pinned to the versions it names. THESE, not build
+# artifacts, are what a clone is missing.                                 (review, PR 63)
+#
+# The wrapper does NOT link the prebuilt libAirLib.a -- CMakeLists.txt:31 does
+# `add_subdirectory(${AIRSIM_ROOT}/cmake/AirLib)`, so colcon compiles AirLib from source here,
+# with this image's gcc, exactly as it already did when the wrapper was built inside a running
+# container. AirLib/include, AirLib/src and cmake/ are all tracked in git; only eigen3 and
+# rpclib are fetched. That is why this needs a download step and not a second toolchain.
+ARG RPCLIB_VERSION=2.3.1
+ARG EIGEN_TAG=3.4.1r
+
+WORKDIR /airsim_root
+RUN set -eux; \
+    git clone --filter=blob:none --no-checkout --branch ${COSYS_TAG} \
+        https://github.com/Cosys-Lab/Cosys-AirSim.git .; \
+    test "$(git rev-parse HEAD)" = "${COSYS_SHA}"; \
+    git sparse-checkout init --cone; \
+    git sparse-checkout set cmake AirLib MavLinkCom external ros2; \
+    git checkout; \
+    rm -rf ros2/build ros2/install ros2/log; \
+    \
+    wget -q -O /tmp/rpclib.zip \
+      "https://github.com/WouterJansen/rpclib/archive/refs/tags/v${RPCLIB_VERSION}.zip"; \
+    rm -rf external/rpclib; mkdir -p external/rpclib; \
+    unzip -q /tmp/rpclib.zip -d external/rpclib; \
+    test -d "external/rpclib/rpclib-${RPCLIB_VERSION}"; \
+    \
+    wget -q -O /tmp/eigen3.zip \
+      "https://github.com/WouterJansen/eigen/archive/refs/tags/${EIGEN_TAG}.zip"; \
+    unzip -q /tmp/eigen3.zip -d /tmp/temp_eigen; \
+    mkdir -p AirLib/deps/eigen3; \
+    mv /tmp/temp_eigen/eigen*/Eigen AirLib/deps/eigen3/; \
+    test -d AirLib/deps/eigen3/Eigen; \
+    rm -rf /tmp/rpclib.zip /tmp/eigen3.zip /tmp/temp_eigen
+
+# The ROS-side deviations, routed by the ONE owner rather than a fourth copy of the rule.
+#                                                                         (SIM-25, review PR 63)
+# Inlining `grep -qE '^\+\+\+ b/Unreal/'` here would have been the fourth implementation of a
+# predicate whose own docstring says two would eventually disagree -- and re-globbing the patch
+# directory would have been a second copy of "which patches exist", which is what vp_list owns.
+COPY scripts/vendor_patches.sh /tmp/vendor_patches.sh
+COPY patches /tmp/repo/patches
 
 RUN set -eux; \
-    rm -rf /airsim_root/ros2/build /airsim_root/ros2/install /airsim_root/ros2/log; \
+    . /tmp/vendor_patches.sh; \
     applied=0; \
-    for p in /tmp/patches/*.patch; do \
-      if grep -qE '^\+\+\+ b/Unreal/' "$p"; then continue; fi; \
+    for p in $(vp_list /tmp/repo); do \
+      vp_is_unreal_side "$p" && continue; \
       patch -p1 -d /airsim_root --forward --batch < "$p"; \
       applied=$((applied + 1)); \
     done; \
@@ -245,7 +293,9 @@ RUN set -eux; \
     grep -q 'CallbackGroupType::MutuallyExclusive' "$W/src/airsim_node.cpp"; \
     ! grep -q 'CallbackGroupType::Reentrant' "$W/src/airsim_node.cpp"; \
     grep -q 'vehicle_name + "/" + camera_name + "_optical"' "$W/src/airsim_ros_wrapper.cpp"; \
-    rm -rf /tmp/patches
+    test "$(grep -c 'cb_state_\|cb_img_\|cb_lidar_\|cb_gpulidar_\|cb_echo_' \
+              "$W/src/airsim_ros_wrapper.cpp")" -ge 10; \
+    rm -rf /tmp/repo /tmp/vendor_patches.sh
 
 RUN . /opt/ros/${ROS_DISTRO}/setup.bash \
  && cd /airsim_root/ros2 \
