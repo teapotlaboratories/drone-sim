@@ -8,4 +8,11 @@
 # NOTE: this only applies to LOGIN shells, so use `bash -lc '...'`:
 #   docker exec sim-ros2 bash -lc 'ros2 topic list'
 [ -f /opt/ros/jazzy/setup.bash ] && . /opt/ros/jazzy/setup.bash
+# The AirSim wrapper overlay, sourced BEFORE /ros2_ws to match the order every manual
+# invocation in this repo has used.                                              (SIM-37)
+# Without it `ros2 launch bringup perception.launch.py` fails with "package 'airsim_ros_pkgs'
+# not found" and the stack has no camera, depth, LiDAR or AirSim-IMU topics -- which reads
+# exactly like a world whose sensors are broken. Guarded on the file so an older image, or a
+# container built before this line existed, still opens a usable shell.
+[ -f /airsim_root/ros2/install/setup.bash ] && . /airsim_root/ros2/install/setup.bash
 [ -f /ros2_ws/install/setup.bash ] && . /ros2_ws/install/setup.bash

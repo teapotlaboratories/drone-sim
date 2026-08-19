@@ -4116,7 +4116,27 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 ## SIM-37 — The AirSim ROS 2 wrapper is not part of bring-up
 
-**Status:** 🔵 **open, raised 2026-08-19** while trying to satisfy `SIM-11`'s acceptance
+**Status:** ✅ **done 2026-08-19.** The wrapper is baked into `drone-sim/ros2`, so a stack
+brought up by `sim_up.sh` alone has the sensor graph. **Verified on a cold stack with no
+`build_airsim_wrapper.sh` and no manual source lines: `airsim_ros_pkgs` present,
+`AirsimROSWrapper Initialized!`, and all 14 `verify_sensors.py` checks passing** — the same
+sequence that produced 9 of 9 FAIL, "no messages", an hour earlier.
+
+**Why the image rather than a bring-up step:** the wrapper is version-locked to the pinned
+Cosys-AirSim SHA (`5.8-v3.4.1` / `a552dd6c`), which is the argument `px4_msgs` and
+`px4_ros_com` already make in that Dockerfile — and building it per bring-up would cost ~90 s
+a seed, which on a 40-seed gate is an hour. Only the five subtrees the build reads are copied
+(~52 MB of a 2.4 GB vendored tree); the image went 4.40 → 4.60 GB.
+
+**`ros-profile.sh` sources the overlay too**, which was nearly missed: the package can be
+present and `ros2 launch bringup perception.launch.py` still fail with "package not found",
+because `docker exec` bypasses the entrypoint. That is the exact gap that profile exists to
+close. Guarded on the file, so an older image still opens a usable shell.
+
+`scripts/build_airsim_wrapper.sh` is kept: it still builds into a running container, which is
+how you test a wrapper patch without rebuilding the image.
+
+**Original status:** 🔵 open, raised 2026-08-19 while trying to satisfy `SIM-11`'s acceptance
 criterion 2 — which could not be measured at all until this was done by hand.
 
 `build_airsim_wrapper.sh` compiles the wrapper **into a running container** at `/airsim_root`, so
