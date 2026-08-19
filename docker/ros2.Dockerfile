@@ -199,5 +199,59 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
 # and reports 0 topics on a perfectly healthy stack — which has cost real debugging time
 # here, so the profile script is baked in rather than bind-mounted by a compose file that
 # no longer exists.
+# ---------------------------------------------------------------------------
+# THE AIRSIM ROS 2 WRAPPER, BAKED IN.                                      (SIM-37)
+#
+# It used to be built into a RUNNING container by scripts/build_airsim_wrapper.sh, at
+# /airsim_root. That does not survive a teardown, and sim_up.sh never rebuilt it -- so a freshly
+# brought-up stack had no airsim_ros_pkgs at all: perception.launch.py died with "package not
+# found", and there were no camera, depth, LiDAR, AirSim-IMU, magnetometer or odometry topics.
+#
+# MEASURED consequence, 2026-08-19: verify_sensors.py against a fresh CitySample stack reported
+# 9 of 9 checks FAILED, "no messages" -- indistinguishable from a world whose sensors are broken.
+# They were fine; the graph was never running. Nothing in the FLIGHT path needs the wrapper (the
+# gate uses PX4 telemetry over uXRCE-DDS), which is why it went unnoticed for so long.
+#
+# It belongs in the image because it is version-locked to the Cosys-AirSim SHA this project pins
+# (5.8-v3.4.1 / a552dd6c, versions.lock) -- the same argument as px4_msgs above. Baking it also
+# makes the "fresh machine reaches a working stack from the repo alone" goal true for sensors,
+# not just for flight.
+#
+# ONLY THE FIVE SUBTREES THE BUILD READS are copied: ~52 MB of a 2.4 GB vendored tree. Copying
+# the whole thing would add gigabytes to the image and the build context for no benefit.
+ARG COSYS_TAG=5.8-v3.4.1
+ARG COSYS_SHA=a552dd6cd517b8d5d26629ad88004356c3007326
+
+COPY vendor/Cosys-AirSim/cmake       /airsim_root/cmake
+COPY vendor/Cosys-AirSim/AirLib      /airsim_root/AirLib
+COPY vendor/Cosys-AirSim/MavLinkCom  /airsim_root/MavLinkCom
+COPY vendor/Cosys-AirSim/external    /airsim_root/external
+COPY vendor/Cosys-AirSim/ros2        /airsim_root/ros2
+# The ROS-side deviations. Routing is decided here the same way scripts/vendor_patches.sh decides
+# it -- match the DIFF HEADER, never the prose -- because 0005 names the Unreal plugin path four
+# times in its explanation and only twice in a `+++ b/` line.                          (SIM-25)
+COPY patches/cosys-airsim/*.patch    /tmp/patches/
+
+RUN set -eux; \
+    rm -rf /airsim_root/ros2/build /airsim_root/ros2/install /airsim_root/ros2/log; \
+    applied=0; \
+    for p in /tmp/patches/*.patch; do \
+      if grep -qE '^\+\+\+ b/Unreal/' "$p"; then continue; fi; \
+      patch -p1 -d /airsim_root --forward --batch < "$p"; \
+      applied=$((applied + 1)); \
+    done; \
+    [ "$applied" -gt 0 ] || { echo "no ROS-side patches applied -- check the +++ b/ headers"; exit 1; }; \
+    W=/airsim_root/ros2/src/airsim_ros_pkgs; \
+    grep -q 'CallbackGroupType::MutuallyExclusive' "$W/src/airsim_node.cpp"; \
+    ! grep -q 'CallbackGroupType::Reentrant' "$W/src/airsim_node.cpp"; \
+    grep -q 'vehicle_name + "/" + camera_name + "_optical"' "$W/src/airsim_ros_wrapper.cpp"; \
+    rm -rf /tmp/patches
+
+RUN . /opt/ros/${ROS_DISTRO}/setup.bash \
+ && cd /airsim_root/ros2 \
+ && colcon build --symlink-install \
+ && test -x /airsim_root/ros2/install/airsim_ros_pkgs/lib/airsim_ros_pkgs/airsim_node \
+ && echo "cosys-airsim ${COSYS_TAG} ${COSYS_SHA}" >> /etc/drone-sim-versions
+
 COPY docker/ros-profile.sh /etc/profile.d/10-ros.sh
 RUN chmod 0644 /etc/profile.d/10-ros.sh
