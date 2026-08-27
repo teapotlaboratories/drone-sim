@@ -1,0 +1,45 @@
+# Blocks with the full sensor suite recorded — the fast check that `sensors:` works.
+#
+# Same mission as square-10m.yaml, plus a `sensors:` list. Blocks is an empty box, so this proves
+# the MECHANISM (graph launched, topics recorded, messages counted) in ~3 minutes rather than
+# CitySample's ~14. It is not evidence about imagery: grey boxes are not a scene.
+name: blocks-sensors
+description: >-
+  The baseline square, recording depth, GPU-LiDAR and the inertial suite alongside telemetry.
+  The quick proof that a scenario can ask for sensors and get them.
+
+world: vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject
+
+sensors:
+  - depth
+  - lidar
+  - imu
+  - gps
+  - magnetometer
+  - odometry
+
+mission:
+  takeoff_altitude_m: 20.0
+  waypoints_enu:
+    - [10.0,  0.0, 20.0]
+    - [10.0, 10.0, 20.0]
+    - [ 0.0, 10.0, 20.0]
+    - [ 0.0,  0.0, 20.0]
+
+record_topics:
+  - /fmu/out/vehicle_local_position
+  - /fmu/out/vehicle_status_v1
+  - /fmu/out/vehicle_land_detected
+  - /mission/status
+  - /mission/result
+
+tolerances:
+  accept_radius_m: 1.0
+  hold_seconds: 2.0
+  # 90 s, not square-10m's 60: the perception graph adds ~30 s of settle before arming, and the
+  # sensor load slows nothing about the flight but does make the bring-up longer.
+  state_timeout_s: 90.0
+
+seeded:
+  spawn_xy_jitter_m: 5.0
+  spawn_yaw_jitter_rad: 3.14159

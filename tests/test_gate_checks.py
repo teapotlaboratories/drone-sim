@@ -1167,3 +1167,91 @@ def test_world_paths_may_reference_the_environment():
     assert "${DRONE_SIM_WORLDS}" in sc
     assert "/var/mnt/" not in sc.split("world:")[1].splitlines()[0], (
         "the world: line must not hard-code this machine's path")
+
+
+# --- SIM-38: a scenario can ask for sensors, and the bag must prove it got them ---------------
+
+def _rs_sensors():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "rs_s", Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_sensor_names_resolve_to_the_topics_verify_sensors_uses():
+    """The vocabulary is taken from verify_sensors.py rather than invented, so the two cannot
+    drift about what 'depth' means."""
+    from pathlib import Path
+    rs = _rs_sensors()
+    vs = (Path(__file__).resolve().parents[1] / "scripts" / "verify_sensors.py").read_text()
+    for name in ("depth", "lidar", "imu", "gps", "magnetometer", "odometry"):
+        for t in rs.SENSOR_TOPICS[name]:
+            stem = t.format(v="{V}").replace("/airsim_node/{V}/", "")
+            assert stem in vs, f"{name} topic {stem!r} does not appear in verify_sensors.py"
+
+
+def test_cameras_bring_their_camera_info():
+    """Frames with no intrinsics and no TF frame are useless for anything geometric, and
+    discovering that after the flight is too late."""
+    rs = _rs_sensors()
+    for cam in ("rgb", "depth"):
+        assert any(t.endswith("/camera_info") for t in rs.SENSOR_TOPICS[cam]), cam
+
+
+def test_an_unknown_sensor_name_is_fatal():
+    """A typo would otherwise record nothing and read as 'this world has no LiDAR'."""
+    import pytest
+    rs = _rs_sensors()
+    with pytest.raises(ValueError) as e:
+        rs.sensor_topics({"sensors": ["lidar_points"]})
+    assert "lidar_points" in str(e.value)
+
+
+def test_no_sensors_declared_changes_nothing():
+    rs = _rs_sensors()
+    assert rs.sensor_topics({}) == []
+    assert rs.sensor_result_fields({}, "tag") == {}
+
+
+def test_messages_are_counted_inside_the_container():
+    """rosbag2_py is a ROS package and does not exist on the host, so counting there returned {}
+    on every run -- silently, because 'cannot read' and 'bag is fine' took the same branch."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    body = src[src.index("def count_sensor_messages("):src.index("def sensor_result_fields(")]
+    assert '"docker", "exec"' in body, "counting must happen inside sim-ros2"
+    # AND through a LOGIN shell. `dexec` runs docker exec without -l, so /etc/profile.d never
+    # runs, ROS is not on the path, and `import rosbag2_py` fails with ModuleNotFoundError --
+    # which the except swallowed, returning {} silently. Third instance of that trap here.
+    assert '"bash", "-lc"' in body, "a non-login shell has no ROS environment"
+    assert "import rosbag2_py" not in body.split("script = ")[0], (
+        "the host must not try to import rosbag2_py")
+
+
+def test_sensor_evidence_is_attached_to_every_return_path():
+    """run_flight has THREE return paths -- the host result FILE, the stdout fallback, and "no
+    result produced". Decorating only one is how this shipped returning sensors_requested: None
+    on a run that had just recorded 78548 IMU messages. probe_written and chase_video are
+    duplicated across the same three for the same reason."""
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    body = src[src.index("def run_flight("):]
+    returns = re.findall(r"^\s+return (?:_with_sensor_evidence\(|\{)", body, re.M)
+    decorated = body.count("_with_sensor_evidence(res, scenario, tag)")
+    assert decorated == 2, f"both res-returning paths must decorate, found {decorated}"
+    assert "**sensor_result_fields(scenario, tag)," in body, (
+        "the no-result path must carry the evidence too")
+    assert len(returns) >= 3, f"expected at least 3 return paths, found {len(returns)}"
+
+
+def test_the_gate_report_carries_the_sensor_fields():
+    """They are attached to the dict run_flight RETURNS; the per-seed <tag>.json is written by
+    the controller in the container and never had them."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    assert '"sensors_requested": result.get("sensors_requested")' in src
+    assert '"sensor_message_counts": result.get("sensor_message_counts")' in src
