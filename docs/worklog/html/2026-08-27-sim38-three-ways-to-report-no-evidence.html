@@ -304,6 +304,12 @@ above &mdash; while <code>SequentialReader</code> cannot open that bag at all. I
 topic with <strong>zero</strong> messages, which a walk cannot, and that topic is the entire point
 of the check. Verified in the container against a real bag across all three states: finalised, no
 metadata, no bag.</p></div>
+<div class="callout ok"><span class="lbl">Then checked against the real bags, not a synthetic one</span>
+<p>Both archived flight bags are still on disk, so the new counter was run over them &mdash; no
+flight needed. It reproduces <strong>every number in the table above exactly</strong>, on both
+worlds, in <strong>0.08&nbsp;s each</strong> instead of re-reading 2.0 and 2.6&nbsp;GB. Not a
+plausible-looking substitution: the same answer as the walk it replaced, on the same evidence,
+three orders of magnitude faster.</p></div>
 <p>Tests 199 &rarr; 205, pinning each.</p>
 
 <footer>
