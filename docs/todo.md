@@ -4129,7 +4129,10 @@ sensors:
 Which does three things: **starts the perception graph and blocks until the topics exist**
 (`sim_up.sh` does not start `airsim_node`), **appends** those topics to `record_topics` rather
 than replacing it — cameras bring their `camera_info` automatically — and **counts the messages
-in the finished bag**, failing the run if a requested sensor recorded nothing. The names come
+in the finished bag**, VOIDing the run if a requested sensor recorded nothing — or if the bag
+cannot be counted at all. **Void, not fail**, on the same reasoning as the stale-EKF-origin check:
+instrumentation broke, not the aircraft. It is the stricter verdict, since any void blocks the
+criterion outright where a failure only lowers a rate. The names come
 from `verify_sensors.py` so the two cannot drift; an unknown name is **fatal**, because a typo
 would otherwise record nothing and read as "this world has no LiDAR".
 
@@ -4144,6 +4147,18 @@ third of Blocks — depth ~10.5 Hz, GPU-LiDAR ~5.5 Hz. Bags go 840 KB → 2–2.
 and declared per scenario, not globally: a 40-seed gate would pay that forty times. The owner's
 call was that the bag matters more than its size — *"we should always be able to get this if
 enabled"* — so the run fails rather than quietly capturing less.
+
+**Review (PR 64) found a FOURTH of the same shape**, one level up: the counter returned a bare
+`{}` for every failure mode and the caller left the run scoring PASS — so "the bag cannot be read"
+and "the bag is fine" took the same branch, in the function written to stop that. Reachable
+*because* of this feature: 2.6 GB bags, and the recorder's 60 s wait-then-kill kills the
+`docker exec` client rather than the in-container writer, so an unfinalised mcap has no
+`metadata.yaml`. Also fixed there: a duplicate `airsim_node` on every reused stack (the flow hard
+stop 5 prescribes), which multiplied the counts and would have hidden a dead sensor behind a
+surviving publisher; a readiness check whose docstring described `/clock` while it tested topic
+advertisement; a config typo scored as a flight failure rather than aborting in a second; a
+clobbered `failure_reason`; the scalar `sensors: depth` spelling; and counting by re-reading
+2.6 GB when rosbag2 already stores the numbers. Tests 199 → 205.
 
 **Three bugs, all one shape**, all found by running it rather than reading it, and all pinned by
 tests now: counted **on the host**, where `rosbag2_py` does not exist, so a run holding 78548 IMU

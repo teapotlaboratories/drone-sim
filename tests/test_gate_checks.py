@@ -1208,6 +1208,106 @@ def test_an_unknown_sensor_name_is_fatal():
     with pytest.raises(ValueError) as e:
         rs.sensor_topics({"sensors": ["lidar_points"]})
     assert "lidar_points" in str(e.value)
+    # TYPED, so the gate can abort in a second rather than score it.       (review, PR 64)
+    # A bare ValueError is caught by run_gate's `except Exception` and becomes
+    # outcome: failure, "runner raised: ...", so one mistyped name in a 40-seed gate buys 40
+    # stack restarts and a report reading SR 0% for a one-character config error.
+    assert isinstance(e.value, rs.SensorConfigError)
+
+
+def test_the_gate_validates_sensor_names_before_bringing_anything_up():
+    """Same one-second rule the world and DISPLAY_NUM already get."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    head = src[src.index("world = rs.resolve_world("):src.index("for i, seed in enumerate(seeds")]
+    assert "rs.sensor_topics(scenario)" in head, "validate before the first bring-up"
+    assert "rs.SensorConfigError" in head and "sys.exit" in head
+
+
+def test_the_scalar_sensors_spelling_is_normalised_once():
+    """`sensors: depth` is legal YAML. Unpacking it only inside sensor_topics made run_flight
+    print 'sensors: d, e, p, t, h' and put a bare string in the gate report's
+    sensors_requested, where len() returns 5."""
+    rs = _rs_sensors()
+    assert rs.sensor_names({"sensors": "depth"}) == ["depth"]
+    assert rs.sensor_names({"sensors": ["depth"]}) == ["depth"]
+    assert rs.sensor_names({}) == []
+    assert rs.sensor_topics({"sensors": "depth"}) == rs.sensor_topics({"sensors": ["depth"]})
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    body = src[src.index("def run_flight("):]
+    assert 'scenario.get("sensors")' not in body, (
+        "run_flight must go through sensor_names, not read the raw value")
+
+
+def test_starting_perception_is_idempotent():
+    """`sim_up.sh --display` once then --no-restart per flight -- the flow the flight-test rule
+    prescribes -- gave flight 2 a second airsim_node and flight 3 a third, each advertising the
+    same topics, so the bag recorded every message once per publisher."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    body = src[src.index("def start_perception("):src.index("def count_sensor_messages(")]
+    assert "perception_running()" in body, "must not stack a second airsim_node"
+    assert "ros2 launch" in body and body.index("perception_running()") < body.index("ros2 launch")
+
+
+def test_perception_waits_for_the_topics_that_were_asked_for():
+    """`docker exec -d` returns 0 whenever the CONTAINER exists, so a launch that died reports
+    success -- and a previous run's live node satisfies a 'some /airsim_node/* exists' check on
+    its behalf. Naming them also catches asking for lidar in a world that declares none."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    body = src[src.index("def start_perception("):src.index("def count_sensor_messages(")]
+    assert "def start_perception(topics" in body, "it must be told what to wait for"
+    assert "want - have" in body or "want-have" in body, "wait on the requested topics"
+    assert "grep -c '^/airsim_node/'" not in body, (
+        "counting /airsim_node/* is satisfied by a previous run's node")
+    # And the docstring must not still claim something it does not do: the first version said
+    # "blocks until /clock advances" while checking topic ADVERTISEMENT.     (review, PR 64)
+    doc = body[body.index('"""'):body.index('"""', body.index('"""') + 3)]
+    assert "/clock" not in doc
+
+
+def test_an_uncountable_bag_does_not_pass():
+    """Returning a bare {} rebuilt the silent-failure shape one level up -- the very thing this
+    feature exists to remove. Reachable BECAUSE of it: 2.6 GB bags, and the recorder's 60 s
+    wait-then-kill kills the docker exec client, not the in-container writer."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    counter = src[src.index("def count_sensor_messages("):src.index("def sensor_result_fields(")]
+    assert "-> tuple[dict, str]" in counter, "it must say WHY it could not count"
+    assert "return {}, \"\"" in counter or "return {}, ''" in counter or 'return {}, ""' in counter
+    ev = src[src.index("def _with_sensor_evidence("):src.index("def run_flight(")]
+    assert "sensor_count_error" in ev and "sensor_void_reason" in ev
+    # And it must not re-read the bag to count it. 2.6 GB off the spinning disk per seed, for
+    # numbers rosbag2 already stores -- and a full walk cannot see a topic with ZERO messages,
+    # which is the entire point of the check. Verified in the container against a real bag:
+    # reading the .mcap directly reports {"/a": 7, "/b": 0} with metadata.yaml present AND
+    # absent, where SequentialReader cannot open it at all.                (review, PR 64)
+    assert "read_metadata" in counter
+    assert "SequentialReader()" not in counter, "counting must not walk the bag"
+
+
+def test_a_sensor_fault_voids_the_run_and_never_clobbers_a_real_reason():
+    """failure_reason is what the gate report prints for the seed, verbatim. Overwriting it on a
+    run that had already failed -- CitySample's non-terminating landing -- replaces the
+    diagnosis with a note about the bag in the only report anyone reads."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    ev = src[src.index("def _with_sensor_evidence("):src.index("def run_flight(")]
+    assert 'res.get("outcome") == "success"' in ev, "only a passing run may be re-scored"
+    assert '"void"' in ev, "instrumentation failure is VOID, not FAIL -- see the EKF-origin rule"
+    guard = ev.index('res.get("outcome") == "success"')
+    assert ev.index('res["failure_reason"]', guard) > guard, (
+        "the reason must be written inside the success guard, not before it")
+    # AND the void marker itself is inside that guard.                     (review, PR 64)
+    # Setting it on an already-failed run launders a real control failure into a void, and
+    # voids are EXCLUDED from the success rate -- so a flight that crashed AND lost its sensor
+    # graph would disappear from the number altogether. Worse than the bug being fixed.
+    assert ev.index('res["sensor_void_reason"]', guard) > guard
+    assert "verdict unchanged" in ev
+    gate = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
+    assert 'result.get("sensor_void_reason")' in gate, "the void must reach the report"
 
 
 def test_no_sensors_declared_changes_nothing():
@@ -1255,3 +1355,5 @@ def test_the_gate_report_carries_the_sensor_fields():
     src = (Path(__file__).resolve().parents[1] / "scripts" / "run_gate.py").read_text()
     assert '"sensors_requested": result.get("sensors_requested")' in src
     assert '"sensor_message_counts": result.get("sensor_message_counts")' in src
+    assert '"sensors_empty": result.get("sensors_empty")' in src
+    assert '"sensor_count_error": result.get("sensor_count_error")' in src

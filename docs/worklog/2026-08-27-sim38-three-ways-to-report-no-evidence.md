@@ -91,3 +91,67 @@ and per-scenario, not a global switch: a 40-seed gate would pay it forty times.
 
 `rgb` is in the vocabulary but untested — every run so far declared the other six. The vehicle
 camera video and the chase view already cover RGB, so nothing needed it yet.
+
+---
+
+## Appended 2026-08-27, after review — a fourth of the same shape, and three more
+
+Review of PR 64 found seven issues. The one that matters most is **the fourth instance of the
+pattern this worklog is named for**, one level up from the first three: `count_sensor_messages`
+returned a bare `{}` for *every* failure mode, and the caller printed one stderr line and left
+the run scoring **PASS**. So "the bag cannot be read" and "the bag is fine" took the same branch
+again — in the function written to stop exactly that.
+
+And this feature is what makes it reachable. Bags went from 840 KB to 2.6 GB, while the recorder
+waits 60 s and then kills the **`docker exec` client** rather than the in-container writer. An
+mcap that has not finalised in that window has no `metadata.yaml`, the read raises, and a run
+whose bag is genuinely broken reports success with `sensor_message_counts: null`. The counter now
+returns *why* it failed, and the run is **VOID**.
+
+**Void, not fail** — the same call the stale-EKF-origin check makes. A perception graph that
+published nothing is an instrumentation failure; the aircraft's ability to fly is not what broke.
+Void is not the softer verdict: any void **blocks the criterion outright**, where a failure only
+lowers a percentage.
+
+Writing that fix then created a worse bug than the one it fixed, caught before it shipped: a run
+that had **already failed** for a real reason and *also* had empty sensors was being converted to
+a void — and voids are excluded from the success rate, so a flight that crashed and lost its
+sensor graph would have disappeared from the number entirely. The void now only applies to a run
+that was otherwise passing; a real failure keeps its verdict and just carries the evidence.
+
+The other six:
+
+- **Duplicate `airsim_node` on a reused stack.** `start_perception` was unconditional, and
+  nothing stops it. The flow hard stop 5 *prescribes* — `sim_up.sh --display` once, then
+  `--no-restart` per flight — gave flight 2 a second node and flight 3 a third, each advertising
+  the same topics, so the bag recorded every message **once per publisher**. The counts multiply,
+  which destroys them as evidence and would *hide* a dead sensor, since a surviving publisher
+  still supplies non-zero counts. Now idempotent.
+- **The readiness check did not do what its docstring said.** It claimed to block until `/clock`
+  advances; it returned as soon as any `/airsim_node/*` topic was *advertised*. Since
+  `docker exec -d` returns 0 whenever the container exists, a launch that died on start reported
+  success — and a previous run's live node would satisfy the check on its behalf. It now waits
+  for the **topics that were actually requested**, which also catches asking for `lidar` in a
+  world whose `settings.json` declares none.
+- **A config typo was scored as a flight failure.** `sensor_topics` raised a bare `ValueError`,
+  which `run_gate`'s `except Exception` turned into `runner raised: …` with outcome FAILURE — so
+  one mistyped name in a 40-seed gate buys 40 stack restarts and a report reading **SR 0%** for a
+  one-character error. Now a typed `SensorConfigError`, validated next to `resolve_world` before
+  anything is brought up, and `PerceptionError` voids its seed instead of scoring it.
+- **`failure_reason` was clobbered.** It is what the gate report prints for the seed, verbatim.
+  On the CitySample run this very branch cites — which FAILs on the parked `SIM-27` landing — a
+  sensor problem would have replaced `timeout in state land` with a note about the bag, in the
+  only report anyone reads.
+- **The scalar spelling.** `sensors: depth` is legal YAML and was unpacked only inside
+  `sensor_topics`, so `run_flight` printed `sensors: d, e, p, t, h` and the gate report carried
+  `sensors_requested` as a string for one spelling and a list for the other. Normalised in one
+  place.
+- **Counting re-read the whole bag** — 2.6 GB off the spinning disk per seed, for numbers rosbag2
+  already stores. Measured in the container against a real bag, and the result was better than
+  either the original or the suggestion: `Info().read_metadata` on the **`.mcap` file itself**
+  counts correctly *with `metadata.yaml` present and absent* — the unfinalised case above — while
+  `SequentialReader` cannot open that bag at all. It also reports a topic with **zero** messages,
+  which a walk cannot, and that topic is the entire point of the check.
+
+Tests 199 → 205, pinning each. The count path was verified against a real mcap bag in the
+container across all three states — finalised, no metadata, no bag — rather than by reading it.

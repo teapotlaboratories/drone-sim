@@ -669,18 +669,48 @@ SENSOR_TOPICS = {
 }
 
 
+class SensorConfigError(ValueError):
+    """The scenario's `sensors:` list is wrong. A CONFIGURATION fault, not a flight result.
+
+    Typed so the gate can abort in a second instead of scoring it. A bare ValueError is caught
+    by run_gate's `except Exception` and recorded as "runner raised: ..." with outcome FAILURE,
+    so one mistyped sensor name in a 40-seed gate buys 40 stack restarts and a report reading
+    "SR 0%" -- a control-failure verdict on a one-character typo.        (review, PR 64)
+    """
+
+
+class PerceptionError(RuntimeError):
+    """The perception graph did not come up. INSTRUMENTATION, so the run is VOID, not FAIL.
+
+    Same reasoning as the stale-EKF-origin void: the aircraft's ability to fly is not what
+    failed, so scoring it would put a harness fault next to real control failures and drag the
+    gate's headline number down with it.                                 (review, PR 64)
+    """
+
+
+def sensor_names(scenario: dict) -> list[str]:
+    """The scenario's `sensors:` as a LIST, whatever spelling it used.
+
+    NORMALISED IN ONE PLACE.                                             (review, PR 64)
+    The scalar spelling `sensors: depth` is legal YAML and was only unpacked inside
+    sensor_topics, so the two other readers iterated the string: run_flight printed
+    "sensors: d, e, p, t, h" and the gate report carried sensors_requested as a string for one
+    spelling and a list for the other, so len() on it returned 5.
+    """
+    names = scenario.get("sensors") or []
+    return [names] if isinstance(names, str) else list(names)
+
+
 def sensor_topics(scenario: dict, vehicle: str = "PX4") -> list[str]:
     """Topics for the scenario's `sensors:` list, or [] when it declares none.
 
     An unknown name is FATAL rather than ignored: a typo like `lidar_points` would otherwise
     record nothing and read as "this world has no LiDAR".
     """
-    names = scenario.get("sensors") or []
-    if isinstance(names, str):
-        names = [names]
+    names = sensor_names(scenario)
     unknown = [n for n in names if n not in SENSOR_TOPICS]
     if unknown:
-        raise ValueError(
+        raise SensorConfigError(
             f"scenario `sensors:` has unknown name(s): {', '.join(unknown)}. "
             f"Known: {', '.join(sorted(SENSOR_TOPICS))}")
     out = []
@@ -689,31 +719,65 @@ def sensor_topics(scenario: dict, vehicle: str = "PX4") -> list[str]:
     return out
 
 
-def start_perception(timeout_s: float = 60.0) -> None:
-    """Launch the AirSim wrapper's graph and WAIT for it to publish.
+def perception_running() -> bool:
+    """True when an airsim_node is already publishing in the container."""
+    r = sh(["docker", "exec", ROS2, "bash", "-lc",
+            "ros2 node list 2>/dev/null | grep -c airsim_node || true"], timeout=30)
+    out = (r.stdout or "").strip().splitlines()
+    return bool(out) and out[-1].strip().isdigit() and int(out[-1].strip()) > 0
+
+
+def start_perception(topics: list[str], timeout_s: float = 90.0) -> None:
+    """Make the requested sensor topics exist, and WAIT for the ones asked for.
 
     `sim_up.sh` does not start airsim_node (SIM-37 put the wrapper in the image, not in the
-    bring-up), so this is what makes the sensor topics exist. It blocks until /clock advances,
-    because `ros2 bag record` started before the publishers are up records a bag with the topics
-    present and no messages in them -- which looks like a successful recording of nothing.
+    bring-up), so this is what makes the sensor topics exist. It blocks until EVERY REQUESTED
+    topic is advertised, because `ros2 bag record` started before the publishers are up records
+    a bag with the topics present and no messages in them -- which looks like a successful
+    recording of nothing.
+
+    IDEMPOTENT, because the flow the flight-test rule prescribes reuses one stack.
+                                                                         (review, PR 64)
+    `sim_up.sh --display` once, then run_scenario.py --no-restart per flight -- and the gate's
+    --reuse -- fly N missions against one container. Launching unconditionally gave flight 2 a
+    second airsim_node and flight 3 a third, each advertising the same topics, so the bag
+    recorded every message once per publisher: the counts multiply, which both destroys them as
+    evidence and would hide a sensor that had actually died, since a surviving publisher still
+    supplies non-zero counts. It also multiplies the AirSim RPC load against the one renderer
+    probe_landing.py and watch_video.py are already talking to.
+
+    WAITING ON THE REQUESTED TOPICS, not on `/airsim_node/*` being non-empty.
+    `docker exec -d` returns 0 whenever the CONTAINER exists, so a launch that died on start
+    reports success -- and a previous run's still-live node would satisfy a "some topic exists"
+    check on its behalf. Naming the topics also catches asking for `lidar` in a world whose
+    settings.json declares no GPU-LiDAR, which otherwise only surfaces after the flight.
     """
-    sh(["docker", "exec", "-d", ROS2, "bash", "-lc",
-        "ros2 launch bringup perception.launch.py > /tmp/perception.log 2>&1"], timeout=60)
+    if not topics:
+        return
+    if perception_running():
+        print("  sensors: perception graph already running -- reusing it")
+    else:
+        sh(["docker", "exec", "-d", ROS2, "bash", "-lc",
+            "ros2 launch bringup perception.launch.py > /tmp/perception.log 2>&1"], timeout=60)
+    want = set(topics)
     deadline = time.time() + timeout_s
+    missing = want
     while time.time() < deadline:
         r = sh(["docker", "exec", ROS2, "bash", "-lc",
-                "ros2 topic list 2>/dev/null | grep -c '^/airsim_node/' || true"], timeout=30)
-        if (r.stdout or "").strip().isdigit() and int(r.stdout.strip()) > 0:
+                "ros2 topic list 2>/dev/null || true"], timeout=30)
+        have = {ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip().startswith("/")}
+        missing = want - have
+        if not missing:
             return
         time.sleep(2.0)
-    raise RuntimeError(
-        "perception graph did not publish any /airsim_node/* topic within "
-        f"{timeout_s:.0f}s -- see /tmp/perception.log in the sim-ros2 container. Refusing to "
-        "record sensor topics that do not exist.")
+    raise PerceptionError(
+        "perception graph never advertised " + ", ".join(sorted(missing)) +
+        f" within {timeout_s:.0f}s -- see /tmp/perception.log in the sim-ros2 container. "
+        "Refusing to record sensor topics that do not exist.")
 
 
-def count_sensor_messages(tag: str, topics: list[str]) -> dict:
-    """Messages actually IN the bag, per topic. {} when it cannot be counted.
+def count_sensor_messages(tag: str, topics: list[str]) -> tuple[dict, str]:
+    """(counts per topic, error). Exactly one of the two is empty.
 
     THE BAG IS THE DELIVERABLE, so "we recorded it" has to mean "there are messages in it". A
     topic that was listed, subscribed and never published produces a bag entry with zero
@@ -725,83 +789,135 @@ def count_sensor_messages(tag: str, topics: list[str]) -> dict:
     this returned {} on every run -- silently, because "cannot read the bag" and "the bag is
     fine" took the same branch. Measured: a run that recorded 78548 IMU and 1948 depth messages
     reported sensor_message_counts: None.
+
+    RETURNS WHY IT FAILED, and the caller VOIDS the run.                  (review, PR 64)
+    Returning a bare {} rebuilt the same silent-failure shape one level up -- the very thing
+    this function exists to remove. It is reachable now precisely BECAUSE of this feature: bags
+    went from ~840 KB to 2.6 GB, and the recorder's 60 s wait-then-kill kills the `docker exec`
+    client rather than the in-container writer, so an mcap that has not finalised yet has no
+    metadata.yaml, the read raises, and a run whose bag is genuinely broken reported PASS with
+    sensor_message_counts: null.
+
+    METADATA, NEVER A FULL WALK.                                          (review, PR 64)
+    rosbag2 already stores per-topic counts, so re-reading 2.6 GB off the spinning disk per seed
+    bought nothing. The fallback reads the .mcap files DIRECTLY -- verified against a real bag:
+    a bag whose metadata.yaml is missing (the unfinalised case this is here for) still counts
+    correctly from MCAP's own summary section, while SequentialReader cannot open it at all.
+    The direct read also reports a topic with ZERO messages, which a walk cannot -- and that
+    topic is the entire point of the check.
     """
     if not topics:
-        return {}
+        return {}, ""
     script = (
-        "import json,rosbag2_py\n"
-        "from collections import Counter\n"
-        "r=rosbag2_py.SequentialReader()\n"
-        f"r.open(rosbag2_py.StorageOptions(uri='/out/{tag}',storage_id='mcap'),"
-        "rosbag2_py.ConverterOptions('',''))\n"
-        "c=Counter()\n"
-        "while r.has_next():\n"
-        "    t,_,_=r.read_next(); c[t]+=1\n"
-        f"print(json.dumps({{t:c.get(t,0) for t in {topics!r}}}))\n")
+        "import glob,json,os,rosbag2_py\n"
+        "uri=os.environ['COUNT_URI']\n"
+        f"want={topics!r}\n"
+        "def counts(u):\n"
+        "    md=rosbag2_py.Info().read_metadata(u,'mcap')\n"
+        "    return {t.topic_metadata.name:t.message_count for t in md.topics_with_message_count}\n"
+        "try:\n"
+        "    c=counts(uri)\n"
+        "except Exception:\n"
+        "    c={}\n"
+        "    for f in sorted(glob.glob(uri+'/*.mcap')):\n"
+        "        for k,v in counts(f).items(): c[k]=c.get(k,0)+v\n"
+        "    if not c: raise\n"
+        "print(json.dumps({t:c.get(t,0) for t in want}))\n")
     # `bash -lc`, NOT dexec's bare python3.                                        (SIM-38)
     #
     # dexec runs `docker exec` without a login shell, so /etc/profile.d never runs and ROS is not
     # on the path: `import rosbag2_py` fails with ModuleNotFoundError. That is the trap this repo
     # documents in three places and bakes ros-profile.sh into the image to avoid -- and it bit
     # here anyway, silently, because the except swallowed it and returned {}.
-    # The script goes through `docker exec -e`, never string interpolation -- topic names with a
-    # shell metacharacter would otherwise be executed rather than counted.
+    # Both the script AND the bag path go through `docker exec -e`, never string interpolation:
+    # a topic name -- or a scenario `name:` carrying an apostrophe -- would otherwise be pasted
+    # into a Python literal or a shell word and executed rather than counted.  (review, PR 64)
     try:
-        r = sh(["docker", "exec", "-e", f"COUNT_SCRIPT={script}", ROS2,
-                "bash", "-lc", 'python3 -c "$COUNT_SCRIPT"'], timeout=300)
-    except Exception:
-        return {}
+        r = sh(["docker", "exec", "-e", f"COUNT_SCRIPT={script}", "-e", f"COUNT_URI=/out/{tag}",
+                ROS2, "bash", "-lc", 'python3 -c "$COUNT_SCRIPT"'], timeout=300)
+    except Exception as exc:
+        return {}, f"could not run the counter in {ROS2}: {exc}"
     if r.returncode != 0:
-        return {}
+        tail = " / ".join((r.stderr or "").strip().splitlines()[-2:])
+        return {}, f"the counter exited {r.returncode}: {tail or 'no stderr'}"
     for line in reversed((r.stdout or "").splitlines()):
         line = line.strip()
         if line.startswith("{"):
             try:
-                return json.loads(line)
+                return json.loads(line), ""
             except ValueError:
-                return {}
-    return {}
+                return {}, "the counter printed something that is not JSON"
+    return {}, "the counter printed no result"
 
 
 def sensor_result_fields(scenario: dict, tag: str) -> dict:
     """The sensor evidence for a run's result, or {} when none were requested.
 
-    Attached to BOTH of run_flight's return paths: the first version only decorated the
-    success-parse branch, so a run that fell through to "no result produced" carried no sensor
-    evidence at all -- exactly the run you most want it for.               (SIM-38)
+    Attached to ALL THREE of run_flight's return paths: the first version only decorated the
+    stdout-fallback branch -- and not the one that actually runs -- so a run that recorded 78548
+    IMU messages carried no sensor evidence at all.                       (SIM-38)
     """
-    names = scenario.get("sensors") or []
+    names = sensor_names(scenario)
     topics = sensor_topics(scenario)
     if not topics:
         return {}
-    counts = count_sensor_messages(tag, topics)
+    counts, err = count_sensor_messages(tag, topics)
     out = {"sensors_requested": names, "sensor_message_counts": counts or None}
-    empty = [t for t, n in (counts or {}).items() if n == 0]
-    if counts and empty:
+    if err:
+        out["sensor_count_error"] = err
+    empty = [t for t, n in counts.items() if n == 0]
+    if empty:
         out["sensors_empty"] = empty
-    elif not counts:
-        print("  sensors: could not count messages in the bag -- evidence unverified",
-              file=sys.stderr)
     return out
 
 
 def _with_sensor_evidence(res: dict, scenario: dict, tag: str) -> dict:
-    """Attach the sensor evidence and let an empty bag fail the run.
+    """Attach the sensor evidence, and VOID the run when the bag cannot back it up.
 
     ONE helper because run_flight has THREE return paths -- the host result file, the stdout
     fallback, and "no result produced" -- and decorating only one is how this shipped returning
     sensors_requested: None on a run that had just recorded 78548 IMU messages. `probe_written`
     and `chase_video` are duplicated across the same paths for the same reason; this is that
     pattern's third victim.                                                        (SIM-38)
+
+    VOID, NOT FAIL -- the same call the stale-EKF-origin check makes.     (review, PR 64)
+    A perception graph that published nothing, or a bag that cannot be read, is an
+    INSTRUMENTATION failure: the aircraft's ability to fly is not what broke, so scoring it as a
+    control failure would put it next to real ones and drag the gate's success rate down with
+    it. Void is not the softer verdict here -- any void BLOCKS the criterion outright, where a
+    failure only lowers a percentage. It is exactly what "we should always be able to get this
+    if enabled" asks for.
+
+    AND IT NEVER OVERWRITES AN EXISTING failure_reason.                   (review, PR 64)
+    The reason is what the gate report prints for the seed, verbatim. Clobbering it on a run
+    that had already failed for a real reason -- CitySample's non-terminating landing, say --
+    would replace the diagnosis with a note about the bag in the only report anyone reads.
     """
     sf = sensor_result_fields(scenario, tag)
     if not sf:
         return res
     res.update(sf)
+    why = ""
     if sf.get("sensors_empty"):
-        res["outcome"] = "failure"
-        res["failure_reason"] = ("recorded no messages on " + ", ".join(sf["sensors_empty"]) +
-                                 " -- requested, and the bag is empty for them")
+        why = ("recorded no messages on " + ", ".join(sf["sensors_empty"]) +
+               " -- requested, and the bag is empty for them")
+    elif sf.get("sensor_count_error"):
+        why = ("could not count the requested sensors in the bag -- " +
+               sf["sensor_count_error"] + ". The bag is the deliverable, so unverified is not "
+               "the same as fine")
+    if why:
+        if res.get("outcome") == "success":
+            res["sensor_void_reason"] = why
+            res["outcome"] = "void"
+            res["failure_reason"] = why + ". This run is VOID, not a failure."
+        else:
+            # A run that ALREADY failed stays failed. Voiding it here would launder a real
+            # control failure into a void, and voids are EXCLUDED from the success rate -- so a
+            # flight that crashed and also lost its sensor graph would vanish from the number
+            # entirely. The evidence fields are still attached; only the verdict is left alone.
+            #                                                              (review, PR 64)
+            print(f"  sensors: {why} (run had already failed; verdict unchanged)",
+                  file=sys.stderr)
     return res
 
 
@@ -905,11 +1021,11 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     # The launch happens BEFORE `ros2 bag record` starts, and blocks until topics appear --
     # recording first would produce a bag with the topics present and no messages, which reads as
     # a successful capture of an empty world rather than as a mistake.
-    _sensors = scenario.get("sensors") or []
+    _sensors = sensor_names(scenario)
     _sensor_topics = sensor_topics(scenario)
     if _sensor_topics:
         print(f"  sensors: {', '.join(_sensors)} -> {len(_sensor_topics)} topic(s)")
-        start_perception()
+        start_perception(_sensor_topics)
         topics = list(dict.fromkeys(topics + _sensor_topics))
     bad = [t for t in topics if not t.startswith("/") or " " in t]
     if bad:

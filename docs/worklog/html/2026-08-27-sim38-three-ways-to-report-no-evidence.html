@@ -163,7 +163,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <body>
 <div class="topbar">
   <span class="brand">Worklog &middot; 2026-08-27 &middot; SIM-38</span>
-  <nav><a href="#why">Not just a flag</a><a href="#flown">Flown</a><a href="#three">Three bugs</a><a href="#cost">Cost</a><a href="index.html">Index</a></nav>
+  <nav><a href="#why">Not just a flag</a><a href="#flown">Flown</a><a href="#three">Three bugs</a><a href="#cost">Cost</a><a href="#review">After review</a><a href="index.html">Index</a></nav>
   <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
 </div>
 <div class="wrap">
@@ -171,7 +171,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <span class="eyebrow">Worklog &middot; 2026-08-27 &middot; SIM-38 &middot; SITL only</span>
   <h1>Three Ways<br>To Report Nothing</h1>
   <p class="sub">A scenario can now ask for depth, LiDAR and the inertial suite, and the bag has to <strong>prove it got them</strong>. Building that check produced <strong>three bugs of one shape</strong> &mdash; each failing silently and returning &ldquo;no evidence&rdquo;, which is indistinguishable from &ldquo;no problem&rdquo;.</p>
-  <div class="mastmeta"><span>Bugs <b>3</b></span><span>All found by <b>flying</b></span><span>Bag <b>840 KB &rarr; 2.6 GB</b></span><span>Tests <b>192 &rarr; 199</b></span></div>
+  <div class="mastmeta"><span>Bugs <b>3 + 4</b></span><span>All found by <b>flying</b></span><span>Bag <b>840 KB &rarr; 2.6 GB</b></span><span>Tests <b>192 &rarr; 205</b></span></div>
 </header>
 
 <div class="grid g3">
@@ -265,6 +265,46 @@ scenario rather than globally: a 40-seed gate would pay that cost forty times, a
 where the decision belongs.</p></div>
 <p><strong>Left undone:</strong> <code>rgb</code> is in the vocabulary but untested &mdash; every run
 so far declared the other six, because the vehicle camera video and the chase view already cover it.</p>
+
+<h2 id="review"><span class="secnum">05</span> Appended after review &mdash; a fourth of the same shape</h2>
+<p>Review of PR&nbsp;64 found seven issues. The one that matters is <strong>the fourth instance of
+the pattern this page is named for</strong>, one level up from the first three:
+<code>count_sensor_messages</code> returned a bare <code>{}</code> for <em>every</em> failure mode,
+and the caller printed one stderr line and left the run scoring <strong>PASS</strong>. &ldquo;The
+bag cannot be read&rdquo; and &ldquo;the bag is fine&rdquo; took the same branch again &mdash; in
+the function written to stop exactly that.</p>
+<div class="callout stop"><span class="lbl">And this feature is what makes it reachable</span>
+<p>Bags went 840&nbsp;KB &rarr; 2.6&nbsp;GB, while the recorder waits 60&nbsp;s and then kills the
+<strong><code>docker exec</code> client</strong>, not the in-container writer. An mcap that has not
+finalised in that window has no <code>metadata.yaml</code>, the read raises, and a run whose bag is
+genuinely broken reports success with <code>sensor_message_counts: null</code>. The counter now
+returns <em>why</em>, and the run is <strong>VOID</strong> &mdash; the same call the stale-EKF-origin
+check makes, and not the softer verdict: any void <strong>blocks the criterion outright</strong>,
+where a failure only lowers a percentage.</p></div>
+<p>Fixing that then created a worse bug than the one it fixed, caught before it shipped: a run that
+had <strong>already failed</strong> for a real reason and <em>also</em> had empty sensors was being
+converted to a void &mdash; and voids are excluded from the success rate, so a flight that crashed
+<em>and</em> lost its sensor graph would have vanished from the number entirely. The void now
+applies only to a run that was otherwise passing.</p>
+<div class="tw"><table>
+<thead><tr><th>Also found</th><th>What it did</th></tr></thead>
+<tbody>
+<tr><th>duplicate <code>airsim_node</code></th><td>the reuse flow hard stop 5 <em>prescribes</em> gave flight 2 a second node and flight 3 a third, so the bag recorded every message <strong>once per publisher</strong> — counts multiply, and a dead sensor hides behind a surviving one</td></tr>
+<tr><th>readiness check</th><td>docstring said &ldquo;blocks until <code>/clock</code> advances&rdquo;; it returned on any <code>/airsim_node/*</code> being <em>advertised</em> — which a previous run&rsquo;s node satisfies on a dead launch&rsquo;s behalf</td></tr>
+<tr><th>config typo scored as a flight failure</th><td>a bare <code>ValueError</code> became <code>runner raised: …</code>, so one mistyped name in a 40-seed gate buys 40 restarts and a report reading <strong>SR 0%</strong></td></tr>
+<tr><th><code>failure_reason</code> clobbered</th><td>on the CitySample run this branch cites, a sensor note would have replaced <code>timeout in state land</code> in the only report anyone reads</td></tr>
+<tr><th>scalar <code>sensors: depth</code></th><td>printed <code>sensors: d, e, p, t, h</code>, and the report carried a string for one spelling and a list for the other</td></tr>
+<tr><th>counting re-read the bag</th><td>2.6&nbsp;GB off the spinning disk per seed, for numbers rosbag2 already stores</td></tr>
+</tbody>
+</table></div>
+<div class="callout"><span class="lbl">The last one measured better than either proposal</span>
+<p><code>Info().read_metadata</code> on the <strong><code>.mcap</code> file itself</strong> counts
+correctly <em>with <code>metadata.yaml</code> present and absent</em> &mdash; the unfinalised case
+above &mdash; while <code>SequentialReader</code> cannot open that bag at all. It also reports a
+topic with <strong>zero</strong> messages, which a walk cannot, and that topic is the entire point
+of the check. Verified in the container against a real bag across all three states: finalised, no
+metadata, no bag.</p></div>
+<p>Tests 199 &rarr; 205, pinning each.</p>
 
 <footer>
   <span>Worklog &middot; 2026-08-27 &middot; SIM-38</span>
