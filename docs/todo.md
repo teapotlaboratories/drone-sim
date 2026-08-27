@@ -4114,10 +4114,60 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 ---
 
+## SIM-38 — A scenario cannot ask for anything but RGB
+
+**Status:** ✅ **done 2026-08-27.** A scenario declares what it wants and the bag has to prove
+it got it:
+
+```yaml
+sensors:
+  - depth
+  - lidar
+  - imu
+```
+
+Which does three things: **starts the perception graph and blocks until the topics exist**
+(`sim_up.sh` does not start `airsim_node`), **appends** those topics to `record_topics` rather
+than replacing it — cameras bring their `camera_info` automatically — and **counts the messages
+in the finished bag**, failing the run if a requested sensor recorded nothing. The names come
+from `verify_sensors.py` so the two cannot drift; an unknown name is **fatal**, because a typo
+would otherwise record nothing and read as "this world has no LiDAR".
+
+**Verified by flying both worlds.** Blocks PASS 0.784 m, 2.0 GB bag, and the counts reach the
+**gate report**: 1481 depth frames against 1481 `camera_info`, 736 GPU-LiDAR, 34855 each of
+IMU / GPS / magnetometer / odometry. CitySample: 1948 / 1948, 973, 78548 each — its flight FAILs
+on the parked `SIM-27` landing split, which is unrelated to this and does not stop the capture.
+A normal bag is ~840 KB, so the size alone says the data arrived.
+
+**Cost, measured:** ~30 s extra settle per bring-up, and on CitySample the rates run about a
+third of Blocks — depth ~10.5 Hz, GPU-LiDAR ~5.5 Hz. Bags go 840 KB → 2–2.6 GB. Default **off**
+and declared per scenario, not globally: a 40-seed gate would pay that forty times. The owner's
+call was that the bag matters more than its size — *"we should always be able to get this if
+enabled"* — so the run fails rather than quietly capturing less.
+
+**Three bugs, all one shape**, all found by running it rather than reading it, and all pinned by
+tests now: counted **on the host**, where `rosbag2_py` does not exist, so a run holding 78548 IMU
+messages reported `sensor_message_counts: None`; attached to **one of three** `run_flight` return
+paths, and not the one that runs; and executed through `dexec`, which is `docker exec` **without
+a login shell**, so `import rosbag2_py` raised `ModuleNotFoundError` inside a swallowing
+`except` — the exact trap `ros-profile.sh` exists to close, documented in three places, walked
+into anyway. Each returned "no evidence", which takes the same branch as "no problem".
+
+`rgb` is in the vocabulary but has not been exercised — every run so far declared the other six,
+since the vehicle camera and chase video already cover it.
+
+Worklog: `docs/worklog/2026-08-27-sim38-three-ways-to-report-no-evidence.md`.
+
+**Original status:** 🔵 open, raised 2026-08-26 from the owner's request — *"when running a
+scenario or a test, can we also have an option to also get sensor other than rgb?"*
+
+---
+
 ## SIM-37 — The AirSim ROS 2 wrapper is not part of bring-up
 
 **Status:** ✅ **done 2026-08-19.** The wrapper is baked into `drone-sim/ros2`, so a stack
-brought up by `sim_up.sh` alone has the sensor graph. **Verified on a cold stack with no
+brought up by `sim_up.sh` alone has the sensor **package** — the graph still has to be
+launched (`perception.launch.py`), which is what `SIM-38` now does for a scenario that asks. **Verified on a cold stack with no
 `build_airsim_wrapper.sh` and no manual source lines: `airsim_ros_pkgs` present,
 `AirsimROSWrapper Initialized!`, and all 14 `verify_sensors.py` checks passing** — the same
 sequence that produced 9 of 9 FAIL, "no messages", an hour earlier.

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Three Ways To Report Nothing</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-27 &middot; SIM-38</span>
+  <nav><a href="#why">Not just a flag</a><a href="#flown">Flown</a><a href="#three">Three bugs</a><a href="#cost">Cost</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-27 &middot; SIM-38 &middot; SITL only</span>
+  <h1>Three Ways<br>To Report Nothing</h1>
+  <p class="sub">A scenario can now ask for depth, LiDAR and the inertial suite, and the bag has to <strong>prove it got them</strong>. Building that check produced <strong>three bugs of one shape</strong> &mdash; each failing silently and returning &ldquo;no evidence&rdquo;, which is indistinguishable from &ldquo;no problem&rdquo;.</p>
+  <div class="mastmeta"><span>Bugs <b>3</b></span><span>All found by <b>flying</b></span><span>Bag <b>840 KB &rarr; 2.6 GB</b></span><span>Tests <b>192 &rarr; 199</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">The old failure</div><div class="v">empty topic</div><div class="n">listed, recorded, reported success</div></div>
+<div class="stat warn"><div class="k">Each bug returned</div><div class="v">no evidence</div><div class="n">the same branch as &ldquo;everything is fine&rdquo;</div></div>
+<div class="stat ok"><div class="k">Now</div><div class="v">empty bag fails</div><div class="n">a requested sensor with 0 messages fails the run</div></div>
+</div>
+
+<h2 id="why"><span class="secnum">01</span> Why it was not just a flag</h2>
+<p><code>record_topics</code> was <strong>already generic</strong> &mdash; a scenario could always
+name any topic. What it could not do was make the topic <strong>exist</strong>:
+<code>sim_up.sh</code> does not start <code>airsim_node</code>, so a scenario listing depth recorded
+an empty topic and still reported success, because the topic was listed, the recorder ran, and the
+bag exists.</p>
+<pre>sensors:
+  - depth
+  - lidar
+  - imu</pre>
+<p>So it does three things: <strong>starts the perception graph and blocks</strong> until topics
+appear; <strong>appends</strong> to <code>record_topics</code> rather than replacing it, with
+cameras bringing their <code>camera_info</code>; and <strong>counts the messages in the bag
+afterwards</strong>, failing the run if a requested sensor recorded nothing.</p>
+
+<h2 id="flown"><span class="secnum">02</span> Flown, on both worlds</h2>
+<div class="tw"><table>
+<thead><tr><th></th><th>Blocks</th><th>CitySample</th></tr></thead>
+<tbody>
+<tr><th>flight</th><td class="mono">PASS 0.784 m</td><td class="mono">FAIL — parked SIM-27</td></tr>
+<tr><th>bag</th><td class="mono">2.0 GB</td><td class="mono">2.6 GB</td></tr>
+<tr><th>depth + camera_info</th><td class="mono">1481 / 1481</td><td class="mono">1948 / 1948</td></tr>
+<tr><th>GPU-LiDAR</th><td class="mono">736</td><td class="mono">973</td></tr>
+<tr><th>IMU / GPS / mag / odom</th><td class="mono">34855 each</td><td class="mono">78548 each</td></tr>
+</tbody>
+</table></div>
+<p>The usual bag is ~840 KB, so size alone says the data arrived. The pairing of depth frames with
+<em>exactly</em> as many <code>camera_info</code> messages is the part worth noticing &mdash; that is
+the half people forget, and frames without intrinsics are useless for anything geometric.</p>
+
+<h2 id="three"><span class="secnum">03</span> Three bugs, one shape</h2>
+<figure>
+<svg viewBox="0 0 900 260" role="img" aria-label="Three bugs, each returning no evidence through the same branch as success: counting on a host without the library, decorating one of three return paths, and using a non-login shell so the import failed inside a swallowing except" style="max-width:100%;height:auto">
+  <defs><marker id="a38" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <g font-size="11.5">
+    <rect x="30" y="46" width="252" height="120" fill="none" stroke="#A3341F" stroke-width="1.6"/>
+    <text x="42" y="68" font-size="12.5" fill="#A3341F">1 &middot; counted on the host</text>
+    <text x="42" y="90" fill="currentColor">rosbag2_py is a ROS package</text>
+    <text x="42" y="107" fill="currentColor">and lives in sim-ros2</text>
+    <text x="42" y="130" fill="currentColor" opacity="0.85">78548 IMU messages reported</text>
+    <text x="42" y="147" fill="currentColor" opacity="0.85">as counts: None</text>
+
+    <rect x="318" y="46" width="252" height="120" fill="none" stroke="#A3341F" stroke-width="1.6"/>
+    <text x="330" y="68" font-size="12.5" fill="#A3341F">2 &middot; one of three paths</text>
+    <text x="330" y="90" fill="currentColor">run_flight returns from the</text>
+    <text x="330" y="107" fill="currentColor">result file, a stdout fallback,</text>
+    <text x="330" y="124" fill="currentColor">and &ldquo;no result produced&rdquo;</text>
+    <text x="330" y="147" fill="currentColor" opacity="0.85">I decorated the fallback</text>
+
+    <rect x="606" y="46" width="264" height="120" fill="none" stroke="#A3341F" stroke-width="1.6"/>
+    <text x="618" y="68" font-size="12.5" fill="#A3341F">3 &middot; no login shell</text>
+    <text x="618" y="90" fill="currentColor">docker exec without -l skips</text>
+    <text x="618" y="107" fill="currentColor">/etc/profile.d, so the import</text>
+    <text x="618" y="124" fill="currentColor">raised &mdash; inside an except</text>
+    <text x="618" y="147" fill="currentColor" opacity="0.85">the trap ros-profile.sh exists for</text>
+  </g>
+  <line x1="156" y1="176" x2="156" y2="206" stroke="currentColor" stroke-width="1.3" marker-end="url(#a38)"/>
+  <line x1="444" y1="176" x2="444" y2="206" stroke="currentColor" stroke-width="1.3" marker-end="url(#a38)"/>
+  <line x1="738" y1="176" x2="738" y2="206" stroke="currentColor" stroke-width="1.3" marker-end="url(#a38)"/>
+  <rect x="30" y="208" width="840" height="34" fill="none" stroke="#C8892B" stroke-width="2"/>
+  <text x="450" y="230" font-size="12.5" text-anchor="middle" fill="#C8892B">all three returned &ldquo;no evidence&rdquo; &mdash; the same branch as &ldquo;everything is fine&rdquo;</text>
+</svg>
+<figcaption>Each was found by <strong>running</strong> the thing, not by reading it. A passing test suite said nothing about any of them.</figcaption>
+</figure>
+<div class="callout stop"><span class="lbl">The third one is the repo&rsquo;s own documented trap</span>
+<p><code>dexec</code> runs <code>docker exec</code> without a login shell, so ROS is not on the path
+and <code>import rosbag2_py</code> fails with <code>ModuleNotFoundError</code> &mdash; swallowed by
+the <code>except</code>. This project documents that trap in three places and bakes
+<code>ros-profile.sh</code> into the image to avoid it, and it still caught me. Fixed with
+<code>bash -lc</code>, and the script passed via <code>docker exec -e</code> rather than
+interpolated, so a topic name containing a shell metacharacter cannot be executed.</p></div>
+<p>The tests added here pin those three failures rather than the happy path: counting must use a
+login shell, evidence must attach to <em>every</em> return path, and the vocabulary must match
+<code>verify_sensors.py</code>.</p>
+
+<h2 id="cost"><span class="secnum">04</span> Cost, measured</h2>
+<p>Perception adds ~30&nbsp;s of settle per bring-up, and on CitySample the rates are about a third
+of what Blocks posts &mdash; depth ~10.5&nbsp;Hz, GPU-LiDAR ~5.5&nbsp;Hz &mdash; under real scene
+load. Bags go from ~840&nbsp;KB to 2&ndash;2.6&nbsp;GB.</p>
+<div class="callout"><span class="lbl">Default off, and per-scenario</span>
+<p>The owner&rsquo;s call was that the bag matters more than its size. So it is declared per
+scenario rather than globally: a 40-seed gate would pay that cost forty times, and the scenario is
+where the decision belongs.</p></div>
+<p><strong>Left undone:</strong> <code>rgb</code> is in the vocabulary but untested &mdash; every run
+so far declared the other six, because the vehicle camera video and the chase view already cover it.</p>
+
+<footer>
+  <span>Worklog &middot; 2026-08-27 &middot; SIM-38</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
