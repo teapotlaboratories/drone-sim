@@ -287,6 +287,16 @@ def main() -> int:
     # Resolve the world BEFORE anything is brought up: a wrong path should fail in a second,
     # not after the first stack restart.
     world = rs.resolve_world(scenario, a.world, force=a.force_world)
+    # AND VALIDATE `sensors:` HERE TOO, for the same one-second reason. (review, PR 64)
+    #
+    # An unknown name raises out of run_flight, where `except Exception` turns it into
+    # outcome: failure -- so one mistyped sensor in a 40-seed gate buys 40 stack restarts and a
+    # report reading "SR 0%, runner raised: ..." for a one-character config error.
+    try:
+        rs.sensor_topics(scenario)
+    except rs.SensorConfigError as exc:
+        sys.exit(f"\n{exc}\nNo run is scored -- this is a configuration fault, not a flight "
+                 "result.")
     # FAIL IN A SECOND, NOT AFTER THE FIRST BRING-UP.             (review, PR 58, 3rd pass)
     #
     # Chase-by-default makes `sim_up.sh --display` a precondition, and sim_up.sh *dies* when
@@ -406,6 +416,19 @@ def main() -> int:
                              "variant": variant, "spawn_pose_applied": not a.reuse})
                 print(f"\n  {exc}\n")
                 break
+            except rs.PerceptionError as exc:
+                # VOID this seed and keep going. The graph not coming up is instrumentation, so
+                # it belongs with the stale-origin void, not with control failures -- and unlike
+                # a wrong world it may well be transient, so the next seed gets a fresh stack
+                # and a fresh try.                                             (review, PR 64)
+                if witness:
+                    try:
+                        cw.stop_and_score()
+                    except Exception:
+                        pass
+                void_reason = f"{str(exc).splitlines()[0]} This run is VOID, not a failure."
+                result = {"outcome": "void", "failure_reason": void_reason}
+                witness = None      # already stopped; do not score it twice
             except rs.EnvelopeError as exc:
                 # Stop the observer before leaving. It was started with `docker exec -d`, so
                 # exiting here would leave watch_collisions.py running in the sim container with
@@ -427,9 +450,25 @@ def main() -> int:
             if witness:
                 ncol, cdetail = cw.stop_and_score(
                     a.outdir / f"{name}-seed{seed}-collisions.json")
+            elif void_reason:
+                ncol, cdetail = 0, ""      # the flight was voided; no collision claim to make
             else:
                 ncol, cdetail = -1, "collision witness failed to start"
-            ok, why = check_run(result, scenario, ncol, cdetail)
+            # A SENSOR FAULT VOIDS THE SEED, it does not fail it.        (review, PR 64)
+            #
+            # run_flight sets this when a requested sensor recorded nothing, or when the bag
+            # could not be counted at all. Same category as the stale EKF origin above: the
+            # instrumentation broke, not the aircraft, so scoring it would stand a harness fault
+            # next to real control failures. Void is the STRICTER verdict -- any void blocks the
+            # criterion outright, where a failure only moves a percentage.
+            #
+            # Checked BEFORE check_run's verdict is kept, so the void reason is what the report
+            # prints rather than a collision line derived from a flight nobody is judging.
+            void_reason = void_reason or result.get("sensor_void_reason") or ""
+            if void_reason:
+                ok, why = False, void_reason
+            else:
+                ok, why = check_run(result, scenario, ncol, cdetail)
         runs.append({
             "seed": seed, "passed": ok, "reason": why,
             "collisions": ncol if not void_reason else None,
@@ -447,6 +486,8 @@ def main() -> int:
             # IMU and 1948 depth messages showed sensor_message_counts: None.  (SIM-38)
             "sensors_requested": result.get("sensors_requested"),
             "sensor_message_counts": result.get("sensor_message_counts"),
+            "sensors_empty": result.get("sensors_empty"),
+            "sensor_count_error": result.get("sensor_count_error"),
             "void": bool(void_reason),
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),

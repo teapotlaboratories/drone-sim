@@ -14,7 +14,8 @@ world: ${DRONE_SIM_WORLDS}/CitySample/CitySample.uproject
 # It starts the perception graph — `sim_up.sh` does not, so without this the topics below simply
 # do not exist and would record as empty. It then appends their topics to record_topics, and
 # AFTER the flight it counts the messages actually in the bag: a sensor that was asked for and
-# recorded nothing FAILS the run rather than passing quietly.
+# recorded nothing VOIDS the run rather than passing quietly -- instrumentation, not a flight
+# result, and a void BLOCKS the gate criterion outright where a failure only lowers a rate.
 #
 # Cameras bring their camera_info with them. Frames without intrinsics and a TF frame are not
 # usable for anything geometric, and discovering that after the flight is too late.
