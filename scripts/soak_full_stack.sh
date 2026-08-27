@@ -30,7 +30,9 @@ log(){ printf '\033[36m[soak]\033[0m %s\n' "$*"; }
 
 log "bringing up the full stack (GPU 0)"
 bash "$REPO/scripts/sim_up.sh" > "$OUT/fullstack.up.log" 2>&1 || { log "bring-up FAILED"; exit 1; }
-bash "$REPO/scripts/build_airsim_wrapper.sh" > "$OUT/fullstack.build.log" 2>&1 || { log "wrapper build FAILED"; exit 1; }
+# No wrapper build: since SIM-37 it is baked into drone-sim/ros2, and the builder now
+# REFUSES on a stack that already has one (it would delete the image's copy first).
+# The perception launch below is the only step still needed.
 docker exec -d sim-ros2 bash -lc '
   source /opt/ros/jazzy/setup.bash
   source /airsim_root/ros2/install/setup.bash

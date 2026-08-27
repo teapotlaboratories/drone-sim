@@ -11,7 +11,7 @@ RUN IT (the stack must already be up, and this must run INSIDE sim-ros2, which i
 and px4_msgs live):
 
     ./scripts/sim_up.sh
-    ./scripts/build_airsim_wrapper.sh          # only if you want the camera; see below
+    docker exec -d sim-ros2 bash -lc 'ros2 launch bringup perception.launch.py'          # only if you want the camera; see below
     docker cp examples/hello_drone.py sim-ros2:/tmp/
     docker exec -it sim-ros2 bash -lc \\
       'source /opt/ros/jazzy/setup.bash; source /ros2_ws/install/setup.bash; \\
@@ -26,9 +26,10 @@ THE FOUR THINGS THAT SILENTLY GIVE YOU NOTHING
    it is not.
 2. Offboard mode needs setpoints ALREADY FLOWING before you ask for it. PX4 rejects the mode
    switch if it is not receiving a stream, so the loop below publishes for a second first.
-3. Camera topics only exist if `airsim_node` is running, and `sim_up.sh` does NOT start it --
-   it is built and launched by `scripts/build_airsim_wrapper.sh`. Without that, `/fmu/*` works
-   and every `/airsim_node/*` topic is simply absent. This script says so rather than hanging.
+3. Camera topics only exist if `airsim_node` is running, and `sim_up.sh` does NOT start it.
+   The wrapper itself is in the image since SIM-37, so nothing needs building -- but until you
+   run `ros2 launch bringup perception.launch.py`, `/fmu/*` works and every `/airsim_node/*`
+   topic is simply absent. This script says so rather than hanging.
 4. Frames. Setpoints here are NED and Z is NEGATIVE UP: -5.0 means five metres above home, and
    +5.0 flies into the ground.
 """
@@ -155,7 +156,7 @@ def main() -> int:
     if n.image is None:
         print(f"image     : NONE on {IMAGE_TOPIC}\n"
               f"            airsim_node is not running -- sim_up.sh does not start it.\n"
-              f"            Run ./scripts/build_airsim_wrapper.sh for camera topics.")
+              f"            Start the perception graph: docker exec -d sim-ros2 bash -lc 'ros2 launch bringup perception.launch.py'")
     else:
         i = n.image
         print(f"image     : {i.width}x{i.height} {i.encoding}, {len(i.data)} bytes, "

@@ -1065,7 +1065,10 @@ log "starting the companion (agent + ROS 2), PX4 and QGC"
 # folding it in here without moving this `docker run` up would have started PX4 first and
 # left the client retrying against nothing.
 #
-# vendor/ is mounted read-only for SIM-04: the Cosys-AirSim ROS 2 wrapper (airsim_node) is
+# vendor/ is mounted read-only because build_airsim_wrapper.sh (FORCE=1, for testing a
+# wrapper patch) and soak_full_stack.sh's PythonClient still read from it. It is NOT how
+# airsim_node gets built any more -- that is baked into the image since SIM-37 -- so do
+# not remove this mount on the strength of that.
 # built from source here, and colcon compiles AirLib itself via add_subdirectory, so it needs
 # the whole tree rather than just ros2/src.
 mapfile -t ROS2_NS < <(netns_args)

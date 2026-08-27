@@ -32,10 +32,11 @@ in the repo. That container is deleted and recreated by the next `sim_up.sh`, wh
 source change needs no image rebuild and why a rebuilt stack always starts from the tree on
 disk.
 
-**The Cosys-AirSim ROS 2 wrapper is not part of this workspace.** It is built separately
-into `/airsim_root` by `scripts/build_airsim_wrapper.sh` — it has to be built in place
-against the vendored tree, and its packages must not be entangled with ours. It also has to
-be rebuilt after every `sim_up.sh`, which deletes the container it lives in. Source both:
+**The Cosys-AirSim ROS 2 wrapper is not part of this workspace.** It lives at
+`/airsim_root`, separate so its packages are not entangled with ours. Since `SIM-37` it is
+**baked into `drone-sim/ros2`**, so there is no build step and it survives a teardown —
+`scripts/build_airsim_wrapper.sh` remains only for testing a wrapper patch, and refuses on a
+stack that already has one. A login shell sources both:
 
 ```bash
 . /opt/ros/jazzy/setup.bash
