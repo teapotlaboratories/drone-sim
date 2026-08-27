@@ -155,3 +155,9 @@ The other six:
 
 Tests 199 → 205, pinning each. The count path was verified against a real mcap bag in the
 container across all three states — finalised, no metadata, no bag — rather than by reading it.
+
+**And then against the real bags, rather than a synthetic one.** The two archived flight bags are
+still on disk, so the new counter was run over both — no flight needed. It reproduces every number
+in the table above **exactly**, on both worlds, in **0.08 s** each instead of re-reading 2.0 and
+2.6 GB. So the change is not a plausible-looking substitution: it returns the same answer as the
+walk it replaced, on the same evidence, three orders of magnitude faster.
