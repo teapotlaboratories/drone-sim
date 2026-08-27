@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sensors Nobody Started</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-19 &middot; SIM-37</span>
+  <nav><a href="#bug">The bug</a><a href="#three">Three attempts</a><a href="#caught">What review caught</a><a href="#rates">The rates</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-19 &middot; SIM-37 &middot; SITL only</span>
+  <h1>Sensors<br>Nobody Started</h1>
+  <p class="sub">The AirSim ROS 2 wrapper was built <em>into a running container</em>, so it died on every teardown and nothing rebuilt it. Every flight for a week flew with <strong>no cameras and no LiDAR</strong> &mdash; and the first measurement of that read as <strong>&ldquo;this world&rsquo;s sensors are broken&rdquo;</strong>.</p>
+  <div class="mastmeta"><span>Before <b>9/9 FAIL</b></span><span>After <b>14/14 PASS</b></span><span>Attempts <b>3</b></span><span>Actually missing <b>2 downloads</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">The failure</div><div class="v">no messages</div><div class="n">indistinguishable from broken sensors</div></div>
+<div class="stat warn"><div class="k">Why unnoticed</div><div class="v">flight doesn't need it</div><div class="n">the gate uses PX4 telemetry over uXRCE-DDS</div></div>
+<div class="stat ok"><div class="k">Actually missing</div><div class="v">rpclib + eigen</div><div class="n">not build artifacts &mdash; two downloads</div></div>
+</div>
+
+<h2 id="bug"><span class="secnum">01</span> A graph that was never running</h2>
+<p><code>build_airsim_wrapper.sh</code> compiled the wrapper <strong>into a running container</strong>
+at <code>/airsim_root</code>. That does not survive a teardown, and <code>sim_up.sh</code> never
+rebuilt it &mdash; so a fresh stack had no <code>airsim_ros_pkgs</code>, and no camera, depth, LiDAR,
+AirSim-IMU, magnetometer or odometry topics.</p>
+<div class="callout stop"><span class="lbl">The first measurement said 9 of 9 FAILED, &ldquo;no messages&rdquo;</span>
+<p>Which reads exactly like a world whose sensors are broken. They were fine; the graph was never
+running. Reporting it would have been a clean false negative about CitySample.</p>
+<p>It went unnoticed because <strong>nothing in the flight path needs it</strong>. Every flight in the
+preceding week &mdash; the 40-seed gate, both CitySample gates &mdash; flew with no cameras.</p></div>
+
+<h2 id="three"><span class="secnum">02</span> Three attempts, and the third was small</h2>
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="Three attempts: copying the vendored tree broke fresh-clone builds, cloning alone failed because rpclib and eigen are not in git, and the working answer was cloning plus those two downloads" style="max-width:100%;height:auto">
+  <defs><marker id="a37" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <line x1="40" y1="196" x2="860" y2="196" stroke="currentColor" stroke-width="1.2" marker-end="url(#a37)"/>
+  <g font-size="11.5">
+    <rect x="44" y="52" width="240" height="118" fill="none" stroke="#A3341F" stroke-width="1.6"/>
+    <text x="56" y="74" font-size="12.5" fill="#A3341F">1 &middot; COPY vendor/</text>
+    <text x="56" y="96" fill="currentColor">builds here, but vendor/ is</text>
+    <text x="56" y="113" fill="currentColor">GITIGNORED and arrives in</text>
+    <text x="56" y="130" fill="currentColor">step 0.2 &mdash; images build in 0.1</text>
+    <text x="56" y="154" fill="#A3341F">broke fresh-clone builds</text>
+
+    <rect x="312" y="52" width="240" height="118" fill="none" stroke="#A3341F" stroke-width="1.6"/>
+    <text x="324" y="74" font-size="12.5" fill="#A3341F">2 &middot; clone at the SHA</text>
+    <text x="324" y="96" fill="currentColor">no vendor/ dependency, and</text>
+    <text x="324" y="113" fill="currentColor">the pin becomes checkable</text>
+    <text x="324" y="130" fill="currentColor">&mdash; but colcon failed</text>
+    <text x="324" y="154" fill="#A3341F">rpclib / eigen absent</text>
+
+    <rect x="580" y="52" width="280" height="118" fill="none" stroke="#3F7A34" stroke-width="2"/>
+    <text x="592" y="74" font-size="12.5" fill="#3F7A34">3 &middot; clone + two downloads</text>
+    <text x="592" y="96" fill="currentColor">the wrapper compiles AirLib</text>
+    <text x="592" y="113" fill="currentColor">itself; only setup.sh&rsquo;s two</text>
+    <text x="592" y="130" fill="currentColor">fetches were ever missing</text>
+    <text x="592" y="154" fill="#3F7A34">fresh clone builds, pin verified</text>
+  </g>
+  <text x="40" y="228" font-size="12" fill="currentColor">The gap looked like &ldquo;a built AirLib&rdquo;. It was two files upstream downloads.</text>
+</svg>
+<figcaption><code>CMakeLists.txt:31</code> does <code>add_subdirectory(cmake/AirLib)</code> — colcon compiles AirLib from source, so the prebuilt archive was never the dependency.</figcaption>
+</figure>
+
+<h2 id="caught"><span class="secnum">03</span> What review caught, and the two that sting</h2>
+<div class="callout stop"><span class="lbl">I claimed more than landed &mdash; in eight places</span>
+<p><em>&ldquo;A stack brought up by <code>sim_up.sh</code> alone has the sensor graph&rdquo;</em> is
+<strong>false</strong>. Nothing starts <code>airsim_node</code>. A cold stack has the
+<strong>package</strong>; it has zero <code>/airsim_node/*</code> topics until someone runs
+<code>perception.launch.py</code>. The follow-on claim &mdash; that this lets a scenario record
+sensor topics and get data &mdash; did not follow either: you would record empty topics.</p></div>
+<div class="callout stop"><span class="lbl">Seven doc notes inserted by regex, never read</span>
+<p>They landed inside a callout about PX4 image size, between a lead-in and the bullet list it
+introduced, under a &ldquo;Known gap&rdquo; heading about a different subsystem, and in a file that
+never mentions the script &mdash; so &ldquo;this script&rdquo; had no antecedent. Meanwhile the text
+they contradicted stayed put, leaving several files asserting both things at once. All seven reverted
+and rewritten by hand.</p></div>
+<div class="grid g2">
+<div class="callout warn"><span class="lbl">A safeguard that destroyed what it guarded</span>
+<p>&ldquo;Ctrl-C now if that is not what you meant&rdquo; &mdash; then <code>rm -rf</code> within a
+second. It refuses now unless <code>FORCE=1</code>.</p></div>
+<div class="callout warn"><span class="lbl">Silent drift left unasserted</span>
+<p><code>WORKDIR</code> had been left at <code>/airsim_root</code>, silently changing the
+container&rsquo;s default directory; and the fetched eigen version would have drifted
+<strong>silently</strong> where rpclib fails loudly. Both pinned and asserted.</p></div>
+</div>
+
+<h2 id="rates"><span class="secnum">04</span> The rates this unblocked</h2>
+<p><code>SIM-11</code> criterion 2, measurable at last:</p>
+<div class="tw"><table>
+<thead><tr><th>sensor</th><th>Blocks</th><th>CitySample</th></tr></thead>
+<tbody>
+<tr><th>RGB</th><td class="mono">31.2 Hz</td><td class="mono"><b>10.6 Hz</b></td></tr>
+<tr><th>Depth</th><td class="mono">29.6 Hz</td><td class="mono"><b>10.5 Hz</b></td></tr>
+<tr><th>GPU-LiDAR</th><td class="mono">17.4 Hz</td><td class="mono"><b>5.5 Hz</b></td></tr>
+<tr><th>IMU</th><td class="mono">366 / 311 distinct</td><td class="mono">333 / ~307</td></tr>
+</tbody>
+</table></div>
+<p>Perception loses about two thirds under real scene load; the IMU does not care. <strong>Every rate
+this project had quoted came from an empty grey box.</strong></p>
+
+<footer>
+  <span>Worklog &middot; 2026-08-19 &middot; SIM-37</span>
+  <span>SITL only &mdash; nothing real was armed</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

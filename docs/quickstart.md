@@ -49,7 +49,7 @@ renderer, and none derives from another. Run them in parallel if you like.
 | Image | Size | What it is |
 |---|---|---|
 | `drone-sim/unreal:ue5.8` | 57.5 GB | the renderer — credential-gated |
-| `drone-sim/ros2:v1.16.0` | 4.39 GB | companion computer: ROS 2, uXRCE-DDS agent, `px4_msgs` |
+| `drone-sim/ros2:v1.16.0` | 4.59 GB | companion computer: ROS 2, uXRCE-DDS agent, `px4_msgs`, the AirSim ROS 2 wrapper |
 | `drone-sim/qgc:v1.16.0` | 1.43 GB | ground station |
 | `drone-sim/px4:v1.16.0` | 466 MB | the autopilot — SITL build output only |
 
@@ -361,16 +361,18 @@ docker exec -d sim-ros2 bash -lc '
   ros2 launch bringup perception.launch.py'
 ```
 
-**Since `SIM-37` the wrapper is baked into `drone-sim/ros2`, so a stack brought up by
-`sim_up.sh` already has the sensor graph — this script is no longer part of bring-up.**
-It rebuilds the wrapper inside a running container (deleting the image's copy first), which
-is how a wrapper patch gets tested without a full image rebuild.
-
-> **The wrapper must be rebuilt after every `sim_up.sh`** — that script does
-> `docker rm -f sim-ros2 …` on every bring-up, and the wrapper is built *inside* that
-> container (`/airsim_root`), not baked into the image. Run `./scripts/build_airsim_wrapper.sh`
-> (~2 min) if `ros2 launch` reports `package 'airsim_ros_pkgs' not found`. The order is always
-> `sim_up.sh` → `build_airsim_wrapper.sh` → `ros2 launch`.
+> **The wrapper is in the image; the NODE still has to be launched.** *(Changed by `SIM-37`,
+> 2026-08-19.)* It used to be built into the running container by
+> `./scripts/build_airsim_wrapper.sh` and therefore had to be rebuilt after every `sim_up.sh`.
+> It is now baked into `drone-sim/ros2`, so `package 'airsim_ros_pkgs' not found` should not
+> happen any more.
+>
+> **That gets you the package, not the topics.** Nothing in `sim_up.sh` or `run_scenario.py`
+> starts `airsim_node`, so a freshly brought-up stack has `/fmu/*` and **no** `/airsim_node/*`
+> until you run the launch below. The order is now `sim_up.sh` → `ros2 launch`.
+>
+> `build_airsim_wrapper.sh` is still there for testing a wrapper patch without a four-minute
+> image rebuild — but it does `rm -rf /airsim_root` first, so it **replaces** the image's copy.
 
 > **Launch it — do not `ros2 run` it.** A bare `ros2 run airsim_ros_pkgs airsim_node` starts,
 > looks healthy, and its clock is silently dead: `publish_clock` defaults to false, and when
@@ -443,7 +445,7 @@ copy it and change the waypoint.
 
 ```bash
 ./scripts/sim_up.sh
-./scripts/build_airsim_wrapper.sh            # only if you want the camera — see below
+# (no build step: SIM-37 baked the wrapper into drone-sim/ros2)
 docker cp examples/hello_drone.py sim-ros2:/tmp/
 docker exec -it sim-ros2 bash -lc \
   'source /opt/ros/jazzy/setup.bash; source /ros2_ws/install/setup.bash; \
@@ -466,7 +468,7 @@ landed    : armed=False
 > The same is true of `verify_sensors.py` and `verify_nav_interface.py`.
 
 > **Camera topics only exist if `airsim_node` is running**, and `sim_up.sh` does **not** start
-> it. Without `build_airsim_wrapper.sh`, `/fmu/*` works and every `/airsim_node/*` topic is
+> it. Without that launch, `/fmu/*` works and every `/airsim_node/*` topic is
 > simply absent. The example says so rather than hanging.
 
 **The four things that silently give you nothing**, all encoded in that file:

@@ -42,9 +42,18 @@ docker inspect "$SVC" >/dev/null 2>&1 || die "$SVC is not running - bring the st
 #
 # It is kept because it is still the way to test a wrapper patch without a 4-minute image
 # rebuild. Use it deliberately, not as part of routine bring-up.
+# A WARNING THAT DOES NOT STOP IS NOT A SAFEGUARD.                        (review, PR 63)
+# The first cut printed "Ctrl-C now" and then carried straight on to `rm -rf /airsim_root`,
+# typically inside a second -- so the image's working wrapper was gone before anyone could read
+# the sentence telling them it was about to go.
 if docker exec "$SVC" test -x /airsim_root/ros2/install/airsim_ros_pkgs/lib/airsim_ros_pkgs/airsim_node 2>/dev/null; then
-  log "NOTE: this container already has a wrapper (baked into the image since SIM-37)."
-  log "      Continuing will delete and rebuild it. Ctrl-C now if that is not what you meant."
+  if [ "${FORCE:-}" != "1" ]; then
+    die "this container already has a working wrapper (baked into the image since SIM-37).
+       Rebuilding DELETES it first, and if any step here fails the container is left with no
+       sensor graph where the image had one.
+       Re-run with FORCE=1 if you are testing a wrapper patch:  FORCE=1 $0"
+  fi
+  log "FORCE=1: replacing the wrapper that came with the image."
 fi
 
 log "confirming the wrapper's ROS deps (baked into drone-sim/ros2; this is a no-op guard)"

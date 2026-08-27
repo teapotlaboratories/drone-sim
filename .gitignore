@@ -146,3 +146,4 @@ Saved/
 # that is pytest's guarantee, not ours, and it vanishes if the directory is created by
 # anything else.
 .pytest_cache/
+
