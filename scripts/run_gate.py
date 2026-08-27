@@ -438,6 +438,15 @@ def main() -> int:
             # by a gate run -- and were then unreferenced by the only report anyone reads for
             # one. An artifact nobody can find is not evidence.               (review, PR 50)
             "chase_video": result.get("chase_video"),
+            # CARRY THE SENSOR EVIDENCE INTO THE REPORT.
+            #
+            # These are attached by run_flight to the dict it RETURNS. The per-seed <tag>.json is
+            # written by the controller inside the container and never had them, so without this
+            # the counts existed nowhere a reader could see -- and the empty-bag check that is the
+            # whole point of `sensors:` reported nothing at all. Measured: a run recording 78548
+            # IMU and 1948 depth messages showed sensor_message_counts: None.  (SIM-38)
+            "sensors_requested": result.get("sensors_requested"),
+            "sensor_message_counts": result.get("sensor_message_counts"),
             "void": bool(void_reason),
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
