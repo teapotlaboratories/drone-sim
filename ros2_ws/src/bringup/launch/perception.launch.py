@@ -3,9 +3,8 @@
     ros2 launch bringup perception.launch.py
     ros2 launch bringup perception.launch.py use_sim_time:=true
 
-REQUIRES the Cosys-AirSim wrapper to be built and sourced — it is not part of this workspace:
-
-    ./scripts/sim_up.sh && ./scripts/build_airsim_wrapper.sh
+REQUIRES the Cosys-AirSim wrapper, which since SIM-37 is baked into drone-sim/ros2 --
+    no build step, and `docker exec sim-ros2 bash -lc` sources it automatically
     . /airsim_root/ros2/install/setup.bash
 
 WHY THIS FILE EXISTS AT ALL

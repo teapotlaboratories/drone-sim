@@ -55,8 +55,9 @@ measure() {  # measure <label> <lumen> <forceupdate>
 
   bash "$REPO/scripts/sim_up.sh" >"$OUT/$label.up.log" 2>&1 \
     || { log "  bring-up failed, see $OUT/$label.up.log"; return 1; }
-  bash "$REPO/scripts/build_airsim_wrapper.sh" >"$OUT/$label.build.log" 2>&1 \
-    || { log "  wrapper build failed"; return 1; }
+  # No wrapper build: since SIM-37 it is baked into drone-sim/ros2, and the builder now
+  # REFUSES on a stack that already has one (it would delete the image's copy first).
+  # The perception launch below is the only step still needed.
 
   docker exec -d sim-ros2 bash -lc '
     source /opt/ros/jazzy/setup.bash

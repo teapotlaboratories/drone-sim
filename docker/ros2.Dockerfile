@@ -293,7 +293,11 @@ RUN set -eux; \
     [ "$applied" -gt 0 ] || { echo "no ROS-side patches applied -- check the +++ b/ headers"; exit 1; }; \
     W=/airsim_root/ros2/src/airsim_ros_pkgs; \
     grep -q 'CallbackGroupType::MutuallyExclusive' "$W/src/airsim_node.cpp"; \
-    ! grep -q 'CallbackGroupType::Reentrant' "$W/src/airsim_node.cpp"; \
+    # NOT `! grep -q …`: bash exempts a command whose status is inverted with `!` from set -e,
+    # so that spelling can never fail the build. Verified. If airsim_node.cpp ever carried both
+    # spellings -- a partially applied 0001, or upstream adding a second group -- the image would
+    # ship green with the data race 0001 exists to prevent.              (review, PR 63)
+    test "$(grep -c 'CallbackGroupType::Reentrant' "$W/src/airsim_node.cpp")" = 0; \
     grep -q 'vehicle_name + "/" + camera_name + "_optical"' "$W/src/airsim_ros_wrapper.cpp"; \
     test "$(grep -c 'cb_state_\|cb_img_\|cb_lidar_\|cb_gpulidar_\|cb_echo_' \
               "$W/src/airsim_ros_wrapper.cpp")" -ge 10; \

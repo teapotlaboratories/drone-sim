@@ -265,21 +265,19 @@ Each has an environment equivalent: `WORLD`, `SETTINGS_FILE`, `SPAWN`, `SPAWN_VE
 which is why the script refuses a positive `Z` without the opt-in. The committed
 `sim/ue5/settings.json` is never modified: a run-time copy is written beside it.
 
-### 4. Build the wrapper and start the perception graph
+### 4. Start the perception graph
 
 ```bash
-./scripts/build_airsim_wrapper.sh      # ~2 min
-
-docker exec -d sim-ros2 bash -lc '
-  source /opt/ros/jazzy/setup.bash
-  source /airsim_root/ros2/install/setup.bash
-  source /ros2_ws/install/setup.bash
-  ros2 launch bringup perception.launch.py'
+docker exec -d sim-ros2 bash -lc 'ros2 launch bringup perception.launch.py'
 ```
 
-> **The wrapper must be rebuilt after every `sim_up.sh`** — that script recreates the ROS 2
-> container, which is where the wrapper lives. If `ros2 launch` reports
-> `package 'airsim_ros_pkgs' not found`, this is why.
+> **The wrapper is in the image; the node still has to be started.** *(`SIM-37`, 2026-08-19.)*
+> It used to be built into the container by `./scripts/build_airsim_wrapper.sh` after every
+> `sim_up.sh` — that step is gone, and the builder now refuses on a stack that already has a
+> wrapper, because it would delete the image's copy first.
+>
+> **Nothing starts `airsim_node` for you.** Until you run the launch above, `/fmu/*` works and
+> every `/airsim_node/*` topic is simply absent.
 >
 > **Use `bash -lc`.** `docker exec` bypasses the image entrypoint, so a plain
 > `docker exec sim-ros2 ros2 topic list` runs without a ROS environment and reports **0 topics

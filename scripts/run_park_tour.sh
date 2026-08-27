@@ -75,10 +75,9 @@ log "bringing up the simulator ${up_args[*]:-(Blocks, default spawn)}"
 bash "$REPO/scripts/sim_up.sh" "${up_args[@]}" > "$RUN/stack.log" 2>&1 \
   || { tail -5 "$RUN/stack.log"; die "bring-up failed — see $RUN/stack.log"; }
 
-# The wrapper lives in the ROS 2 container, which sim_up.sh deletes on every run.
-log "building the AirSim wrapper (~2 min)"
-bash "$REPO/scripts/build_airsim_wrapper.sh" >> "$RUN/stack.log" 2>&1 \
-  || die "wrapper build failed — see $RUN/stack.log"
+# No wrapper build: since SIM-37 it is baked into drone-sim/ros2, and the builder now
+# REFUSES on a stack that already has one (it would delete the image's copy first).
+# The perception launch below is the only step still needed.
 
 log "building the control package (park_tour)"
 docker exec sim-ros2 bash -lc '
