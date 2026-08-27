@@ -195,11 +195,6 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
     && echo "compressed_image_transport plugin registers" \
        >> /etc/drone-sim-versions
 
-# A login shell sources ROS, so `docker exec sim-ros2 bash -lc 'ros2 topic list'` works
-# without every caller repeating the source lines. `docker exec` without `-l` bypasses this
-# and reports 0 topics on a perfectly healthy stack — which has cost real debugging time
-# here, so the profile script is baked in rather than bind-mounted by a compose file that
-# no longer exists.
 # ---------------------------------------------------------------------------
 # THE AIRSIM ROS 2 WRAPPER, BAKED IN.                                      (SIM-37)
 #
@@ -270,7 +265,14 @@ RUN set -eux; \
     mkdir -p AirLib/deps/eigen3; \
     mv /tmp/temp_eigen/eigen*/Eigen AirLib/deps/eigen3/; \
     test -d AirLib/deps/eigen3/Eigen; \
-    rm -rf /tmp/rpclib.zip /tmp/eigen3.zip /tmp/temp_eigen
+    rm -rf /tmp/rpclib.zip /tmp/eigen3.zip /tmp/temp_eigen; \
+    \
+    # The two versions above are hand-copied from upstream setup.sh, so assert the pinned tree
+    # still expects them. rpclib would fail loudly anyway (CommonSetup.cmake hardcodes the
+    # directory name); eigen would NOT -- it would build silently against a different Eigen than
+    # upstream tested.                                                    (review, PR 63)
+    grep -q "rpclib-${RPCLIB_VERSION}" cmake/cmake-modules/CommonSetup.cmake; \
+    grep -q "${EIGEN_TAG}" setup.sh
 
 # The ROS-side deviations, routed by the ONE owner rather than a fourth copy of the rule.
 #                                                                         (SIM-25, review PR 63)
@@ -303,5 +305,16 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.bash \
  && test -x /airsim_root/ros2/install/airsim_ros_pkgs/lib/airsim_ros_pkgs/airsim_node \
  && echo "cosys-airsim ${COSYS_TAG} ${COSYS_SHA}" >> /etc/drone-sim-versions
 
+# Back to where the image used to leave callers.                          (review, PR 63)
+# `WORKDIR /airsim_root` above changed the image's default working directory from /ros2_ws --
+# an unintended change to the container's public interface. Every current `docker exec` uses
+# absolute paths or its own cd, so nothing breaks today; restored so nothing has to.
+WORKDIR /ros2_ws
+
+# A login shell sources ROS, so `docker exec sim-ros2 bash -lc 'ros2 topic list'` works
+# without every caller repeating the source lines. `docker exec` without `-l` bypasses this
+# and reports 0 topics on a perfectly healthy stack — which has cost real debugging time
+# here, so the profile script is baked in rather than bind-mounted by a compose file that
+# no longer exists.
 COPY docker/ros-profile.sh /etc/profile.d/10-ros.sh
 RUN chmod 0644 /etc/profile.d/10-ros.sh

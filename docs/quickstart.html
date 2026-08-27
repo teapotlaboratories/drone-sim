@@ -229,7 +229,7 @@ like.</p>
   <thead><tr><th>Image</th><th>Size</th><th>What it is</th></tr></thead>
   <tbody>
     <tr><td><code>drone-sim/unreal:ue5.8</code></td><td class="mono">57.5 GB</td><td>the renderer &mdash; credential-gated</td></tr>
-    <tr><td><code>drone-sim/ros2:v1.16.0</code></td><td class="mono">4.39 GB</td><td>companion computer: ROS 2, uXRCE-DDS agent, <code>px4_msgs</code></td></tr>
+    <tr><td><code>drone-sim/ros2:v1.16.0</code></td><td class="mono">4.59 GB</td><td>companion computer: ROS 2, uXRCE-DDS agent, <code>px4_msgs</code></td></tr>
     <tr><td><code>drone-sim/qgc:v1.16.0</code></td><td class="mono">1.43 GB</td><td>ground station</td></tr>
     <tr><td><code>drone-sim/px4:v1.16.0</code></td><td class="mono">466 MB</td><td>the autopilot &mdash; SITL build output only</td></tr>
   </tbody>
@@ -429,7 +429,6 @@ throughput.</p></div>
   source /ros2_ws/install/setup.bash
   ros2 launch bringup perception.launch.py'</pre>
 <div class="callout warn"><span class="lbl">Rebuild the wrapper after every bring-up</span>
-<p><strong>Since <code>SIM-37</code> the wrapper is baked into <code>drone-sim/ros2</code>, so a stack brought up by <code>sim_up.sh</code> already has the sensor graph — this script is no longer part of bring-up.</strong> It rebuilds the wrapper inside a running container (deleting the image&rsquo;s copy first), which is how a wrapper patch gets tested without a full image rebuild.</p>
 <p><code>sim_up.sh</code> does <code>docker rm -f sim-ros2 …</code> on every bring-up, and the
 wrapper is built <em>inside</em> that container (<code>/airsim_root</code>), not baked into the
 image. If <code>ros2 launch</code> reports <code>package 'airsim_ros_pkgs' not found</code>, run

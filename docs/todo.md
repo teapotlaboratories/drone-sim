@@ -4232,7 +4232,30 @@ gate window **wedges** the gate — `ASimModeBase::pause` calls `SetGamePaused`,
 sets `bTickEvenWhenPaused`, so `Tick()` stops and neither the gate nor its escape timer can
 advance — and `continueForTime` busy-waits the game thread to the same effect.
 
-**Leading hypothesis for revisiting: this is mostly a SLOW-STORAGE problem.** CitySample lives on
+**TESTED 2026-08-26 — THE STORAGE HYPOTHESIS IS WRONG. Do not re-run this experiment.**
+CitySample was copied to the internal NVMe (119 GB) and one seed of
+`citysample-updown-30m` flown from each disk — same scenario, same seed, only the storage
+differing:
+
+| | spinning disk | NVMe |
+|---|---|---|
+| max landing split | +107.41 m | **+107.56 m** |
+| samples split >0.5 m | 65% | **65%** |
+| collisions | 1343 surrogate | 1337 surrogate |
+| seed wall time | 890 s | **331 s** (2.7× faster) |
+
+0.15 m on 107 m is noise and the split percentage is identical — **while the world loaded
+2.7× faster**. The far-field surrogate is therefore not proxy geometry lingering because the
+disk is slow; the integrator refuses that contact as ground however quickly the real cells
+arrive. So the sentence below is confirmed on its first half and **wrong on its second**:
+slow storage does not cause the bug, and it does not set the blast radius either. The NVMe
+copy has been deleted.
+
+The run did establish one thing worth keeping: CitySample work is **2.7× faster** from the
+NVMe (890 s → 331 s a seed). That is a scheduling choice, not a correctness one — worlds are
+exempt from the NVMe preference since 2026-08-17.
+
+**The hypothesis as it stood, kept because the reasoning is still instructive:** CitySample lives on
 the 7 TB **spinning disk**, against this project's own rule that the simulator's live working set
 belongs on the internal NVMe. Both cold runs took ~5 minutes to render a first frame, and the gap
 between the gate's release at 0.400 s and the real city arriving is what the vehicle falls through.
@@ -4243,8 +4266,7 @@ Stated precisely, because the distinction decides whether the revisit is worth i
 does not cause the predicate bug, it sets its blast radius.** `IsStreamingCompleted` would still
 answer `TRUE` on the surrogate on the fastest disk in the world — that is semantics, not timing.
 What storage changes is how long the vehicle is left standing on an answer that is about to stop
-being true. **Untested.** The experiment when this is picked up again is a one-liner: copy
-CitySample to the internal NVMe and re-run the same instrumented build.
+being true. *(That last clause is the part the measurement above refuted.)*
 
 **Previous status, kept for the record:** 🟡 BUILT AND TESTED 2026-08-16 — the mechanism works; it is slow, not broken.
 `patches/cosys-airsim/0007` exists and is **not applied to anything**; the vehicle no longer falls,

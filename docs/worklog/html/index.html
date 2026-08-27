@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>31</b></span>
-    <span>Newest <b>2026-08-18</b></span>
+    <span>Entries <b>32</b></span>
+    <span>Newest <b>2026-08-19</b></span>
   </div>
 </header>
 
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-19-sim37-the-sensors-were-never-in-the-bring-up.html">
+    <span class="k">2026-08-19 · SIM-37 · newest</span>
+    <h3>Sensors Nobody Started</h3>
+    <p>The AirSim ROS 2 wrapper was compiled <em>into a running container</em>, so it died on every teardown and <code>sim_up.sh</code> never rebuilt it. Every flight for a week — the 40-seed gate, both CitySample gates — flew with <strong>no cameras and no LiDAR</strong>, and nobody noticed because nothing in the flight path needs them. The first measurement of that returned <strong>9 of 9 checks FAILED, "no messages"</strong> — indistinguishable from a world whose sensors are broken. Three attempts to fix it: copying the vendored tree <em>broke fresh-clone builds</em> (vendor/ is gitignored and arrives after the images build); cloning alone failed in colcon; and the real gap turned out to be <strong>two downloads</strong>, because <code>CMakeLists.txt:31</code> compiles AirLib from source and never links the prebuilt archive. Review then caught that I'd claimed more than landed, in eight places: a cold stack has the <em>package</em>, not the topics.</p>
+    <div class="tags">
+      <span class="pill p-stop">9/9 FAIL → 14/14 PASS</span>
+      <span class="pill p-warn">claimed more than landed</span>
+      <span class="pill p-ok">fresh clone builds</span>
+      <span class="pill p-chrome">pin now verified</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-18-sim25-one-owner-for-the-patch-router.html">
-    <span class="k">2026-08-18 · SIM-25 · newest</span>
+    <span class="k">2026-08-18 · SIM-25</span>
     <h3>Three Copies Of One Rule</h3>
     <p>Which half of Cosys-AirSim does a patch belong to — the ROS 2 wrapper or the Unreal plugin? Three scripts each answered separately, and all three already carried a <code>die</code> for the drift case, which is the tell: the risk was understood and the cause was not. Miss <code>0005</code> and the vehicle falls through a World Partition world forever; miss <code>0006</code> and the renderer dies mid-flight. <strong>The repo has paid for this three times</strong> — <code>collision_witness.py</code> exists because a rule written twice disagreed with itself inside one commit, and this week I called <code>0007</code> "applied to nothing" three times having checked one of the three globs, which would have shipped a physics gate that kills bring-up. Now one owner: the predicate, the apply loop, and the patch list. Verified by rebuilding: the resulting <code>.so</code> is <strong>byte-identical</strong> to the pre-refactor build. Building also caught what review would have had to reason about — <code>$applied</code> went unbound, used in two more places than I had seen.</p>
     <div class="tags">
