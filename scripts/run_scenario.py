@@ -37,6 +37,7 @@ import random
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -55,6 +56,16 @@ _ld_spec = importlib.util.spec_from_file_location(
 ld = importlib.util.module_from_spec(_ld_spec)
 _ld_spec.loader.exec_module(ld)
 UNREAL, READBACK_DROP = ld.UNREAL, ld.READBACK_DROP
+
+# The split detector and the sentence it produces live in ONE place, scripts/probe_landing.py,
+# and are loaded the same way for the same reason: the probe decides what a split IS, this file
+# decides what to DO about it. A threshold or a verdict string copied into a second file is how
+# the same rule ends up implemented twice and diverging -- the pattern SIM-25 and the collision
+# witness both got caught by.                                                        (SIM-27)
+_pl_spec = importlib.util.spec_from_file_location(
+    "probe_landing", Path(__file__).resolve().parent / "probe_landing.py")
+pl = importlib.util.module_from_spec(_pl_spec)
+_pl_spec.loader.exec_module(pl)
 
 
 def sh(cmd: list[str], *, env: dict | None = None, timeout: int = 900,
@@ -283,13 +294,33 @@ def chase(*args: str) -> bool:
 POSE_SPLIT_M = 0.5
 
 
-def _max_abs_dz(path_in_container: str) -> float | None:
-    """Largest |phys_z - pose_z| the probe saw, or None if it recorded nothing usable."""
+def _probe_summary(path_in_container: str) -> tuple[float | None, dict | None]:
+    """What the probe's trace says: the largest |phys_z - pose_z|, and the fault if it tripped.
+
+    ONE read for both. They come from the same file and are wanted at the same moment, and a
+    second `docker exec cat` of a 90 kB trace to answer the neighbouring question is how two
+    numbers from one artifact end up disagreeing. Returns (None, None) when the trace cannot
+    be read at all -- which is not the same as "no split", and is reported as such by the
+    caller through `probe_written`.
+    """
     r = sh(dexec("cat", path_in_container), timeout=60)
     if r.returncode != 0:
-        return None
-    best = None
+        return None, None
+    best, fault = None, None
     for line in (r.stdout or "").splitlines():
+        if '"fault"' in line and fault is None:
+            # AND IT MUST BE THE FAULT WE MEAN. The substring is a cheap prefilter, not the
+            # test: a probe error record whose exception text happens to contain the word, or
+            # any record type added later, would otherwise be adopted as the fault and VOID the
+            # run with "the physics integrator was None m below the Unreal actor". SplitAbort
+            # already guards this; the two readers of the same file must agree.     (review)
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(rec, dict) and rec.get("fault") == "pose_split":
+                fault = rec
+            continue
         if '"dz"' not in line:
             continue
         try:
@@ -297,7 +328,109 @@ def _max_abs_dz(path_in_container: str) -> float | None:
         except Exception:
             continue
         best = d if best is None else max(best, d)
-    return best
+    return best, fault
+
+
+def _split_reason(fault: dict) -> str:
+    """The one sentence a split produces, built in ONE place.                        (SIM-27)
+
+    It is written into the abort file (so it becomes the controller's failure_reason, the
+    MissionResult in the bag and the run's result JSON) and into the gate's void reason. Those
+    must be the same sentence: a report that says one thing and a bag that says another about
+    the same run is worse than either alone.
+    """
+    return (f"{fault.get('reason') or pl.LANDING_FAULT_REASON}: the physics integrator was "
+            f"{fault.get('dz')} m below the Unreal actor and still descending at "
+            f"{fault.get('vz')} m/s, sustained {fault.get('held_seconds')} s, "
+            f"{fault.get('t')} s into the flight. The mission is not what failed -- "
+            f"AirSim never accepted the surface as ground. SIM-27.")
+
+
+class SplitAbort(threading.Thread):
+    """Tail the probe's trace during the flight and end the run when the poses split. (SIM-27)
+
+    WHY A TAIL AND NOT AN RPC. The probe already holds the only two RPCs that can answer this,
+    and `simGetCollisionInfo` next door is read-and-reset -- this repo has already had one tool
+    silently eat the collision witness's evidence. So the second reader reads the FILE. `/out`
+    is bind-mounted from <repo>/out (sim_up.sh:1076), so that costs a host-side read every
+    half second and no traffic to the simulator at all.
+
+    WHY IT DOES NOT KILL ANYTHING. It writes an abort file that offboard_control polls, so the
+    controller ends the flight through its own _fail() path and still writes waypoints_reached,
+    the per-waypoint errors and a terminal MissionStatus. On the runs this fires for, that
+    evidence is the point: all nine recorded splits flew 4/4 waypoints first.
+    """
+
+    POLL_S = 0.5
+
+    def __init__(self, trace_on_host: Path, abort_on_host: Path, tag: str):
+        super().__init__(daemon=True)
+        self.trace, self.abort, self.tag = trace_on_host, abort_on_host, tag
+        # NOT `self._stop`: threading.Thread already owns that name (it is the internal method
+        # join() calls when the thread ends), and shadowing it with an Event makes join() raise
+        # `TypeError: 'Event' object is not callable`. Found by running this against the real
+        # CitySample trace, which is the only reason it was not shipped.
+        self._done = threading.Event()
+        self.fault: dict | None = None
+
+    def stop(self) -> None:
+        self._done.set()
+
+    def run(self) -> None:                                     # pragma: no cover - thread body
+        pos, buf = 0, b""
+        while True:
+            try:
+                with self.trace.open("rb") as fh:
+                    fh.seek(pos)
+                    chunk = fh.read()
+                pos += len(chunk)
+                # BYTES, and a held-back tail. The probe flushes per line, so a read can land
+                # mid-line; text mode would also make this offset arithmetic wrong the first
+                # time a non-ASCII character appeared in the trace.
+                buf += chunk
+                parts = buf.split(b"\n")
+                buf = parts.pop()
+                for raw in parts:
+                    if b'"fault"' not in raw:
+                        continue
+                    try:
+                        rec = json.loads(raw)
+                    except Exception:
+                        continue
+                    if rec.get("fault") != "pose_split":
+                        continue
+                    self._fire(rec)
+                    return
+            except FileNotFoundError:
+                pass          # the probe has not written its first line yet
+            except OSError as exc:
+                # Non-fatal by design: this thread is a witness, and a run must never fail
+                # because the witness could not read a file.
+                print(f"  probe: split watcher could not read {self.trace}: {exc}",
+                      file=sys.stderr)
+            if self._done.wait(self.POLL_S):
+                return
+
+    def _fire(self, rec: dict) -> None:
+        self.fault = rec
+        reason = _split_reason(rec)
+        # ATOMIC. The controller polls this path at 10 Hz and reads whatever is there; a
+        # partially written file would be read as an abort with no reason, and the run would
+        # end with "the runner aborted this flight" instead of the diagnosis it exists to give.
+        tmp = self.abort.with_name(self.abort.name + ".tmp")
+        try:
+            # `**rec` FIRST. The fault record carries its own short `reason` -- the bare fault
+            # name -- and spreading it last silently overwrote the diagnostic sentence built
+            # above, so the controller failed with four words and no measurement. Caught by
+            # replaying the real CitySample trace through this class, not by reading it.
+            tmp.write_text(json.dumps({**rec, "reason": reason}, indent=2))
+            os.replace(tmp, self.abort)
+        except OSError as exc:
+            print(f"  probe: SPLIT during {self.tag} but the abort file could not be written "
+                  f"({exc}) — the run will fall back to the state timeout", file=sys.stderr)
+            return
+        print(f"  probe: ACTOR/INTEGRATOR SPLIT during {self.tag} at t={rec.get('t')}s — "
+              f"{reason} Ending the flight now.", flush=True)
 
 
 readback_drops = ld.readback_drops
@@ -916,8 +1049,51 @@ def _with_sensor_evidence(res: dict, scenario: dict, tag: str) -> dict:
             # flight that crashed and also lost its sensor graph would vanish from the number
             # entirely. The evidence fields are still attached; only the verdict is left alone.
             #                                                              (review, PR 64)
+            # RECORDED, not just printed.                                        (review)
+            #
+            # This branch is where a split-voided run lands -- _with_split_fault sets
+            # outcome="void" before this runs, so the `sensors_empty` list reaches the gate
+            # report with NO reason anywhere in the JSON, and the only explanation exists on
+            # a stderr line nobody keeps. Same argument as the sensor evidence itself: an
+            # observation that never reaches the artifact did not happen.
+            res["sensor_evidence_note"] = why
             print(f"  sensors: {why} (run had already failed; verdict unchanged)",
                   file=sys.stderr)
+    return res
+
+
+def _with_split_fault(res: dict, fault: dict | None) -> dict:
+    """VOID a run whose actor and integrator split, and name the fault.            (SIM-27)
+
+    VOID, NOT FAIL -- the same call the stale-EKF-origin check and the sensor check make, and
+    the owner's decision on 2026-08-28. The aircraft flew the mission: all nine splits recorded
+    in out/ reached 4/4 waypoints and then failed on the landing. What broke is the simulator's
+    ground-lock decision, so scoring it as a control failure stands a harness fault next to real
+    ones -- and tells someone flying their own world that their drone cannot fly. Void is the
+    stricter verdict, not the softer one: it is excluded from the success rate AND blocks the
+    criterion outright.
+
+    IT DOES OVERWRITE failure_reason, unlike the sensor check. The difference is causality:
+    this run ended BECAUSE of the split -- the abort file the watcher wrote is what the
+    controller read -- so the reason it carries is already this sentence. Any earlier reason is
+    kept as `controller_failure_reason` rather than dropped, for the case where the controller
+    had reached a terminal state on its own before the abort was seen.
+
+    A SUCCESSFUL run is voided too. A landing that terminated while the two poses disagreed by
+    more than a metre is not a pass with a footnote: every camera frame in that bag shows a
+    world the vehicle's own state was not in, which is precisely the property that makes the
+    bag worthless as perception evidence.
+    """
+    if not fault:
+        return res
+    reason = _split_reason(fault)
+    prior = (res.get("failure_reason") or "").strip()
+    if prior and prior != reason:
+        res["controller_failure_reason"] = prior
+    res["pose_split_fault"] = fault
+    res["split_void_reason"] = reason
+    res["outcome"] = "void"
+    res["failure_reason"] = reason
     return res
 
 
@@ -994,6 +1170,7 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
 
     tag = f"{scenario.get('name', 'scenario')}-seed{seed}"
     result_in_container = f"/out/{tag}.json"
+    abort_in_container = f"/out/{tag}-abort.json"
 
     args = [
         "-p", f"takeoff_altitude:={mission.get('takeoff_altitude_m', 10.0)}",
@@ -1001,6 +1178,10 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
         "-p", f"hold_seconds:={tol.get('hold_seconds', 2.0)}",
         "-p", f"state_timeout_s:={tol.get('state_timeout_s', 60.0)}",
         "-p", f"result_path:={result_in_container}",
+        # THE STOP BUTTON the split watcher presses.                                 (SIM-27)
+        # Cleared up-front like every other artifact below: a leftover from a previous run
+        # would abort this one before it left the ground, citing yesterday's split.
+        "-p", f"abort_file:={abort_in_container}",
     ]
     if flat:
         args += ["-p", "waypoints_enu:=[" + ",".join(str(v) for v in flat) + "]"]
@@ -1164,7 +1345,12 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     #
     # ~15 RPC calls/s against a soak that sustained 924/s without incident.
     probe_in_container = f"/out/{tag}-landing.jsonl"
-    sh(dexec("rm", "-f", probe_in_container), timeout=60)
+    # The host side of the same two files. `sim_up.sh` bind-mounts <repo>/out to /out
+    # (sim_up.sh:1076), which is what lets the watcher tail the trace and drop the abort file
+    # without a single extra call into the simulator.
+    probe_on_host = REPO / "out" / f"{tag}-landing.jsonl"
+    abort_on_host = REPO / "out" / f"{tag}-abort.json"
+    sh(dexec("rm", "-f", probe_in_container, abort_in_container), timeout=60)
     for f in ("probe_landing.py", "airsim_rpc_client.py"):
         sh(["docker", "cp", str(REPO / "scripts" / f), f"{ROS2}:/tmp/{f}"], timeout=60)
     sh(["docker", "exec", "-d", ROS2, "bash", "-lc",
@@ -1198,6 +1384,16 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
     if chase_on:
         chase_on = chase("start", "--out", str(chase_mp4))
 
+    # WATCH THE SPLIT WHILE IT IS STILL HAPPENING.                                   (SIM-27)
+    #
+    # The probe has recorded `dz` for every run since 2026-08-12, and until now nothing read it
+    # until the run was over -- so a run whose actor froze at the surface at t=85 s went on
+    # descending in the integrator for another two and a half minutes and then reported
+    # `timeout in state land`, a control failure, with 4/4 waypoints flown. Measured over the
+    # nine such traces in out/: this ends them 37-153 s earlier, and names them.
+    split_watch = SplitAbort(probe_on_host, abort_on_host, tag)
+    split_watch.start()
+
     try:
         cmd = dexec("bash", "-lc",
                     "cd /ros2_ws && . install/setup.bash && "
@@ -1225,6 +1421,9 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
         # catch, and stopping it outside the finally would leave it polling for its full 1200 s
         # -- overlapping the next seed's flight, and its own probe, under --reuse.
         sh(dexec("bash", "-lc", "pkill -INT -f probe_landing.py || true"), timeout=60)
+        # Stopped in the SAME finally as the probe it reads: a thread still tailing the trace
+        # would write the next seed's abort file from this seed's split under --reuse.
+        split_watch.stop()
         # Stopped HERE for the same reason the probe is: a controller timeout must not leave a
         # 60 fps screen grab running into the next seed's flight. --no-distinct because the
         # mpdecimate pass decodes the whole file (~10 s), which across a 40-seed gate is ~7
@@ -1283,11 +1482,18 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
 
     # And READ it. An artifact nobody looks at is not a witness: a run whose probe recorded a
     # 30 m actor/integrator split would otherwise still print PASS with nothing said.
-    max_dz = _max_abs_dz(probe_in_container) if probe_written else None
-    if max_dz is not None and max_dz > POSE_SPLIT_M:
+    max_dz, fault = _probe_summary(probe_in_container) if probe_written else (None, None)
+    # The watcher's own record wins when it has one: it is the copy that actually ended the
+    # flight, and if the trace could not be re-read afterwards the run must still say why it
+    # stopped rather than reporting an unexplained abort.
+    fault = split_watch.fault or fault
+    if fault is None and max_dz is not None and max_dz > POSE_SPLIT_M:
+        # Split large enough to matter, but the detector did not trip -- ascending, or too
+        # brief to sustain. Reported, not scored: this is the line that says the run deserves
+        # a look even though nothing was named.
         print(f"  probe: ACTOR/INTEGRATOR SPLIT during {tag} — max |phys_z - pose_z| "
-              f"= {max_dz:.3f} m (healthy landings stay under {POSE_SPLIT_M} m). SIM-27.",
-              flush=True)
+              f"= {max_dz:.3f} m (healthy landings stay under {POSE_SPLIT_M} m), but it did "
+              f"not meet the fault condition. SIM-27.", flush=True)
 
     video_written = False
     if not _env_true("SIM_NO_VIDEO"):
@@ -1318,7 +1524,7 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
         res["applied_limits"] = applied_limits or None
         res.update(provenance)
         res["max_pose_split_m"] = max_dz
-        return _with_sensor_evidence(res, scenario, tag)
+        return _with_sensor_evidence(_with_split_fault(res, fault), scenario, tag)
     # Fall back to the log line, so a missing file does not erase the evidence.
     m = re.search(r"result: (\{.*\})", proc.stdout or "")
     if m:
@@ -1329,8 +1535,8 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
         res["applied_limits"] = applied_limits or None
         res.update(provenance)
         res["max_pose_split_m"] = max_dz
-        return _with_sensor_evidence(res, scenario, tag)
-    return {"outcome": "failure",
+        return _with_sensor_evidence(_with_split_fault(res, fault), scenario, tag)
+    return _with_split_fault({"outcome": "failure",
             "failure_reason": "no result produced",
             # ALSO here: a run that produced no result is exactly the one whose sensor evidence
             # someone will want.
@@ -1341,7 +1547,10 @@ def run_flight(scenario: dict, seed: int, world: str = "", stack_restarted: bool
             "applied_limits": applied_limits or None,
             **provenance,
             "max_pose_split_m": max_dz,
-            "stdout_tail": (proc.stdout or "")[-800:]}
+            # THE THIRD PATH GETS IT TOO. A run that produced no result file at all is exactly
+            # the one where an unexplained abort would be reported as "no result produced" --
+            # the fault named nowhere, on the run that needed it most.               (SIM-38)
+            "stdout_tail": (proc.stdout or "")[-800:]}, fault)
 
 
 def main() -> int:
