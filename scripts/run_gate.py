@@ -464,7 +464,22 @@ def main() -> int:
             #
             # Checked BEFORE check_run's verdict is kept, so the void reason is what the report
             # prints rather than a collision line derived from a flight nobody is judging.
-            void_reason = void_reason or result.get("sensor_void_reason") or ""
+            # THE SPLIT COMES FIRST among the void reasons.                       (SIM-27)
+            #
+            # A run the split watcher ended is very likely to trip the sensor check too -- it
+            # stops mid-mission, so a requested sensor can easily have recorded nothing -- and
+            # whichever reason is chosen here is the sentence the report prints for the seed,
+            # verbatim. "recorded no messages on /camera/depth" describes a consequence; the
+            # split describes the cause.
+            #
+            # TODAY THE TWO CANNOT BOTH BE SET, and the order is defensive rather than
+            # load-bearing: _with_split_fault runs first and sets outcome="void", and
+            # _with_sensor_evidence only writes sensor_void_reason on a run still marked
+            # success -- it records `sensor_evidence_note` instead. Written down because the
+            # first version of this comment claimed a precedence the pipeline could not
+            # produce, which is a claim that rots the moment either helper changes.  (review)
+            void_reason = (void_reason or result.get("split_void_reason")
+                           or result.get("sensor_void_reason") or "")
             if void_reason:
                 ok, why = False, void_reason
             else:
@@ -489,6 +504,12 @@ def main() -> int:
             "sensors_empty": result.get("sensors_empty"),
             "sensor_count_error": result.get("sensor_count_error"),
             "void": bool(void_reason),
+            # SIM-27. The fault record the probe wrote, when the two poses split far enough
+            # for long enough to end the flight. None on every healthy run.
+            "pose_split_fault": result.get("pose_split_fault"),
+            # The sensor diagnosis for a run that had already failed or voided for another
+            # reason. Carried so a split-voided seed still says what its bag is missing.
+            "sensor_evidence_note": result.get("sensor_evidence_note"),
             "waypoint_errors_m": result.get("waypoint_errors_m"),
             "worst_error_m": _worst(result.get("waypoint_errors_m")),
             "spawn_pose_applied": not a.reuse,
@@ -555,6 +576,10 @@ def main() -> int:
                                  if isinstance(r.get("max_pose_split_m"), (int, float))),
                                 default=None),
         "runs_without_probe_data": sum(1 for r in runs if r.get("probe_written") is False),
+        # SIM-27. Runs the split watcher ended. Distinct from max_pose_split_m above, which is
+        # a magnitude: a gate can carry a 0.6 m split that never met the fault condition, and
+        # that is a different sentence from "the flight was stopped and the seed voided".
+        "runs_ended_by_pose_split": sum(1 for r in runs if r.get("pose_split_fault")),
         # THE REPORT MUST SAY WHETHER THE EVIDENCE WAS ASKED FOR AND WHETHER IT ARRIVED.
         #                                                                   (review, PR 58)
         # Without these two, a --no-chase report and a chase-enabled report are byte-identical
@@ -628,6 +653,11 @@ def main() -> int:
     if split is not None:
         print(f"  pose split   : max |phys_z - pose_z| {split:.3f} m across {len(runs)} run(s)"
               + ("   <<< SIM-27, investigate" if split > rs.POSE_SPLIT_M else ""))
+    ended = summary["runs_ended_by_pose_split"]
+    if ended:
+        print(f"  pose split   : {ended} run(s) ENDED by the split and VOIDED — the actor "
+              f"stopped on the surface while the integrator kept descending. Not a control "
+              f"failure; the simulator never accepted the ground. SIM-27.")
     if summary["runs_without_probe_data"]:
         print(f"  pose split   : NO probe data for "
               f"{summary['runs_without_probe_data']} run(s) — not measured, not clean")

@@ -104,7 +104,7 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>34</b></span>
+    <span>Entries <b>35</b></span>
     <span>Newest <b>2026-08-28</b></span>
   </div>
 </header>
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-28-sim27-naming-the-split.html">
+    <span class="k">2026-08-28 · SIM-27 · newest</span>
+    <h3>Two Positions, One Aircraft</h3>
+    <p>AirSim holds the vehicle&rsquo;s position in <strong>two unrelated places</strong> — the physics integrator every PX4 sensor is synthesised from, and the Unreal actor the cameras are bolted to — and nothing reconciles them. On <code>citysample-sensors-seed1</code> the actor stopped on the surface at 0.757 m while the integrator kept descending to <strong>108.7 m</strong>, so PX4 was told it was still falling, never disarmed, and the run reported <code>timeout in state land</code> — <strong>a control failure, on a flight that reached 4/4 waypoints</strong>. The split is now a named fault that ends the run in seconds and <strong>VOIDs</strong> the seed. Scored without flying, against the <strong>91 landing traces already on disk</strong>: it trips on 9 of 9 runs recorded as landing timeouts and on <strong>none</strong> of the 82 successes. Replaying the real trace through the classes found two bugs that reading them did not — an Event shadowing <code>Thread._stop</code>, and the diagnosis overwritten by its own four-word label.</p>
+    <div class="tags">
+      <span class="pill p-stop">107.9 m split</span>
+      <span class="pill p-ok">9/9 caught, 0/82 false</span>
+      <span class="pill p-warn">152 s earlier</span>
+      <span class="pill p-chrome">VOID, not FAIL</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-28-sim39-a-red-check-that-could-never-be-green.html">
-    <span class="k">2026-08-28 · SIM-39 · newest</span>
+    <span class="k">2026-08-28 · SIM-39</span>
     <h3>Ten Days Of A Red Gate</h3>
     <p>The check branch protection <em>requires</em> had been failing on <code>main</code> for <strong>seven consecutive runs</strong> — last green 2026-08-18 — and every merge in that window went past it with <code>--admin</code>. So for ten days <strong>a real regression in that check would have been indistinguishable</strong> from the standing failure: the gate still required, still reported, carrying no information. And it could never have passed — two tests needed a <code>Blocks.uproject</code> that is <strong>gitignored</strong>, so they only ever worked on a machine that had already built the 2.4 GB vendored tree. Same family as <code>SIM-37</code>'s <code>COPY vendor/</code>, but quieter: that broke builds, this broke the gate. Checking the fix went wrong the same way twice over — <code>rsync --exclude=vendor</code> is unanchored, so it also dropped <code>docs/vendor/</code> and an unrelated test failed.</p>
     <div class="tags">

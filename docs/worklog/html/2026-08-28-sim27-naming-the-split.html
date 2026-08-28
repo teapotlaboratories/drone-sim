@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Two Positions, One Aircraft</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-28 &middot; SIM-27</span>
+  <nav><a href="#fault">The fault</a><a href="#detect">Detecting it</a><a href="#replay">91 traces</a><a href="#abort">Ending the flight</a><a href="#flown">Flown</a><a href="#verdict">The verdict</a><a href="#review">From review</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-28 &middot; SIM-27 step 2 &middot; Blocks seed 1 flown</span>
+  <h1>Two Positions,<br>One Aircraft</h1>
+  <p class="sub">AirSim holds the vehicle&rsquo;s position in two unrelated places &mdash; the physics integrator every PX4 sensor is derived from, and the Unreal actor the cameras are bolted to. When they came apart, the harness spent four minutes watching a drone descend through a city it had already landed on, and then blamed the flight controller.</p>
+  <div class="mastmeta"><span>Split <b>107.9 m</b></span><span>Named after <b>85 s</b>, not 238</span><span>Traces replayed <b>91</b></span><span>Bugs only running found <b>3</b></span><span>Verdict <b>VOID</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">What it used to report</div><div class="v">timeout in state land</div><div class="n">a control failure &mdash; on a run that flew 4/4 waypoints</div></div>
+<div class="stat ok"><div class="k">What it reports now</div><div class="v">landing surface rejected</div><div class="n">actor frozen, integrator descending</div></div>
+<div class="stat warn"><div class="k">What it still does not do</div><div class="v">prevent it</div><div class="n">that is step 3, in AirLib&rsquo;s ground lock</div></div>
+</div>
+
+<h2 id="fault"><span class="secnum">01</span> The fault, drawn from its own trace</h2>
+<p>Every run since 2026-08-12 records both positions at 5&nbsp;Hz. This is
+<code>citysample-sensors-seed1</code>, 2026-08-27, exactly as the probe wrote it: the two lines are
+one line through takeoff, the four waypoints and the start of the descent &mdash; and then the actor
+stops dead at <code>0.757&nbsp;m</code> and the integrator keeps going.</p>
+<figure>
+<svg viewBox="0 0 900 360" role="img" aria-label="The recorded landing trace: the Unreal actor's altitude and the physics integrator's altitude coincide through takeoff and the mission, then at 83 seconds the actor flatlines at the surface while the integrator continues descending at 0.7 metres per second to 108 metres below it" style="max-width:100%;height:auto">
+  <line x1="70" y1="106.3" x2="870" y2="106.3" stroke="currentColor" stroke-width="1" opacity=".35"/>
+  <text x="62" y="110.3" text-anchor="end" class="axl">0 m</text>
+  <text x="62" y="57.5" text-anchor="end" class="axl">-30</text>
+  <text x="62" y="163.2" text-anchor="end" class="axl">30</text>
+  <text x="62" y="216.0" text-anchor="end" class="axl">60</text>
+  <text x="62" y="268.8" text-anchor="end" class="axl">90</text>
+  <text x="24" y="175" class="axl" transform="rotate(-90 24 175)" text-anchor="middle">NED z &mdash; down is positive</text>
+  <polyline points="70.1,107.7 74.1,107.7 78.1,107.7 82.2,107.7 86.2,107.7 90.2,107.7 94.3,107.7 98.3,107.7 102.3,107.7 106.4,107.7 110.4,107.7 114.5,107.7 118.5,107.7 122.5,107.1 126.6,102.7 130.6,96.1 134.6,90.0 138.7,83.5 142.7,77.0 146.7,70.7 150.8,64.8 154.8,58.3 158.8,54.4 162.9,54.7 166.9,55.6 170.9,55.9 175.0,55.3 179.0,55.3 183.1,55.1 187.1,55.0 191.1,54.9 195.2,54.9 199.2,54.9 203.2,54.8 207.3,54.8 211.3,54.8 215.3,55.5 219.4,55.2 223.4,55.1 227.4,55.5 231.5,55.0 235.5,54.9 239.5,54.9 243.6,54.9 247.6,54.8 251.7,54.8 255.7,54.8 259.7,54.8 263.8,57.2 267.8,60.7 271.8,63.6 275.9,66.0 279.9,69.1 283.9,72.4 288.0,75.3 292.0,78.2 296.1,81.3 300.1,84.5 304.1,87.6 308.2,90.9 312.2,93.7 316.2,95.9 320.3,97.6 324.3,99.1 328.4,100.6 332.4,102.0 336.4,103.4 340.5,105.0 344.5,106.5 348.5,107.7 352.6,107.7 356.6,107.7 360.6,107.7 364.7,107.7 368.7,107.7 372.7,107.7 376.8,107.7 380.8,107.7 384.8,107.7 388.9,107.7 392.9,107.7 397.0,107.7 401.0,107.7 405.0,107.7 409.1,107.7 413.1,107.7 417.1,107.7 421.2,107.7 425.2,107.7 429.2,107.7 433.3,107.7 437.3,107.7 441.3,107.7 445.4,107.7 449.4,107.7 453.4,107.7 457.5,107.7 461.5,107.7 465.5,107.7 469.6,107.7 473.6,107.7 477.7,107.7 481.7,107.7 485.7,107.7 489.8,107.7 493.8,107.7 497.8,107.7 501.9,107.7 505.9,107.7 509.9,107.7 514.0,107.7 518.0,107.7 522.0,107.7 526.1,107.7 530.1,107.7 534.2,107.7 538.2,107.7 542.2,107.7 546.3,107.7 550.3,107.7 554.3,107.7 558.4,107.7 562.4,107.7 566.4,107.7 570.5,107.7 574.5,107.7 578.5,107.7 582.6,107.7 586.6,107.7 590.6,107.7 594.7,107.7 598.7,107.7 602.7,107.7 606.8,107.7 610.8,107.7 614.8,107.7 618.9,107.7 622.9,107.7 627.0,107.7 631.0,107.7 635.0,107.7 639.1,107.7 643.1,107.7 647.1,107.7 651.2,107.7 655.2,107.7 659.2,107.7 663.3,107.7 667.3,107.7 671.3,107.7 675.4,107.7 679.4,107.7 683.4,107.7 687.5,107.7 691.5,107.7 695.6,107.7 699.6,107.7 703.6,107.7 707.7,107.7 711.7,107.7 715.7,107.7 719.8,107.7 723.8,107.7 727.8,107.7 731.9,107.7 735.9,107.7 739.9,107.7 744.0,107.7 748.0,107.7 752.1,107.7 756.1,107.7 760.1,107.7 764.2,107.7 768.2,107.7 772.3,107.7 776.3,107.7 780.3,107.7 784.4,107.7 788.4,107.7 792.4,107.7 796.5,107.7 800.5,107.7 804.5,107.7 808.6,107.7 812.6,107.7 816.6,107.7 820.7,107.7 824.7,107.7 828.7,107.7 832.8,107.7 836.8,107.7 840.8,107.7 844.9,107.7 848.9,107.7 853.0,107.7 857.0,107.7 861.0,107.7 865.1,107.7 869.1,107.7" fill="none" stroke="var(--air)" stroke-width="3"/>
+  <polyline points="70.1,107.7 74.1,107.7 78.1,107.7 82.2,107.7 86.2,107.7 90.2,107.7 94.3,107.7 98.3,107.7 102.3,107.7 106.4,107.7 110.4,107.7 114.5,107.7 118.5,107.7 122.5,107.0 126.6,102.4 130.6,96.1 134.6,89.7 138.7,83.3 142.7,76.9 146.7,70.6 150.8,64.3 154.8,58.0 158.8,54.4 162.9,54.8 166.9,55.6 170.9,55.8 175.0,55.2 179.0,55.4 183.1,55.1 187.1,55.0 191.1,54.9 195.2,54.9 199.2,54.9 203.2,54.8 207.3,54.8 211.3,54.8 215.3,55.6 219.4,55.2 223.4,55.1 227.4,55.4 231.5,55.0 235.5,54.9 239.5,54.8 243.6,54.9 247.6,54.8 251.7,54.8 255.7,54.8 259.7,54.9 263.8,57.4 267.8,60.9 271.8,63.6 275.9,66.3 279.9,69.4 283.9,72.6 288.0,75.5 292.0,78.4 296.1,81.6 300.1,84.8 304.1,87.9 308.2,90.9 312.2,93.8 316.2,96.0 320.3,97.7 324.3,99.2 328.4,100.6 332.4,102.1 336.4,103.6 340.5,105.0 344.5,106.5 348.5,108.0 352.6,109.5 356.6,110.9 360.6,112.4 364.7,113.9 368.7,115.3 372.7,116.8 376.8,118.3 380.8,119.8 384.8,121.2 388.9,122.7 392.9,124.2 397.0,125.6 401.0,127.1 405.0,128.6 409.1,130.0 413.1,131.5 417.1,133.0 421.2,134.5 425.2,135.9 429.2,137.4 433.3,138.9 437.3,140.3 441.3,141.8 445.4,143.3 449.4,144.7 453.4,146.2 457.5,147.7 461.5,149.2 465.5,150.6 469.6,152.1 473.6,153.6 477.7,155.0 481.7,156.5 485.7,158.0 489.8,159.5 493.8,160.9 497.8,162.4 501.9,163.9 505.9,165.4 509.9,166.8 514.0,168.3 518.0,169.8 522.0,171.2 526.1,172.7 530.1,174.2 534.2,175.7 538.2,177.1 542.2,178.6 546.3,180.1 550.3,181.5 554.3,183.0 558.4,184.5 562.4,186.0 566.4,187.4 570.5,188.9 574.5,190.3 578.5,191.8 582.6,193.3 586.6,194.8 590.6,196.2 594.7,197.7 598.7,199.2 602.7,200.6 606.8,202.1 610.8,203.6 614.8,205.1 618.9,206.5 622.9,208.0 627.0,209.5 631.0,210.9 635.0,212.4 639.1,213.9 643.1,215.4 647.1,216.8 651.2,218.3 655.2,219.8 659.2,221.2 663.3,222.7 667.3,224.2 671.3,225.7 675.4,227.1 679.4,228.6 683.4,230.1 687.5,231.5 691.5,233.0 695.6,234.5 699.6,236.0 703.6,237.4 707.7,238.9 711.7,240.4 715.7,241.8 719.8,243.3 723.8,244.8 727.8,246.3 731.9,247.7 735.9,249.2 739.9,250.6 744.0,252.1 748.0,253.6 752.1,255.1 756.1,256.5 760.1,258.0 764.2,259.5 768.2,261.0 772.3,262.4 776.3,263.9 780.3,265.4 784.4,266.8 788.4,268.3 792.4,269.8 796.5,271.3 800.5,272.7 804.5,274.2 808.6,275.7 812.6,277.1 816.6,278.6 820.7,280.1 824.7,281.5 828.7,283.0 832.8,284.5 836.8,285.9 840.8,287.4 844.9,288.9 848.9,290.4 853.0,291.8 857.0,293.3 861.0,294.8 865.1,296.2 869.1,297.7" fill="none" stroke="var(--stop)" stroke-width="1.8" stroke-dasharray="5 3"/>
+  <line x1="355.9" y1="50" x2="355.9" y2="318" stroke="var(--ok)" stroke-width="2"/>
+  <text x="363.9" y="64" class="axl" fill="var(--ok)">85.1 s &mdash; fault named, flight ended</text>
+  <line x1="869.1" y1="50" x2="869.1" y2="318" stroke="var(--stop)" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="861.1" y="64" class="axl" fill="var(--stop)" text-anchor="end">237.7 s &mdash; state timeout (before)</text>
+  <text x="76" y="334" class="axl">t = 0</text>
+  <text x="870" y="334" class="axl" text-anchor="end">238 s</text>
+  <g class="axl">
+    <rect x="320" y="316" width="14" height="4" fill="var(--air)"/>
+    <text x="342" y="323">simGetVehiclePose &mdash; the Unreal ACTOR, what the cameras see</text>
+    <rect x="320" y="336" width="14" height="3" fill="var(--stop)"/>
+    <text x="342" y="343">simGetGroundTruthKinematics &mdash; the INTEGRATOR, what PX4 is told</text>
+  </g>
+</svg>
+<figcaption>1,189 samples, plotted as recorded. The 152.7 s between the two vertical lines is what the run used to spend descending through a world it was resting on.</figcaption>
+</figure>
+<p>Because AirSim synthesises <em>every</em> sensor PX4 receives from the integrator &mdash; IMU, GPS,
+barometer, magnetometer, the rangefinder, LiDAR &mdash; nothing in the ROS&nbsp;2 graph can contradict
+it. PX4 was told it was falling at 0.7&nbsp;m/s, so it never disarmed, so <code>LAND</code> ran out
+its budget and the run reported <code>timeout in state land</code>: a control failure, on the flight
+whose waypoint errors were the best of its gate.</p>
+<div class="callout stop"><span class="lbl">Why this is the worst possible report</span>
+<p>This project&rsquo;s premise is <em>bring your own <code>.uproject</code></em>. A stranger flying
+their own world hits this and reads &ldquo;success rate 0%, control failure&rdquo; &mdash; a sentence
+about their aircraft, describing a fault in the simulator&rsquo;s ground lock.</p></div>
+
+<h2 id="detect"><span class="secnum">02</span> Detecting it, and the four things that must not trip it</h2>
+<p><code>SplitWatch</code> in <code>probe_landing.py</code> is pure arithmetic over samples the probe
+already takes. It trips on <strong>dz &ge; 1.0 m</strong>, held <strong>&ge; 1.0 s</strong> across
+<strong>&ge; 3 samples</strong>, while <strong>vz &ge; +0.1 m/s</strong> (NED: positive is down).</p>
+<div class="tw"><table>
+<thead><tr><th>Condition</th><th>Why that number</th><th>What it excludes</th></tr></thead>
+<tbody>
+<tr><td class="mono">dz &ge; 1.0 m</td><td>healthy landings measure 0.07 m (one), 0.1122 m (40 cold seeds), 0.2104 m (worst of 40 touchdowns)</td><td>nothing measured lives between 0.26 m and 107.9 m</td></tr>
+<tr><td class="mono">&ge; 1.0 s</td><td>every recorded false positive is a <em>single</em> sample</td><td>skew between two RPC calls at speed</td></tr>
+<tr><td class="mono">&ge; 3 samples</td><td>the probe reconnects after an RPC error</td><td>two samples straddling a 90 s outage satisfying the duration alone</td></tr>
+<tr><td class="mono">vz &ge; +0.1</td><td>the fault is named &ldquo;integrator descending&rdquo;</td><td>makes the sentence literally true, not merely usual</td></tr>
+<tr><td class="mono">dz &gt; 0, not |dz|</td><td>the signature is one-sided: the integrator sinks <em>below</em> a stopped actor</td><td>the &minus;0.279 m the failing trace itself shows while climbing at 3 m/s</td></tr>
+</tbody>
+</table></div>
+<p>That last row is the one worth keeping. <code>square-10m-seed7</code> &mdash; the gate seed a traffic
+car hit, and the only one of its ten that landed cleanly &mdash; reaches <strong>0.640 m</strong> of
+gap while <em>ascending</em>. An <code>abs()</code> detector would be judging the healthiest seed in
+the set on the same axis as the fault.</p>
+
+<h2 id="replay"><span class="secnum">03</span> Verified against 91 recorded landings, in 0.9 seconds</h2>
+<p><code>out/</code> holds 91 <code>*-landing.jsonl</code> traces, each next to the result JSON of the
+run that produced it. That is a labelled corpus, so the detector could be <em>scored</em> rather
+than argued about &mdash; and step 2 needed no flight to do it.</p>
+<pre>runs recorded as `timeout in state land` : 9   of which tripped: <b>9</b>
+runs recorded as success                 : 82  of which tripped: <b>0</b>
+other verdicts / no result file          : 0
+49,732 samples replayed</pre>
+<div class="tw"><table>
+<thead><tr><th>Trace</th><th>Fault at</th><th>Ran to</th><th>Saved</th><th>Final |dz|</th></tr></thead>
+<tbody>
+<tr><td class="mono">citysample-sensors-seed1</td><td class="mono">85.1 s</td><td class="mono">237.7 s</td><td class="mono">152.7 s</td><td class="mono">107.9 m</td></tr>
+<tr><td class="mono">citysample-updown-30m-seed1</td><td class="mono">85.0 s</td><td class="mono">237.1 s</td><td class="mono">152.1 s</td><td class="mono">107.6 m</td></tr>
+<tr><td class="mono">square-10m-seed{3,4,5,6,8,9,10}</td><td class="mono">98.9&ndash;100.1 s</td><td class="mono">~137 s</td><td class="mono">37.4&ndash;38.0 s</td><td class="mono">9.8&ndash;28.3 m</td></tr>
+</tbody>
+</table></div>
+<p>All nine reached <strong>4/4 waypoints</strong> before failing on the landing. Counting only
+samples that pass the descent condition, the worst gap on a trace that does <em>not</em> trip is
+<strong>0.255 m</strong> &mdash; the threshold sits about four times above it.</p>
+
+<h2 id="abort"><span class="secnum">04</span> Ending the flight without destroying the evidence</h2>
+<p>The obvious move &mdash; <code>pkill -INT</code> the controller &mdash; is wrong. <code>rclpy</code>
+raises <code>KeyboardInterrupt</code> past <code>_write_result</code>, so the run would forfeit
+<code>waypoints_reached</code>, the per-waypoint errors and the terminal <code>MissionStatus</code>.
+On exactly the runs this fires for, that is the evidence proving the aircraft was not what failed.</p>
+<figure>
+<svg viewBox="0 0 900 250" role="img" aria-label="The abort path: the probe writes a fault record into its trace, the runner tails that file on the host and writes an abort file, the controller polls the abort file and fails cleanly through its own result path" style="max-width:100%;height:auto">
+  <defs><marker id="a27" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <rect class="n-v" x="30" y="40" width="180" height="66"/>
+  <text class="nid" x="120" y="66" text-anchor="middle">probe_landing.py</text>
+  <text class="nlb" x="120" y="84" text-anchor="middle">2 RPCs at 5 Hz, in sim-ros2</text>
+  <text class="nlb" x="120" y="98" text-anchor="middle">SplitWatch decides</text>
+  <rect class="n-box" x="270" y="40" width="180" height="66"/>
+  <text class="nid" x="360" y="66" text-anchor="middle">&lt;tag&gt;-landing.jsonl</text>
+  <text class="nlb" x="360" y="84" text-anchor="middle">the trace &mdash; and the</text>
+  <text class="nlb" x="360" y="98" text-anchor="middle">fault record appended to it</text>
+  <rect class="n-a" x="510" y="40" width="180" height="66"/>
+  <text class="nid" x="600" y="66" text-anchor="middle">SplitAbort</text>
+  <text class="nlb" x="600" y="84" text-anchor="middle">host thread, tails the file</text>
+  <text class="nlb" x="600" y="98" text-anchor="middle">every 0.5 s &mdash; no RPC</text>
+  <rect class="n-box" x="510" y="150" width="180" height="60"/>
+  <text class="nid" x="600" y="176" text-anchor="middle">&lt;tag&gt;-abort.json</text>
+  <text class="nlb" x="600" y="194" text-anchor="middle">written atomically</text>
+  <rect class="n-done" x="270" y="150" width="180" height="60"/>
+  <text class="nid" x="360" y="172" text-anchor="middle">offboard_control</text>
+  <text class="nlb" x="360" y="189" text-anchor="middle">polls each tick, _fail(reason)</text>
+  <text class="nlb" x="360" y="203" text-anchor="middle">&rarr; result, bag, waypoints kept</text>
+  <line x1="210" y1="73" x2="264" y2="73" class="e" marker-end="url(#a27)"/>
+  <line x1="450" y1="73" x2="504" y2="73" class="e" marker-end="url(#a27)"/>
+  <line x1="600" y1="106" x2="600" y2="144" class="e" marker-end="url(#a27)"/>
+  <line x1="504" y1="180" x2="456" y2="180" class="e" marker-end="url(#a27)"/>
+  <text class="axl" x="740" y="76">/out is bind-mounted</text>
+  <text class="axl" x="740" y="92">from &lt;repo&gt;/out, so the</text>
+  <text class="axl" x="740" y="108">second reader reads the FILE</text>
+  <text class="axl" x="30" y="232">A file, not a topic: conventions.md freezes the ROS 2 graph, and this is harness plumbing &mdash; not part of the interface a real aircraft flies.</text>
+</svg>
+<figcaption>The one RPC that could have answered this from outside &mdash; <code>simGetCollisionInfo</code> &mdash; is read-and-reset, and the collision witness owns it. This ticket&rsquo;s own tooling was caught by that once already.</figcaption>
+</figure>
+<p>The abort check runs <strong>before</strong> the state timeout in <code>_tick</code>. Both end the
+flight; the order decides which sentence the report carries, and a split reaches the two at the same
+moment.</p>
+
+<h2 id="bugs"><span class="secnum">05</span> Two bugs, both found by running it</h2>
+<p>The classes were replayed against the real CitySample trace &mdash; watcher, abort file, and the
+parse the controller performs &mdash; rather than read and trusted.</p>
+<div class="grid g2">
+<div class="panel"><h4>1 &mdash; a name collision with Thread</h4>
+<p><code>self._stop = threading.Event()</code> shadows <code>threading.Thread._stop</code>, the
+internal method <code>join()</code> calls. Every flight would have ended with
+<code>TypeError: 'Event' object is not callable</code> out of the <code>finally</code> block.</p></div>
+<div class="panel"><h4>2 &mdash; the diagnosis overwritten by its own label</h4>
+<p><code>{"reason": reason, **rec}</code> &mdash; and <code>rec</code> carries its own short
+<code>reason</code>, spread last. The controller would have failed with four words and no
+measurement, in the one field this whole change exists to fill.</p></div>
+</div>
+<p>Neither was visible by reading. Both are now pinned by tests, and the second is the
+&ldquo;verify by running it&rdquo; rule in miniature: the code was correct in shape and wrong in the
+only part anyone reads.</p>
+
+<h2 id="flown"><span class="secnum">06</span> Flown &mdash; Blocks, seed 1</h2>
+<p>Owner-approved, SITL. The point of a Blocks seed is not to catch the fault &mdash; a flat plane
+cannot produce it &mdash; but to prove the detector stays <strong>quiet</strong> on a healthy
+landing, since a false positive would void good runs.</p>
+<pre>./scripts/sim_up.sh --display
+SIM_CHASE_VIDEO=1 python3 scripts/run_scenario.py scenarios/square-10m.yaml --seed 1 \
+    --outdir out --no-restart</pre>
+<div class="grid g3">
+<div class="stat ok"><div class="k">Outcome</div><div class="v">success</div><div class="n">4/4 waypoints, 112.8 s, errors 0.763&ndash;0.798 m</div></div>
+<div class="stat ok"><div class="k">Max pose split</div><div class="v">0.167 m</div><div class="n">no fault, no abort file &mdash; 0.83 m of headroom</div></div>
+<div class="stat ok"><div class="k">Evidence</div><div class="v">529 samples</div><div class="n">chase video 64.6 MB, 0 LiDAR drops</div></div>
+</div>
+<p>The abort handshake was then exercised directly on the live stack <em>without flying</em>: an
+abort file written by hand, then the controller started against it. It failed on its <strong>first
+tick</strong>, in <code>wait_for_fcu</code>, long before any arm command.</p>
+<pre><span class="c">[ERROR]</span> FAILED: landing surface rejected -- actor frozen, integrator descending: SMOKE TEST...
+<span class="c">[INFO]</span>  state: wait_for_fcu -&gt; failed
+<span class="c">[INFO]</span>  result: {"outcome": "failure", "failure_reason": "landing surface rejected -- ...",
+                 "waypoints_reached": 0, ...}</pre>
+<div class="callout stop"><span class="lbl">A third bug, and the flight is what found it</span>
+<p>The probe&rsquo;s summary line &mdash; the <em>only</em> place the split verdict is reported &mdash;
+never printed. <code>pkill -INT</code> lands in the <code>time.sleep</code> at the bottom of the
+loop, not in the RPC call that had the handler, so a traceback replaced it. Pre-existing, and the
+file&rsquo;s own docstring claimed the line always printed. It did not. The whole loop is now inside
+the handler.</p></div>
+<p>Stack torn down with <code>./scripts/sim_up.sh --down</code> and verified independently with
+<code>docker ps -a</code>: containers, processes, display and GPU all clear.</p>
+
+<h2 id="verdict"><span class="secnum">07</span> The verdict: VOID, not FAIL</h2>
+<p>The owner&rsquo;s call, and the same one the stale-EKF-origin check makes. A void is
+<em>excluded</em> from the success rate <strong>and</strong> blocks the criterion outright, so it is
+the stricter verdict, not the softer one.</p>
+<div class="tw"><table>
+<thead><tr><th>Bucket</th><th>Means</th><th>Effect</th></tr></thead>
+<tbody>
+<tr><td><span class="pill p-ok">PASS</span></td><td>flew and landed</td><td>counts toward the rate</td></tr>
+<tr><td><span class="pill p-stop">FAIL</span></td><td>the aircraft did not do its job</td><td>counts against it</td></tr>
+<tr><td><span class="pill p-chrome">VOID</span></td><td>the rig broke &mdash; the run says nothing about the aircraft</td><td>excluded, and blocks the gate</td></tr>
+</tbody>
+</table></div>
+<p>A <em>successful</em> run is voided too, deliberately: a landing that terminated while the two
+poses disagreed by more than a metre is not a pass with a footnote &mdash; every camera frame in that
+bag shows a world the vehicle&rsquo;s own state was not in. In the gate, the split reason outranks a
+sensor void, because a run stopped mid-mission easily records nothing on a requested sensor:
+&ldquo;no messages on <code>/camera/depth</code>&rdquo; is the consequence, the split is the cause.</p>
+
+<h2 id="review"><span class="secnum">08</span> From review</h2>
+<p>Four findings, all real, all fixed. Two of them are the same shape as the bugs the flight found
+&mdash; a promise made in a comment that the code did not keep.</p>
+<div class="tw"><table>
+<thead><tr><th>Finding</th><th>Why it mattered</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>A non-dict abort file raised <code>AttributeError</code> out of a timer callback</td><td>Skips <code>_write_result</code> and destroys the evidence &mdash; the exact outcome the docstring above it promised could not happen. The live handshake was exercised with a <em>hand-written</em> file, and <code>"stop"</code> is what a hand writes.</td><td><code>isinstance(doc, dict)</code> before <code>.get()</code></td></tr>
+<tr><td>A malformed abort file was silently ignored</td><td>The flight then runs out its 240 s <code>timeout in state land</code> &mdash; the misdiagnosis the whole mechanism exists to remove</td><td>bad <em>content</em> stops the flight; only a failed <em>read</em> retries</td></tr>
+<tr><td>The sampling skew is <strong>systematic</strong>, not transient</td><td><code>dz</code> carries <code>vz &times; gap</code> from two sequential RPCs, and that persists as long as the descent does &mdash; so the 1 s hold cannot filter it. A render hitch would <strong>void a healthy run</strong>.</td><td>time both calls, record <code>gap</code>, subtract the worst-case skew before testing the threshold</td></tr>
+<tr><td>Two readers of one file disagreed</td><td><code>_probe_summary</code> matched the substring <code>"fault"</code> where the watcher checks the field, so a probe <em>error</em> record could void a run with &ldquo;None m below the Unreal actor&rdquo;</td><td>mirror the watcher&rsquo;s guard</td></tr>
+</tbody>
+</table></div>
+<div class="callout warn"><span class="lbl">A claim corrected rather than defended</span>
+<p>The gate comment, this worklog and a test all described a precedence between the split reason
+and the sensor reason that <strong>the pipeline cannot produce</strong>. The ordering is defensive,
+and now says so. The real consequence was elsewhere: a split-voided run reached the report with
+<code>sensors_empty</code> populated and its explanation only on a stderr line. It is recorded as
+<code>sensor_evidence_note</code> now.</p></div>
+<p>Re-scored after the skew change, the 91 traces still give <strong>9 tripped, 82 clean</strong> &mdash;
+a missing <code>gap</code> means no correction, which is exactly how those traces were first scored.
+Suite: <strong>231 pass</strong>. Known limitation, recorded rather than hidden: the detector is
+phase-blind, so a split on a descending waypoint leg would still be called a landing-surface
+rejection.</p>
+
+<h2 id="next"><span class="secnum">09</span> What this deliberately does not do</h2>
+<p>It does not prevent the split. Only one branch in <code>FastPhysicsEngine.hpp</code> stops a
+descent &mdash; the ground lock at <code>:228</code> &mdash; and reaching it requires the engine to
+recognise the contact as ground <em>entirely from the collision normal</em>
+(<code>:156</code>, <code>kAxisTolerance = 0.25</code>). A coarse HLOD proxy such as
+<code>FastGeoSurrogateActor_0</code> plausibly supplies an off-axis normal; Blocks&rsquo; flat plane
+cannot express the fault at all, which is why 40 Blocks seeds found nothing.</p>
+<div class="callout warn"><span class="lbl">Still unmeasured</span>
+<p>Which of the two gates actually aborts &mdash; the <code>:141</code> early return or the
+<code>:156</code> normal test &mdash; has never been observed. That is step 1, it needs one throttled
+log and one seeded flight, and it decides what step 3 should be.</p></div>
+<p>Step 2 earns its place regardless: it is also the instrument that will say whether step 3 worked.</p>
+
+<footer>
+  <span>Worklog &middot; 2026-08-28 &middot; SIM-27 step 2</span>
+  <span>91 traces replayed &middot; Blocks seed 1 flown &middot; stack torn down</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

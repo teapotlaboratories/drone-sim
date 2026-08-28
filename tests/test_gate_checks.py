@@ -1377,12 +1377,31 @@ def test_sensor_evidence_is_attached_to_every_return_path():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
     body = src[src.index("def run_flight("):]
-    returns = re.findall(r"^\s+return (?:_with_sensor_evidence\(|\{)", body, re.M)
-    decorated = body.count("_with_sensor_evidence(res, scenario, tag)")
+    returns = re.findall(r"^\s+return (?:_with_sensor_evidence\(|_with_split_fault\(|\{)",
+                         body, re.M)
+    decorated = body.count("_with_sensor_evidence(_with_split_fault(res, fault), scenario, tag)")
     assert decorated == 2, f"both res-returning paths must decorate, found {decorated}"
     assert "**sensor_result_fields(scenario, tag)," in body, (
         "the no-result path must carry the evidence too")
     assert len(returns) >= 3, f"expected at least 3 return paths, found {len(returns)}"
+
+
+def test_the_split_fault_is_attached_to_every_return_path_too():
+    """SIM-27's fault is the fourth thing to travel these three paths, after the sensor
+    evidence, probe_written and chase_video -- and the one it matters most for is the "no result
+    produced" path, which is exactly where an unexplained abort lands. A flight ended by the
+    split watcher must never be reported as a run that simply produced nothing."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "run_scenario.py").read_text()
+    body = src[src.index("def run_flight("):]
+    assert body.count("_with_split_fault(") == 3, (
+        "all three return paths must carry the split fault")
+    # And the split must be decided BEFORE the sensor check, not after: a run stopped
+    # mid-mission trips the empty-sensor rule as a consequence, and _with_sensor_evidence
+    # refuses to overwrite an existing failure_reason. Wrapped the other way round, the report
+    # would name the empty topic instead of the split that caused it.
+    assert "_with_sensor_evidence(_with_split_fault(" in body
+    assert "_with_split_fault(_with_sensor_evidence(" not in body
 
 
 def test_the_gate_report_carries_the_sensor_fields():

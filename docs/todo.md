@@ -3171,12 +3171,127 @@ on the evidence drive is not worth it; new runs are correct.
 
 ## `SIM-27` — a landing that never terminates, and physics that disagrees with the render
 
-**Status:** ⏸️ **PARKED 2026-08-18 by the owner**, together with `SIM-32` — *"let's park SIM-27
-and SIM-32 for now, don't bring it up again unless the issue happens."* The mechanism is
-understood and written up (`docs/worklog/2026-08-17-two-gates-blocks-passes-city-does-not.md`);
-no further work, and it is not to be raised proactively. **Re-open it only if the symptom
-recurs** — a landing that does not terminate, or an actor/integrator split reported by
-`probe_landing.py`. Everything needed to resume is in that worklog and the entry below.
+**Status:** 🟢 **UN-PARKED 2026-08-28 by the owner** — *"lets clear your context and start on
+sim-27."* Active work. It was PARKED 2026-08-18 together with `SIM-32`; that parking is
+superseded. `SIM-32` stays parked.
+**Step 2 of the plan below is DONE (2026-08-28)** — the split now ends the run in ~1 s and VOIDs
+the seed with a named fault instead of a 240 s `timeout in state land`. Steps 1 and 3 are open,
+and both need the simulator: step 1 is one throttled log plus one seeded flight, and it decides
+what step 3 should be.
+
+### START HERE — 2026-08-28
+
+Read this section first; the rest of the entry is the history it rests on.
+
+**Why it came back:** the symptom recurred on its own during `SIM-38` — `citysample-sensors-seed1`
+(2026-08-27) failed `timeout in state land` with a **107.9 m** split. That run is the freshest
+evidence and its artifacts are on disk:
+
+```
+out/citysample-sensors-seed1-landing.jsonl     1189 probe samples, 237.7 s
+out/citysample-sensors-seed1-chase.mp4         chase video, 233.2 s
+out/citysample-sensors-seed1.json              outcome + failure_reason
+```
+
+| | Blocks (same day, same probe) | CitySample |
+|---|---|---|
+| max \|phys_z − pose_z\| | **0.114 m** | **107.949 m** |
+| final `pose_z` / `phys_z` | 0.702 / 0.702 | 0.757 / **108.706** |
+| verdict | PASS 0.784 m | `timeout in state land` |
+
+**NEW EVIDENCE — the ticket's own open question, partly answered.** Below, this entry says the
+surrogate hypothesis needs *"per-contact timestamps showing the collisions clustering inside the
+descent window — not yet checked."* The chase video's burned-in UE log shows the counter at
+`Collision#147` (t≈95 s) and `Collision#1240` (t≈225 s), **each line naming
+`FastGeoSurrogateActor_0`**, against a descent window of 83.5–237.7 s. That is ~1100 contacts with
+the named actor inside the window, ~8/s, sustained. **Caveat:** two readings of a running counter
+off a video, not a per-contact log with identity per contact — the right class of evidence,
+pointing hard the right way, but not yet "proven".
+
+**READ FROM SOURCE (2026-08-27), not observed — this is the thing to measure first.**
+`AirLib/include/physics/FastPhysicsEngine.hpp`. Only one branch stops a descent: the ground lock at
+**:228**, which zeroes velocity, snaps to the contact point and calls `body.setGrounded(true)`.
+Reaching it needs both of:
+
+```cpp
+// :141  -- early return, no collision response at all
+if (collision_info.normal.dot(next.twist.linear) >= 0.0f) return false;
+// :156  -- kAxisTolerance = 0.25f  (:466)
+const bool is_ground_normal = Utils::isApproximatelyEqual(std::abs(normal_body.z()), 1.0f, kAxisTolerance);
+// :163
+if (is_ground_normal && is_landing) { ... ground_collision = is_ground_normal; }
+```
+
+So *"is this the ground?"* is answered **entirely from the collision normal**. `EnableGroundLock`
+defaults **true** (`SimModeWorldBase.cpp:70`), so it is on — there is no switch to flip.
+A coarse HLOD proxy plausibly supplies an off-axis normal; Blocks' flat plane does not, which is
+why Blocks cannot express this fault at all. **Which of the two gates actually aborts is UNMEASURED.**
+
+### The plan
+
+1. **MEASURE WHICH GATE FAILS.** One throttled log of `normal_body`, `is_ground_normal`,
+   `is_landing` and the :141 early return, then one seed. Do this before writing any physics
+   code — the paragraph above is a reading of source, not an observation, and it decides
+   between steps 3 and the world-side shortcut. **Needs a flight → ask the owner first.**
+2. ✅ **DONE 2026-08-28 — the split is a named fault.** Worklog:
+   `docs/worklog/2026-08-28-sim27-naming-the-split.md`. `SplitWatch` (`probe_landing.py`) trips on
+   `dz >= 1.0 m` held `>= 1.0 s` over `>= 3` samples while descending (`vz >= +0.1`, and `dz > 0`
+   rather than `|dz|` — the failing trace itself shows −0.279 m of skew while climbing). It writes
+   a fault record into the trace; `SplitAbort` (`run_scenario.py`) tails that file **on the host**
+   — `/out` is bind-mounted, so no second RPC consumer near the read-and-reset
+   `simGetCollisionInfo` — and writes `<tag>-abort.json`, which `offboard_control` polls each tick
+   and fails on **before** its state timeout. Through `_fail()`, not a signal: `pkill -INT` raises
+   `KeyboardInterrupt` past `_write_result`, and all nine recorded splits flew **4/4 waypoints**
+   first, which is the evidence that the aircraft was not at fault. The seed is **VOID**, not FAIL
+   (owner's call, same as the stale-origin check); `run_gate.py` prefers that reason over a sensor
+   void, since a run stopped mid-mission records nothing on a requested sensor as a *consequence*.
+   **Verified without flying:** replayed over the 91 `*-landing.jsonl` traces in `out/` (49,732
+   samples, 0.9 s) — trips on **9 of 9** runs recorded as `timeout in state land`, **0 of 82**
+   successes, 37–153 s earlier than the timeout; worst descending gap on a non-tripping trace
+   0.255 m. 16 new off-target tests, suite 226 pass.
+   **FLOWN 2026-08-28 (Blocks, seed 1, owner-approved):** PASS 4/4, `max_pose_split_m` **0.1667 m**,
+   no fault, no abort file — the false-positive case, which is the one that would void good runs.
+   Blocks cannot produce the fault, so the abort handshake was exercised separately on the live
+   stack with a hand-written abort file: the controller failed on its first tick in `wait_for_fcu`,
+   before any arm command, and wrote the reason verbatim into its result JSON. Stack torn down and
+   verified. A CitySample seed has still never been flown against this code — the true-positive
+   path is proven only by replay.
+   **`/review high` ran 2026-08-28 and its four findings are fixed:** a non-dict abort file raised
+   `AttributeError` out of the timer callback (now `isinstance` first); a malformed one was
+   silently ignored, so the run still timed out (bad *content* now stops the flight, only a failed
+   *read* retries); the RPC sampling skew is **systematic**, not transient — `dz` carries
+   `vz × gap` from two sequential calls, so the probe now records the gap and the detector
+   subtracts the worst case it could explain (re-scored: still 9/82); and `_probe_summary` matched
+   the substring `"fault"` where the watcher checks the field. Suite 231 pass.
+   **Known limitation:** the detector is phase-blind, so a split on a descending waypoint leg is
+   still reported as *landing surface rejected* — plumbing controller state into the probe costs
+   more than the wording is worth today.
+3. **THE ACTUAL FIX: stop inferring ground from a collision normal.** Trace downward from the
+   vehicle; blocking geometry within a few cm + slow descent ⇒ ground-lock. World-agnostic, which
+   is what *bring your own `.uproject`* requires. Patch in `patches/cosys-airsim/`.
+4. **Optional, fits `SIM-36`:** a landing-site precondition — trace down from the planned landing
+   point before arming and refuse if it is a proxy or an unloaded cell.
+
+**Explicitly NOT the fix:** raising `LNDMC_Z_VEL_MAX` (PX4 default **0.25 m/s**,
+`land_detector_params_mc.c:64`). PX4 is not wrong — it reads 0.697 m/s because the body really is
+descending. Note `MPC_LAND_SPEED` 0.7 is deliberately *above* that threshold: PX4 descends faster
+than its own "stopped" gate because it expects **the ground** to stop it. Papering over that masks
+real failures and splits the sim PX4 from the real Pixhawk, which this repo runs as one tree.
+
+**Trap for step 3 — there are TWO AirLib trees.** `AirLib/` is tracked; 
+`Unreal/Plugins/AirSim/Source/AirLib/` is gitignored (`.gitignore:285`) and regenerated by
+`build.sh:165` (`rsync -a --delete AirLib Unreal/Plugins/AirSim/Source`). Patch `AirLib/`, then
+**re-run the build** and verify the string appears in the plugin copy. Patching and not rebuilding
+gives a clean build of code that is not yours.
+
+**Also still true:** `SIM-30`'s pause-and-probe stays the answer for the *other* face of this —
+geometry that is real when you land on it and gone a minute later (`SIM-32`, parked).
+
+---
+
+**Previous status:** ⏸️ PARKED 2026-08-18 by the owner, together with `SIM-32` — *"let's park
+SIM-27 and SIM-32 for now, don't bring it up again unless the issue happens."* The mechanism is
+understood and written up (`docs/worklog/2026-08-17-two-gates-blocks-passes-city-does-not.md`).
 
 **Previously:** 🟡 open — found **2026-08-09** by the 10-seed gate on `main` @ `f153384`.
 
@@ -4111,6 +4226,60 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 **Until it is fixed, every gate run must say plainly that no chase video exists** rather than let
 `video_written: True` imply the rule was met.
+
+---
+
+## `SIM-40` — the landing probe has never reported how it exited
+
+**Status:** 🟡 **open** — found **2026-08-28** by the `SIM-27` step-2 verification flight. The
+specific instance is **already fixed** on that branch; this entry exists for the pattern and the
+audit it asks for.
+
+`probe_landing.py` ends with the one line that says what it saw:
+
+```python
+print(f"probe: {n} samples, {errs} errors, split {'DETECTED' if watch.fired else 'not detected'}")
+```
+
+It never printed. `run_scenario.py` stops the probe with `pkill -INT`, and the interrupt lands
+wherever the process happens to be — overwhelmingly in the `time.sleep` at the bottom of the loop,
+not in the RPC call that had the `except KeyboardInterrupt`. So every run since the probe went
+always-on (2026-08-12) ended with a traceback in `/tmp/probe_landing.log` instead of its summary:
+
+```
+File "/tmp/probe_landing.py", line 222, in main
+    time.sleep(max(0.0, period - (time.time() - loop)))
+KeyboardInterrupt
+```
+
+**What it cost.** The error count is reported *only* on that line, and the whole point of it is
+written in the file itself: *"'No divergence' and 'the RPC was dead for 90 s' must not look the
+same from outside."* They looked the same, for sixteen days. The `max_pose_split_m` in every
+result JSON is computed from whatever samples the trace happens to hold, and nothing said whether
+the probe had been healthy while collecting them.
+
+**And the docstring asserted the opposite** — *"Printed on the way out however we leave, including
+SIGINT"* — with a comment explaining why that mattered. A claim about behaviour, written next to
+the code, contradicted by the code, and never executed against.
+
+### The pattern, which is the actual ticket
+
+This is the same shape as `SIM-22`'s collision witness, `SIM-38`'s three counters and `SIM-33`'s
+`pgrep -x`: **a component reporting "nothing to see" through the same path it uses for "I could
+not look."** The repo keeps rediscovering it because the failure is silent by construction.
+
+**Do:**
+- Audit every `pkill -INT`-stopped helper for the same hole. Known candidates: `watch_video.py`,
+  `watch_collisions.py`, `record_chase.sh`'s ffmpeg, and anything else stopped by signal in
+  `run_scenario.py`'s `finally` block. Each one's exit report should be proven to survive a real
+  SIGINT, not assumed.
+- Give the probe's summary a machine-readable home. A line in a container-local log is not
+  evidence anyone reads; `errs` belongs in the result JSON next to `probe_written`, so a run whose
+  RPC was dead for 90 s cannot report a clean `max_pose_split_m`.
+- Where a docstring asserts runtime behaviour, make it a test or delete the claim. This one was
+  wrong for sixteen days and read as reassurance the whole time.
+
+**Not this ticket:** the SIM-27 detector itself, which is fixed and tested.
 
 ---
 

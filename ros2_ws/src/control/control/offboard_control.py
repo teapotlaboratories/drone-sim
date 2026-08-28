@@ -42,6 +42,11 @@ from control.frames import enu_to_ned, yaw_enu_to_ned
 # PX4 mode ids for VEHICLE_CMD_DO_SET_MODE. param1 = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
 # param2 = PX4 custom main mode. These are PX4's, not MAVLink standard, and are not
 # exposed as constants in px4_msgs.
+# What the flight reports when the runner asked it to stop but the reason could not be read.
+# Deliberately not "" -- see _abort_requested. An abort with no legible reason is still an
+# abort, and saying so beats a 240 s timeout that blames the flight controller.
+UNPARSEABLE_ABORT = "the runner aborted this flight (its reason could not be read)"
+
 PX4_CUSTOM_MODE_ENABLED = 1.0
 PX4_MAIN_MODE_OFFBOARD = 6.0
 
@@ -96,6 +101,26 @@ class OffboardControl(Node):
         self.declare_parameter("setpoint_rate_hz", 20.0, num)  # PX4 needs >2 Hz; 20 is margin
         self.declare_parameter("state_timeout_s", 60.0, num)
         self.declare_parameter("result_path", "")              # JSON summary for the runner
+        # THE RUNNER'S STOP BUTTON.                                                 (SIM-27)
+        #
+        # A path this node polls; when the file appears, the flight ends with the reason
+        # written inside it. It exists because the harness can see a fault this node cannot:
+        # AirSim's physics integrator and the Unreal actor hold two independent positions for
+        # the vehicle, and when they split, every sensor PX4 receives keeps describing a
+        # descent that the world is not performing. Nothing in the ROS 2 graph can contradict
+        # that -- the graph is downstream of the same integrator -- so the observation arrives
+        # from outside it, through probe_landing.py and run_scenario.py.
+        #
+        # A FILE RATHER THAN A TOPIC, deliberately. `docs/conventions.md` freezes the ROS 2
+        # graph, and this is harness plumbing, not part of the interface a real aircraft flies.
+        # It is also a one-shot latch, which is the one thing a BEST_EFFORT topic is worst at.
+        #
+        # AND IT ENDS THE FLIGHT THROUGH _fail(), not by signal. The runner could `pkill -INT`
+        # instead, but rclpy raises KeyboardInterrupt past _write_result (see main()), so the
+        # run would lose its waypoints_reached, its per-waypoint errors and its terminal
+        # MissionStatus -- on a run whose mission typically flew perfectly, which is exactly
+        # the evidence that proves the aircraft was not at fault.
+        self.declare_parameter("abort_file", "")
         # Scenario-supplied mission: a FLAT list of ENU triples, x,y,z,x,y,z,... relative
         # to the home position. Empty (the default) keeps the built-in square, so the node
         # stays runnable by hand with no scenario file. Flat rather than nested because
@@ -115,6 +140,7 @@ class OffboardControl(Node):
             raise ValueError(f"setpoint_rate_hz must be >= 2.0 (PX4 offboard minimum); got {rate}")
         self.state_timeout_s = float(self.get_parameter("state_timeout_s").value)
         self.result_path = self.get_parameter("result_path").value
+        self.abort_file = self.get_parameter("abort_file").value
         raw_wps = list(self.get_parameter("waypoints_enu").value or [])
         # A single 0.0 is the "unset" sentinel — ROS 2 rejects a genuinely empty double
         # array as an ambiguous type, so it cannot be the default.
@@ -289,6 +315,19 @@ class OffboardControl(Node):
             rclpy.shutdown()
             return
 
+        # THE RUNNER'S VERDICT COMES FIRST, ahead of the state timeout.               (SIM-27)
+        #
+        # Both end the flight, and the order decides which sentence the report carries. The
+        # known case is a landing that never terminates: the actor stops on the surface, the
+        # integrator keeps descending, PX4 is told it is still falling and so never disarms,
+        # and LAND runs out its budget. Checked first, that reads as "landing surface rejected
+        # -- actor frozen, integrator descending"; checked second, it reads as `timeout in
+        # state land` -- a CONTROL failure, on a run that flew 4/4 waypoints.
+        abort = self._abort_requested()
+        if abort:
+            self._fail(abort)
+            return
+
         # Every state gets a timeout. Without this, a node waiting on an arming_state
         # that never arrives hangs for the whole CI budget and reports nothing.
         if self.ticks_in_state > self.state_timeout_s * self.rate_hz:
@@ -312,6 +351,51 @@ class OffboardControl(Node):
         handler = getattr(self, f"_do_{self.state.value}", None)
         if handler is not None:
             handler()
+
+    def _abort_requested(self) -> str:
+        """The reason the runner wants this flight ended, or "" to keep flying.    (SIM-27)
+
+        Absent is the overwhelmingly common answer, so this is a stat per tick and nothing
+        more. The runner writes the file atomically (os.replace), so a partially written
+        document should not be observable -- but it is still tolerated rather than raised on,
+        because a malformed byte on the harness side must not take the aircraft down with a
+        traceback out of a timer callback. A bad read simply means "not yet"; the next tick is
+        100 ms away and the file is not going anywhere.
+        """
+        if not self.abort_file:
+            return ""
+        try:
+            with open(self.abort_file) as fh:
+                doc = json.load(fh)
+        except FileNotFoundError:
+            return ""
+        except OSError as exc:
+            # A READ that failed, not a file that is wrong. Transient (EIO, a mount blip), so
+            # the answer is "not yet" and the next tick is 100 ms away.
+            self.get_logger().warning(f"abort file {self.abort_file} unreadable: {exc}")
+            return ""
+        except ValueError as exc:
+            # CONTENT that is wrong, which is a different thing, and it must still STOP.
+            # The runner writes this file atomically (os.replace), so a parse failure is not a
+            # half-written document -- it is a file someone meant to be an abort. Returning ""
+            # here would let the flight run out its 240 s `timeout in state land`, which is
+            # precisely the misdiagnosis this whole mechanism exists to remove.  (review)
+            self.get_logger().error(f"abort file {self.abort_file} is not JSON: {exc}")
+            return UNPARSEABLE_ABORT
+        # A file that exists ends the flight even if its contents are not what we expected --
+        # the runner does not create this by accident, and "the harness asked to stop but we
+        # could not parse why" is still a stop.
+        #
+        # isinstance BEFORE .get(). Valid JSON that is not an object -- `["stop"]`, `"stop"`,
+        # `null` -- reaches .get() and raises AttributeError straight out of a timer callback,
+        # taking the node down WITHOUT _write_result and destroying the evidence: the exact
+        # outcome the paragraph above promises cannot happen. A hand-written abort file is how
+        # this mechanism was first exercised, and `"stop"` is what a hand writes.     (review)
+        if not isinstance(doc, dict):
+            self.get_logger().error(
+                f"abort file {self.abort_file} is JSON but not an object: {type(doc).__name__}")
+            return UNPARSEABLE_ABORT
+        return str(doc.get("reason") or "").strip() or UNPARSEABLE_ABORT
 
     def _publish_status(self) -> None:
         """Publish what the controller believes, so the MCAP explains itself.
