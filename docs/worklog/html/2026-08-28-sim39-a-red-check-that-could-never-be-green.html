@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ten Days Of A Red Gate</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-28 &middot; SIM-39</span>
+  <nav><a href="#finding">The finding</a><a href="#why">Why never</a><a href="#fix">The fix</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-28 &middot; SIM-39 &middot; no flight</span>
+  <h1>Ten Days<br>Of A Red Gate</h1>
+  <p class="sub">The check branch protection <em>requires</em> had been failing on <code>main</code> for <strong>seven consecutive runs</strong>, and every merge in that window went past it with <code>--admin</code>. It could never have passed: two tests needed a file that is gitignored.</p>
+  <div class="mastmeta"><span>Red runs <b>7</b></span><span>Days <b>10</b></span><span>Merges past it <b>all of them</b></span><span>Tests <b>205 &rarr; 206</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">Last green</div><div class="v">2026-08-18</div><div class="n">commit c445863, 02:22Z</div></div>
+<div class="stat warn"><div class="k">What it cost</div><div class="v">the signal</div><div class="n">a real regression would look identical</div></div>
+<div class="stat ok"><div class="k">Fix</div><div class="v">tests only</div><div class="n">no change to the gate or the runner</div></div>
+</div>
+
+<h2 id="finding"><span class="secnum">01</span> The finding is not the test fix</h2>
+<p>Noticed while merging PR&nbsp;64: <code>gh pr checks</code> said <code>off-target-tests fail</code>.
+The reflex is to look at the branch. The branch was not the problem &mdash; <code>main</code> was,
+and had been since 2026-08-18.</p>
+<figure>
+<svg viewBox="0 0 900 210" role="img" aria-label="A required check red across seven consecutive main runs, with every merge passing it using the admin flag, so a real regression would be indistinguishable from the standing failure" style="max-width:100%;height:auto">
+  <defs><marker id="a39" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+  <text x="30" y="30" font-size="12" fill="currentColor" opacity="0.8">off-target-tests on main</text>
+  <g font-size="11">
+    <circle cx="60" cy="70" r="11" fill="none" stroke="#2F7D4F" stroke-width="2"/>
+    <text x="60" y="98" text-anchor="middle" fill="#2F7D4F">green</text>
+    <text x="60" y="114" text-anchor="middle" fill="currentColor" opacity="0.7">08-18</text>
+  </g>
+  <line x1="78" y1="70" x2="126" y2="70" stroke="currentColor" stroke-width="1.2" marker-end="url(#a39)"/>
+  <g font-size="11">
+    <circle cx="150" cy="70" r="11" fill="none" stroke="#A3341F" stroke-width="2"/>
+    <circle cx="248" cy="70" r="11" fill="none" stroke="#A3341F" stroke-width="2"/>
+    <circle cx="346" cy="70" r="11" fill="none" stroke="#A3341F" stroke-width="2"/>
+    <circle cx="444" cy="70" r="11" fill="none" stroke="#A3341F" stroke-width="2"/>
+    <circle cx="542" cy="70" r="11" fill="none" stroke="#A3341F" stroke-width="2"/>
+    <circle cx="640" cy="70" r="11" fill="none" stroke="#A3341F" stroke-width="2"/>
+    <circle cx="738" cy="70" r="11" fill="none" stroke="#A3341F" stroke-width="2"/>
+  </g>
+  <line x1="168" y1="70" x2="224" y2="70" stroke="currentColor" stroke-width="1.2"/>
+  <line x1="266" y1="70" x2="322" y2="70" stroke="currentColor" stroke-width="1.2"/>
+  <line x1="364" y1="70" x2="420" y2="70" stroke="currentColor" stroke-width="1.2"/>
+  <line x1="462" y1="70" x2="518" y2="70" stroke="currentColor" stroke-width="1.2"/>
+  <line x1="560" y1="70" x2="616" y2="70" stroke="currentColor" stroke-width="1.2"/>
+  <line x1="658" y1="70" x2="714" y2="70" stroke="currentColor" stroke-width="1.2"/>
+  <text x="444" y="36" font-size="12.5" text-anchor="middle" fill="#A3341F">seven consecutive red runs &mdash; ten days</text>
+  <g font-size="11" fill="currentColor" opacity="0.8">
+    <text x="150" y="98" text-anchor="middle">--admin</text>
+    <text x="248" y="98" text-anchor="middle">--admin</text>
+    <text x="346" y="98" text-anchor="middle">--admin</text>
+    <text x="444" y="98" text-anchor="middle">--admin</text>
+    <text x="542" y="98" text-anchor="middle">--admin</text>
+    <text x="640" y="98" text-anchor="middle">--admin</text>
+    <text x="738" y="98" text-anchor="middle">--admin</text>
+  </g>
+  <rect x="30" y="140" width="840" height="46" fill="none" stroke="#C8892B" stroke-width="2"/>
+  <text x="450" y="160" font-size="12.5" text-anchor="middle" fill="#C8892B">a REAL regression in this window is indistinguishable from the standing failure</text>
+  <text x="450" y="178" font-size="12" text-anchor="middle" fill="currentColor" opacity="0.85">the gate is still required, still reported, and carrying no information</text>
+</svg>
+<figcaption><code>--admin</code> exists for the <strong>approval</strong> requirement, which cannot be supplied from this machine. It is not a licence to merge past a red check.</figcaption>
+</figure>
+<div class="callout stop"><span class="lbl">The rule this earns</span>
+<p>If the required check is red: either the branch broke it &mdash; fix the branch &mdash; or
+<code>main</code> is already broken, and then <em>that</em> is the work, and it comes first.</p></div>
+
+<h2 id="why"><span class="secnum">02</span> Why it could never have passed</h2>
+<p>Two tests needed <code>vendor/Cosys-AirSim/.../Blocks.uproject</code> to exist, because
+<code>resolve_world</code> ends in <code>if not p.is_file(): sys.exit(...)</code>. <code>vendor/</code>
+is <strong>gitignored</strong> &mdash; it arrives in quickstart step 0.2, long after CI runs.</p>
+<pre>world not found: vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject
+  (resolved to /home/runner/work/drone-sim/drone-sim/vendor/.../Blocks.uproject)</pre>
+<p>&mdash; naming a file that plainly exists on the workstation. They could only ever pass on a
+machine that had already built the vendored tree, which is not a test a gate can use. Same family
+as <code>SIM-37</code>&rsquo;s <code>COPY vendor/</code>: work that assumes a tree CI does not have.
+That one broke fresh-clone <em>builds</em>; this broke the <em>gate</em>, which is quieter and
+worse.</p>
+
+<h2 id="fix"><span class="secnum">03</span> The fix, and checking it the right way</h2>
+<p>Root world resolution in a throwaway tree that has a <code>Blocks.uproject</code> in it. That
+keeps what the tests protect &mdash; a relative <code>world:</code> anchors to the repo rather than
+to the caller&rsquo;s cwd &mdash; and drops a dependency on 2.4&nbsp;GB of vendored source. The
+third case was added explicitly, since it was the behaviour those two protected and was only ever
+implied.</p>
+<div class="callout"><span class="lbl">Running the suite in place proves nothing</span>
+<p>In place, the file exists. So the tree was copied <strong>without <code>vendor/</code></strong>
+and the suite run against that copy: <strong>206 passed</strong>, against <strong>2 failed, 203
+passed</strong> for <code>main</code>&rsquo;s version.</p></div>
+<p>The first attempt at that check was itself wrong, and it is the same shape as everything else
+here: <code>rsync --exclude=vendor</code> is unanchored, so it also dropped <code>docs/vendor/</code>,
+and an unrelated test failed. <strong>A check that cannot see what it thinks it is checking looks
+exactly like a real failure</strong> &mdash; the same trap as <code>pgrep -x</code> silently seeing
+nothing, and as the counters in <code>SIM-38</code>.</p>
+
+<h2 id="review"><span class="secnum">04</span> From review</h2>
+<p>Review reproduced the seven red runs independently, mutation-tested that the rewritten tests
+still fail when the REPO anchoring is removed, and confirmed the <code>rs.REPO</code> patch cannot
+leak between tests. It also caught that the helper faked <strong>only</strong> <code>REPO</code>:
+<code>SIM_UP</code>, <code>RECORD_CHASE</code> and <code>APPLY_PARAMS</code> are derived at import
+time and still point at the real repo, so a later test reusing it as a general &ldquo;fake
+repo&rdquo; would silently run the real <code>record_chase.sh</code> on the workstation. Renamed to
+say what it actually does. And it asked for this page, on the grounds that the durable finding was
+sitting only in a commit message.</p>
+
+<footer>
+  <span>Worklog &middot; 2026-08-28 &middot; SIM-39</span>
+  <span>No flight &mdash; tests and CI only</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' \u2014 switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

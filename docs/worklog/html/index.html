@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>33</b></span>
-    <span>Newest <b>2026-08-27</b></span>
+    <span>Entries <b>34</b></span>
+    <span>Newest <b>2026-08-28</b></span>
   </div>
 </header>
 
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-28-sim39-a-red-check-that-could-never-be-green.html">
+    <span class="k">2026-08-28 · SIM-39 · newest</span>
+    <h3>Ten Days Of A Red Gate</h3>
+    <p>The check branch protection <em>requires</em> had been failing on <code>main</code> for <strong>seven consecutive runs</strong> — last green 2026-08-18 — and every merge in that window went past it with <code>--admin</code>. So for ten days <strong>a real regression in that check would have been indistinguishable</strong> from the standing failure: the gate still required, still reported, carrying no information. And it could never have passed — two tests needed a <code>Blocks.uproject</code> that is <strong>gitignored</strong>, so they only ever worked on a machine that had already built the 2.4 GB vendored tree. Same family as <code>SIM-37</code>'s <code>COPY vendor/</code>, but quieter: that broke builds, this broke the gate. Checking the fix went wrong the same way twice over — <code>rsync --exclude=vendor</code> is unanchored, so it also dropped <code>docs/vendor/</code> and an unrelated test failed.</p>
+    <div class="tags">
+      <span class="pill p-stop">7 red runs, 10 days</span>
+      <span class="pill p-warn">--admin is for approval, not a red check</span>
+      <span class="pill p-ok">206 pass with no vendor/</span>
+      <span class="pill p-chrome">tests only</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-27-sim38-three-ways-to-report-no-evidence.html">
-    <span class="k">2026-08-27 · SIM-38 · newest</span>
+    <span class="k">2026-08-27 · SIM-38</span>
     <h3>Three Ways To Report Nothing</h3>
     <p>A scenario can now declare <code>sensors:</code> and the bag has to <strong>prove it got them</strong> — depth, LiDAR and the inertial suite, counted afterwards, with a requested sensor at zero messages failing the run. <code>record_topics</code> was always generic; what it could not do was make a topic <em>exist</em>, so a scenario naming depth recorded an <strong>empty topic and reported success</strong>. Writing the check produced <strong>three bugs of one shape</strong>, each returning "no evidence" through the same branch as "everything is fine": counted on the host where <code>rosbag2_py</code> does not exist, attached to one of <em>three</em> return paths and not the one that runs, and run without a login shell — <strong>the trap this repo documents in three places</strong>. A run holding 78548 IMU messages reported <code>counts: None</code>. All three were found by flying it, not by reading it.</p>
     <div class="tags">
