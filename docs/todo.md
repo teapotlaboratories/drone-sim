@@ -4114,6 +4114,43 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 ---
 
+## SIM-39 — The required check was red on `main`, so the merge gate was not gating
+
+**Status:** ✅ **done 2026-08-28** (PR 65). `off-target-tests` is green on `main` again.
+
+**The durable finding is not the test fix.** `off-target-tests` is the check branch protection
+requires, and it was **red on seven consecutive `main` runs** — last green `c445863`,
+2026-08-18 02:22Z. Every merge in that window went past it with `--admin`. Which means: for ten
+days, **a real regression in that check would have been indistinguishable from the standing
+failure**, and nothing would have caught it.
+
+**`--admin` is for the APPROVAL requirement, not for a red required check.** Branch protection
+here needs a reviewer approval that cannot be supplied from this machine, which is the whole
+reason `--admin` is the documented merge path (see `merge-with-admin-flag`). It is not a licence
+to merge past a failing check. If the check is red, either the branch broke it — fix the branch —
+or `main` is already broken, in which case that is the work, and it comes first.
+
+**Why it could never have passed.** Two tests needed
+`vendor/Cosys-AirSim/Unreal/Environments/Blocks/Blocks.uproject` on disk, because `resolve_world`
+ends in `if not p.is_file(): sys.exit(...)`. `vendor/` is gitignored and arrives in quickstart
+step 0.2, long after CI runs — so on the runner both reported *"world not found"* naming a file
+that plainly exists on the workstation. They could only ever pass on a machine that had already
+built the vendored tree. Same family as the `COPY vendor/` mistake in `SIM-37`: work that assumes
+a tree CI does not have.
+
+Fixed by rooting world resolution in a throwaway tree, which keeps what the tests protect (a
+relative `world:` anchors to the repo, not the caller's cwd) and drops the dependency on 2.4 GB
+of vendored source. The third case — running from outside the repo root — was added explicitly,
+since it was the behaviour those two protected and was only ever implied.
+
+**Verified the way the failure happens**, not by running the suite in place, where the file
+exists: the tree was copied *without* `vendor/` and the suite run against that copy. 206/206,
+against 2 failed / 203 passed for `main`'s version.
+
+Worklog: `docs/worklog/2026-08-28-sim39-a-red-check-that-could-never-be-green.md`.
+
+---
+
 ## SIM-38 — A scenario cannot ask for anything but RGB
 
 **Status:** ✅ **done 2026-08-27.** A scenario declares what it wants and the bag has to prove
