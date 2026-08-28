@@ -693,20 +693,50 @@ def test_force_world_allows_the_mismatch():
     assert "world not found" in str(e.value)
 
 
-def test_matching_world_does_not_false_alarm():
+def _rs_with_fake_repo(tmp_path):
+    """run_scenario with REPO pointed at a throwaway tree that HAS a Blocks.uproject.
+
+    THESE TWO TESTS NEED A WORLD THAT EXISTS, and the real one never does in CI.
+    `resolve_world` ends in `if not p.is_file(): sys.exit(...)`, so the two tests below are the
+    only ones here that need the file on disk -- the rest raise before that check or use the
+    pure `same_world`. `vendor/` is gitignored, so on a fresh clone and in the GitHub runner the
+    path simply is not there, and both failed with "world not found" naming a file that plainly
+    exists on the workstation.
+
+    That is not a cosmetic failure. `off-target-tests` is the check branch protection requires,
+    so it was red on `main` for every merge and each one went past it with `--admin` -- meaning
+    a REAL regression in that check would have looked exactly the same as this. A test that can
+    only pass on one machine is not a test the gate can use.
+
+    Repointing REPO keeps what the tests are actually about -- that a relative `world:` anchors
+    to the repo rather than to the caller's cwd, and that it matches the same world spelled
+    absolutely -- while dropping the accidental dependency on a 2.4 GB vendored tree.
+    """
+    rs = _rs_mod()
+    world = tmp_path / BLOCKS
+    world.parent.mkdir(parents=True, exist_ok=True)
+    world.write_text("")
+    rs.REPO = tmp_path
+    return rs, world
+
+
+def test_matching_world_does_not_false_alarm(tmp_path):
     """Same world by two spellings (relative vs absolute) must not trip the guard."""
-    from pathlib import Path
-    rs = _rs_mod()
-    repo = Path(__file__).resolve().parents[1]
-    got = rs.resolve_world({"world": BLOCKS}, str(repo / BLOCKS))
-    assert got == str((repo / BLOCKS).resolve())
+    rs, world = _rs_with_fake_repo(tmp_path)
+    assert rs.resolve_world({"world": BLOCKS}, str(world)) == str(world.resolve())
 
 
-def test_scenario_only_world_still_works():
-    from pathlib import Path
-    rs = _rs_mod()
-    repo = Path(__file__).resolve().parents[1]
-    assert rs.resolve_world({"world": BLOCKS}, "") == str((repo / BLOCKS).resolve())
+def test_scenario_only_world_still_works(tmp_path):
+    rs, world = _rs_with_fake_repo(tmp_path)
+    assert rs.resolve_world({"world": BLOCKS}, "") == str(world.resolve())
+
+
+def test_a_relative_world_anchors_to_the_repo_not_the_cwd(tmp_path, monkeypatch):
+    """The behaviour the two tests above exist to protect, stated directly: running the gate
+    from anywhere but the repo root used to report "world not found" naming a file that exists."""
+    rs, world = _rs_with_fake_repo(tmp_path)
+    monkeypatch.chdir(tmp_path.parent)
+    assert rs.resolve_world({"world": BLOCKS}, "") == str(world.resolve())
 
 
 # --- SIM-36, review pass: the other door, and the fact-vs-flag ---------------------------------
