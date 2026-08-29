@@ -1,0 +1,127 @@
+Log which ground-lock gate rejects a landing surface.            (SIM-27 step 1)
+
+MEASUREMENT ONLY, AND TEMPORARY. This patch adds no behaviour: it prints what
+FastPhysicsEngine already decided, then leaves every decision exactly as it was. It exists
+because SIM-27's central claim is READ OUT OF THIS FILE and has never been observed running.
+
+The claim: only one branch stops a descent -- the ground lock, which zeroes velocity, snaps
+the body to the contact point and calls body.setGrounded(true). Reaching it needs all of
+
+  A  the contact must not be treated as separating   (normal . next_velocity < 0)
+  B  the contact must look like ground               (|normal_body.z()| ~= 1, kAxisTolerance 0.25)
+     ... and like a landing                          (z_vel dominates x and y)
+  C  ground lock must be enabled                     (EnableGroundLock, default true)
+
+So "is this the ground?" is answered ENTIRELY from the collision normal. On CitySample the
+vehicle rests on FastGeoSurrogateActor_0, a coarse far-field proxy, and the leading hypothesis
+is that its normal is off-axis enough to fail B -- which would leave the actor jammed on
+geometry while the integrator keeps integrating downward, the 107.9 m split SIM-27 records.
+Blocks has a flat plane and cannot express the fault at all.
+
+WHICH GATE ACTUALLY FAILS IS UNMEASURED, and A and B imply different fixes. This prints one
+throttled line per gate so a single seeded flight answers it.
+
+Read the result with:  docker logs sim-unreal 2>&1 | grep SIM27
+
+The logger is static because getNextKinematicsOnCollision is static and cannot reach the
+existing throttledLogOutput (that needs clock() and last_message_time, both instance state).
+It throttles on wall time, not a call count: a 1-in-N counter can skip the transition, which
+is the only moment that matters.
+
+EACH GATE THROTTLES SEPARATELY, and the first flight (2026-08-29) is why. With one shared
+timer the noisy gate starves the rare one: gates B and C are logged microseconds apart in the
+SAME call, so B always reset the timer and C was ALWAYS suppressed -- 386 lines, not one of
+them gate=C, from a landing that demonstrably ground-locked. Counts across gates are still
+only indicative, never a frequency: the throttle samples the first call in each window.
+
+NOT APPLIED BY DEFAULT -- it lives under experimental/, outside the *.patch glob that
+build_blocks.sh and convert_world.sh apply. Apply it deliberately, measure, then remove it.
+
+--- a/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
++++ b/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
+@@ -138,8 +138,17 @@
+             const real_T dt_real = static_cast<real_T>(dt);
+ 
+             //are we going away from collision? if so then keep using computed next state
+-            if (collision_info.normal.dot(next.twist.linear) >= 0.0f)
++            const real_T sim27_dot = collision_info.normal.dot(next.twist.linear);
++            if (sim27_dot >= 0.0f) {
++                // SIM-27 step 1: gate A. Reaching here means NO collision response at all --
++                // the contact is treated as separating, so ground lock is unreachable.
++                sim27Log(kGateA, Utils::stringf(
++                    "gate=A-EARLY-RETURN dot=%.5f normal=(%.3f,%.3f,%.3f) nextvel=(%.3f,%.3f,%.3f)",
++                    sim27_dot,
++                    collision_info.normal.x(), collision_info.normal.y(), collision_info.normal.z(),
++                    next.twist.linear.x(), next.twist.linear.y(), next.twist.linear.z()));
+                 return false;
++            }
+ 
+             /********** Core collision response ***********/
+             //get avg current velocity
+@@ -158,6 +167,17 @@
+             const float z_vel = vcur_avg.z();
+             const bool is_landing = z_vel > std::abs(vcur_avg.x()) && z_vel > std::abs(vcur_avg.y());
+ 
++            // SIM-27 step 1: gate B. Both of these must hold for ground_collision to be set,
++            // and "is this the ground?" is answered ENTIRELY from the collision normal.
++            sim27Log(kGateB, Utils::stringf(
++                "gate=B-NORMAL abs_nz=%.5f tol=%.2f is_ground_normal=%d | z_vel=%.3f "
++                "vx=%.3f vy=%.3f is_landing=%d | lock_enabled=%d "
++                "normal_body=(%.3f,%.3f,%.3f)",
++                std::abs(normal_body.z()), kAxisTolerance, is_ground_normal ? 1 : 0,
++                z_vel, std::abs(vcur_avg.x()), std::abs(vcur_avg.y()), is_landing ? 1 : 0,
++                enable_ground_lock ? 1 : 0,
++                normal_body.x(), normal_body.y(), normal_body.z()));
++
+             real_T restitution = body.getRestitution();
+             real_T friction = body.getFriction();
+ 
+@@ -244,8 +264,17 @@
+                 next.accelerations.linear = -0.5f * body.getMass() * vcur_avg;
+ 
+                 //throttledLogOutput("*** Triggering ground lock", 0.1);
++                // SIM-27 step 1: gate C, taken. This is the ONLY branch that stops a descent.
++                sim27Log(kGateC, Utils::stringf("gate=C-GROUND-LOCK ENGAGED at z=%.3f",
++                                        collision_info.position.z()));
+             }
+             else {
++                // SIM-27 step 1: gate C, not taken -- the integrator keeps its velocity and
++                // carries on. Which of ground_collision / enable_ground_lock is false says
++                // whether the fault is the normal test above or the flag.
++                sim27Log(kGateC, Utils::stringf(
++                    "gate=C-NO-LOCK ground_collision=%d lock_enabled=%d nextvel_z=%.3f",
++                    ground_collision ? 1 : 0, enable_ground_lock ? 1 : 0, next.twist.linear.z()));
+                 //else keep the orientation
+                 next.pose.position = collision_info.position + (collision_info.normal * collision_info.penetration_depth) + next.twist.linear * (dt_real * kCollisionResponseCycles);
+             }
+@@ -256,6 +285,30 @@
+             return true;
+         }
+ 
++        // SIM-27 step 1 instrumentation. TEMPORARY -- measurement only, remove with the patch.
++        //
++        // STATIC, because getNextKinematicsOnCollision is static and cannot reach
++        // throttledLogOutput below (it needs clock() and last_message_time, both instance
++        // state). Throttled on wall time rather than a call count: the question is which gate
++        // fails DURING the descent, and a 1-in-N counter can skip the transition entirely.
++        //
++        // PER-GATE, and the first run proved why. A single shared timer let the noisy gate
++        // starve the rare one: gate B and gate C are logged microseconds apart in the SAME
++        // call, so B's line always reset the timer and C's was ALWAYS suppressed. The run
++        // that measured this produced 386 lines and not one gate=C, from a landing that
++        // demonstrably ground-locked. A throttle shared across call sites cannot answer a
++        // question about which call site fires.
++        enum Sim27Gate { kGateA = 0, kGateB, kGateC, kSim27GateCount };
++        static void sim27Log(Sim27Gate gate, const std::string& msg, double seconds = 0.25)
++        {
++            static uint64_t last_ns[kSim27GateCount] = { 0 };
++            const uint64_t now_ns = Utils::getTimeSinceEpochNanos();
++            if (now_ns - last_ns[gate] < static_cast<uint64_t>(seconds * 1e9))
++                return;
++            last_ns[gate] = now_ns;
++            Utils::log("SIM27 " + msg);
++        }
++
+         void throttledLogOutput(const std::string& msg, double seconds)
+         {
+             TTimeDelta dt = clock()->elapsedSince(last_message_time);

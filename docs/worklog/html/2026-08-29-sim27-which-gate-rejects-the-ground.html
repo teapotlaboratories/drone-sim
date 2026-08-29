@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Ground Was A Wall</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-29 &middot; SIM-27</span>
+  <nav><a href="#question">The question</a><a href="#probe">The probe</a><a href="#flown">Flown</a><a href="#flaw">The flaw</a><a href="#answer">The answer</a><a href="#lost">What it cost</a><a href="#stands">Where it stands</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-29 &middot; SIM-27 step 1 &middot; CitySample seed 1 flown</span>
+  <h1>The Ground<br>Was A Wall</h1>
+  <p class="sub">Only one branch in AirSim&rsquo;s integrator stops a descent, and reaching it means passing three gates that answer &ldquo;is this the ground?&rdquo; from a collision normal alone. Which gate fails on CitySample has been the ticket&rsquo;s central unmeasured claim for three weeks. It is now instrumented, flown &mdash; and the answer is <em>not yet</em>, for a reason worth writing down.</p>
+  <div class="mastmeta"><span>Seeds split <b>3 of 3</b></span><span>abs_nz failing <b>0.0003</b></span><span>abs_nz healthy <b>1.00000</b></span><span>No-lock <b>141 s</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">The gate that fails</div><div class="v">B &mdash; the normal</div><div class="n">295 rejections over 141 s, abs_nz 0.0000&ndash;0.0009</div></div>
+<div class="stat ok"><div class="k">Exonerated</div><div class="v">A and the flag</div><div class="n">contact responded to; lock_enabled=1 throughout</div></div>
+<div class="stat warn"><div class="k">Not a tolerance</div><div class="v">1.0 vs 0.0003</div><div class="n">no threshold separates these populations</div></div>
+</div>
+
+<h2 id="question"><span class="secnum">01</span> The question</h2>
+<p>The ground lock at <code>FastPhysicsEngine.hpp:228</code> is the <strong>only</strong> branch that
+stops a descent: it zeroes velocity, snaps the body to the contact point and sets
+<code>grounded</code>. Reaching it needs all three of:</p>
+<div class="tw"><table>
+<thead><tr><th>Gate</th><th>Test</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td class="mono">A</td><td>the contact is not separating &mdash; <code>normal &middot; next_velocity &lt; 0</code></td><td class="mono">:141 early return</td></tr>
+<tr><td class="mono">B</td><td>it looks like ground (<code>|normal_body.z()| &asymp; 1</code>, tol <code>0.25</code>) <em>and</em> like a landing</td><td class="mono">:156, :163</td></tr>
+<tr><td class="mono">C</td><td><code>EnableGroundLock</code>, default true</td><td class="mono">:228</td></tr>
+</tbody>
+</table></div>
+<p>A and B imply <strong>different fixes</strong>, so step 3 must not be written until this is
+measured. Everything in the ticket up to now was read from source and never observed running.</p>
+
+<h2 id="probe"><span class="secnum">02</span> The probe, and what it cost to be sure of it</h2>
+<p><code>patches/cosys-airsim/experimental/0008</code> adds <strong>no behaviour</strong> &mdash; it
+prints what the engine already decided. Verified before spending a build: applies cleanly to both
+plugin trees, and a standalone <code>g++ -fsyntax-only</code> of the patched and pristine headers
+produces <em>identical</em> output, so nothing the real build says afterwards is the patch&rsquo;s
+fault.</p>
+<div class="callout"><span class="lbl">Two details that cost time</span>
+<p>The logger must be <code>static</code>: <code>getNextKinematicsOnCollision</code> is a static
+member and cannot reach the existing <code>throttledLogOutput</code>, which needs instance state.
+And the header is <strong>CRLF</strong> &mdash; cutting the patch in Python text mode rewrote every
+line ending and produced a 478-line whole-file diff instead of a 47-line one.</p></div>
+<p>The shadowing trap was checked rather than assumed: the world holds five
+<code>AirSimBackups/</code> trees with their own <code>.uplugin</code> files, but they sit at the
+project root, not under <code>Plugins/</code> &mdash; deliberate, per
+<code>inject_airsim.py:219</code> &mdash; and the <code>.uproject</code> declares no
+<code>AdditionalPluginDirectories</code>. Still only files on disk, which is exactly the evidence
+that misled this project before. <strong>The flight is what settled it.</strong></p>
+
+<h2 id="flown"><span class="secnum">03</span> Flown &mdash; CitySample, seed 1</h2>
+<p>Bring-up needed the usual ground repair (the vehicle fell to <code>z = +813</code> before being
+placed at <code>+0.756</code>), then the origin was sane to 0.000 m. <strong>The split did not
+reproduce</strong> &mdash; success, 2/2 waypoints, 103.5 s. At roughly 1 in 10 per seed, that is the
+expected outcome, so this is a healthy-landing measurement.</p>
+<p><strong>513 <code>SIM27</code> lines appeared</strong>, which settles what the file checks could
+not: the engine loaded the instrumented binary.</p>
+<pre>gate=B-NORMAL abs_nz=<b>1.00000</b> tol=0.25 is_ground_normal=1 | z_vel=5.788 ... normal_body=(0.000,0.000,-1.000)
+gate=B-NORMAL abs_nz=<b>0.99999</b> tol=0.25 is_ground_normal=1 | z_vel=0.694 ... normal_body=(0.002,0.003,-1.000)</pre>
+<p>Against a tolerance of 0.25, CitySample&rsquo;s surface produced a <strong>textbook</strong> ground
+normal &mdash; nowhere near the off-axis value the leading hypothesis needs. The second line is the
+touchdown itself, at <code>z_vel = 0.694</code>, i.e. <code>MPC_LAND_SPEED</code>. The A-gate
+normals split into two families:</p>
+<div class="tw"><table>
+<thead><tr><th>Normal</th><th>Count</th><th>Reading</th></tr></thead>
+<tbody>
+<tr><td class="mono">(0.000, 0.000, -1.000)</td><td class="mono">330</td><td>ground, dismissed as separating &mdash; <code>dot = 0.00000</code>, <code>nextvel = (0,0,0)</code>: a <strong>resting</strong> vehicle</td></tr>
+<tr><td class="mono">(-1.000, -0.003, 0.000)</td><td class="mono">180</td><td>a <strong>wall</strong> normal, x-axis &mdash; the kind of geometry the surrogate hypothesis is about, but it prevented nothing here</td></tr>
+<tr><td class="mono">(0.003, -1.000, 0.000)</td><td class="mono">1</td><td>the other horizontal axis</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="flaw"><span class="secnum">04</span> The instrumentation had a flaw, and the run found it</h2>
+<div class="callout stop"><span class="lbl">Not one gate=C line, from a landing that ground-locked</span>
+<p><code>sim27Log</code> used <strong>one</strong> throttle timer for every call site. Gates B and C
+are logged microseconds apart in the <em>same</em> call, so B&rsquo;s line always reset the timer and
+C&rsquo;s was always suppressed. <strong>A throttle shared across call sites cannot answer a question
+about which call site fires.</strong></p></div>
+<p>Fixed (per-gate timers), re-cut, syntax-checked, and rebuilt into the world so the next seed
+needs no preparation. The counts above stay <strong>indicative only</strong>: a wall-clock throttle
+samples the first call in each window, so they are not frequencies.</p>
+
+<h2 id="detector"><span class="secnum">05</span> The new detector&rsquo;s first live CitySample run</h2>
+<p><code>max_pose_split_m = 0.891 m</code> &mdash; over the 0.5 m reporting threshold, so it printed
+the informational line, and <strong>correctly did not trip</strong>: that sample sits at
+<code>vz = -3.028</code>, i.e. <em>ascending</em>, which the sign condition excludes. Worst
+<em>descending</em> gap was 0.186 m, consistent with the corpus worst of 0.255 m.</p>
+<div class="callout warn"><span class="lbl">The review&rsquo;s skew correction is a guard, not a tax</span>
+<p>The new <code>gap</code> field says the two RPCs are essentially simultaneous: median
+<strong>0.000 s</strong>, max <strong>0.002 s</strong>. So the 0.891 m divergence is <em>not</em>
+RPC-gap skew &mdash; it is genuine actor-versus-integrator lag during a 3 m/s climb. The correction
+costs nothing here, and the thing actually protecting against that sample is the sign condition.</p></div>
+
+<h2 id="answer"><span class="secnum">06</span> Answered &mdash; it is gate B</h2>
+<p>Three CitySample seeds, cold stack each so the spawn pose applies. <strong>3 of 3 split</strong>,
+all caught live by the step-2 detector and VOIDed &mdash; its first true positives outside replay.
+The gate report reads <code>INCONCLUSIVE &mdash; 3 run(s) VOID</code>, success rate
+<code>0/0 (0%) [3 VOID excluded]</code>: no laundered percentage, no control failure, the cause named.</p>
+<pre>16:53:30.845  gate=B-NORMAL <b>abs_nz=0.00027</b> tol=0.25 <b>is_ground_normal=0</b> | z_vel=0.692 is_landing=1 | lock_enabled=1
+16:53:30.845  gate=C-NO-LOCK <b>ground_collision=0</b> lock_enabled=1 nextvel_z=0.684</pre>
+<p>&hellip; and that pair again, 295 times, for 141 seconds, while the integrator accelerated from
+0.684 to <strong>2.452 m/s</strong>. <code>abs_nz &asymp; 0</code> is a normal perpendicular to the
+vertical axis &mdash; the engine is being handed a <strong>wall</strong>. It asks &ldquo;is this the
+ground?&rdquo;, the normal says no, <code>ground_collision</code> stays false, and the only branch
+that could stop the descent is never reached.</p>
+<div class="callout stop"><span class="lbl">Why widening the tolerance is not the fix</span>
+<p>Healthy touchdowns in these same runs report <code>abs_nz = 0.99999&ndash;1.00000</code> with
+<code>C-GROUND-LOCK ENGAGED</code>. The two populations are <strong>1.00000 versus 0.00027</strong>
+&mdash; <code>kAxisTolerance</code> could be 0.9 or 0.05 and nothing would change. And
+<code>lock_enabled</code> was 1 throughout while gate A never rejected the contact, so both are
+exonerated: the fix belongs at <code>is_ground_normal</code> and nowhere else.</p></div>
+<div class="callout warn"><span class="lbl">What this result does not cover</span>
+<p>Seeds 1 and 2 were captured <em>without timestamps</em> &mdash; the collector used plain
+<code>docker logs -f</code> &mdash; so their lines cannot be placed in the descent window and only
+seed 3 is quoted as the measurement. <strong>Timestamps belong in the probe&rsquo;s own output</strong>,
+not in how it happens to be captured. And the probe prints the normal, not the actor that owns it, so
+the geometry supplying it is still unnamed.</p></div>
+
+<h2 id="lost"><span class="secnum">07</span> The run destroyed the evidence it was chasing</h2>
+<div class="callout stop"><span class="lbl">Two correct rules, one trap</span>
+<p>Re-flying <code>citysample-sensors</code> seed 1 <strong>overwrote the 2026-08-27 failing run</strong>
+&mdash; trace, result JSON, chase video, MCAP bag &mdash; the files <code>SIM-27</code> names as its
+freshest evidence. Nothing malfunctioned: <code>run_scenario.py</code> clears those paths up-front on
+purpose, because a stale file reported as this run&rsquo;s evidence is worse than none, and the tag is
+<code>&lt;scenario&gt;-seed&lt;N&gt;</code> so artifacts stay traceable. Combined, they mean
+<strong>the best evidence for a defect sits exactly where the next reproduction attempt deletes it</strong>
+&mdash; and the more the run matters, the more likely that seed is re-flown. Filed as <code>SIM-41</code>.</p></div>
+<p>Salvaged: 427 samples to <code>t = 85.06 s</code>, <code>dz = 1.71 m</code>, a by-product of replaying
+the original while building the step-2 detector. The ~760 samples carrying the split out to 107.9 m are
+lost. Every number quoted from that run predates the loss and still stands.</p>
+<h3>A rate correction that changes the plan</h3>
+<p>This session said the split was &ldquo;~1 in 10 per seed&rdquo;. That is the <strong>Blocks</strong>
+figure &mdash; 1.7%, a world where the fault essentially cannot occur. On CitySample the ticket records a
+10-seed gate splitting on <strong>9 of 10</strong>, and 7 of those traces trip the step-2 detector on
+replay: <strong>70&ndash;90% per seed</strong>. Tonight&rsquo;s clean landing is the minority outcome. So
+the next run is <strong>three seeds under distinct tags</strong>, not ten &mdash; ~97% odds of catching a
+failure, and distinct tags are what stops it repeating the loss above.</p>
+
+<h2 id="stands"><span class="secnum">08</span> Where step 1 stands</h2>
+<p><strong>Done.</strong> The claim the ticket carried for three weeks &mdash; that ground is inferred
+from a collision normal and a coarse proxy defeats it &mdash; is now a measurement rather than a
+reading of source. Step 3 keeps the shape it already had (trace downward; blocking geometry a few cm
+below plus slow descent &rArr; ground-lock), with two constraints the data adds: do not touch
+<code>kAxisTolerance</code>, and change nothing outside the <code>is_ground_normal</code> decision.</p>
+<footer>
+  <span>Worklog &middot; 2026-08-29 &middot; SIM-27 step 1</span>
+  <span>4 CitySample seeds &middot; stack torn down and verified</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

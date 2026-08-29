@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>35</b></span>
-    <span>Newest <b>2026-08-28</b></span>
+    <span>Entries <b>36</b></span>
+    <span>Newest <b>2026-08-29</b></span>
   </div>
 </header>
 
@@ -114,8 +114,20 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-08-29-sim27-which-gate-rejects-the-ground.html">
+    <span class="k">2026-08-29 · SIM-27 · newest</span>
+    <h3>The Ground Was A Wall</h3>
+    <p>One branch in AirSim&rsquo;s integrator stops a descent, and reaching it means the engine recognising the contact as ground &mdash; judged from the <strong>collision normal alone</strong>. Three weeks of <code>SIM-27</code> rested on a guess about which gate fails. Now measured across three CitySample seeds, <strong>all three of which split</strong>: the failing surface reports <code>abs_nz = 0.0003</code> where a healthy touchdown reports <code>1.00000</code> — a normal perpendicular to vertical. It is not a floor the engine mistrusts, it is a <strong>wall</strong>, rejected 295 times over 141 s while the integrator accelerated to 2.45 m/s. So no tolerance can be widened into a fix, and gate A and <code>EnableGroundLock</code> are exonerated. Also here: the step-2 detector&rsquo;s first live true positives, a probe bug where one shared throttle made gate C unprintable, and the run that <strong>overwrote the evidence it was chasing</strong>.</p>
+    <div class="tags">
+      <span class="pill p-stop">1.00000 vs 0.0003</span>
+      <span class="pill p-warn">3 of 3 seeds split</span>
+      <span class="pill p-ok">detector caught all 3</span>
+      <span class="pill p-chrome">step 3 unblocked</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-28-sim27-naming-the-split.html">
-    <span class="k">2026-08-28 · SIM-27 · newest</span>
+    <span class="k">2026-08-28 · SIM-27</span>
     <h3>Two Positions, One Aircraft</h3>
     <p>AirSim holds the vehicle&rsquo;s position in <strong>two unrelated places</strong> — the physics integrator every PX4 sensor is synthesised from, and the Unreal actor the cameras are bolted to — and nothing reconciles them. On <code>citysample-sensors-seed1</code> the actor stopped on the surface at 0.757 m while the integrator kept descending to <strong>108.7 m</strong>, so PX4 was told it was still falling, never disarmed, and the run reported <code>timeout in state land</code> — <strong>a control failure, on a flight that reached 4/4 waypoints</strong>. The split is now a named fault that ends the run in seconds and <strong>VOIDs</strong> the seed. Scored without flying, against the <strong>91 landing traces already on disk</strong>: it trips on 9 of 9 runs recorded as landing timeouts and on <strong>none</strong> of the 82 successes. Replaying the real trace through the classes found two bugs that reading them did not — an Event shadowing <code>Thread._stop</code>, and the diagnosis overwritten by its own four-word label.</p>
     <div class="tags">

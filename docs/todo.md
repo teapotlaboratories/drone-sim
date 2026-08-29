@@ -3193,6 +3193,21 @@ out/citysample-sensors-seed1-chase.mp4         chase video, 233.2 s
 out/citysample-sensors-seed1.json              outcome + failure_reason
 ```
 
+> ⚠️ **THOSE ARTIFACTS WERE OVERWRITTEN ON 2026-08-29** by re-flying the same scenario and seed
+> for step 1. `run_scenario.py` clears its artifacts up-front by design — a stale file reported as
+> this run's evidence is worse than none — and the tag is `<scenario>-seed<N>`, so a re-run of the
+> same seed lands on the same paths. The trace, result JSON, chase video and MCAP bag are gone.
+>
+> **What survives:** `out/sim27-evidence/2026-08-27-citysample-sensors-seed1-landing.PARTIAL.jsonl`
+> — 427 samples, `t=0.02..85.06 s`, up to and including the fault record at `dz = 1.71 m`, salvaged
+> from a replay run while building the step-2 detector. The ~760 samples carrying the split out to
+> 107.9 m are lost. Every NUMBER quoted in this entry and in
+> `docs/worklog/2026-08-28-sim27-naming-the-split.md` predates the loss and still stands; it is the
+> raw artifact that is gone, not a conclusion.
+>
+> **Rule earned:** archive before re-flying a seed whose artifacts a ticket cites, or fly it under a
+> distinct scenario tag. See `SIM-41`.
+
 | | Blocks (same day, same probe) | CitySample |
 |---|---|---|
 | max \|phys_z − pose_z\| | **0.114 m** | **107.949 m** |
@@ -3229,10 +3244,42 @@ why Blocks cannot express this fault at all. **Which of the two gates actually a
 
 ### The plan
 
-1. **MEASURE WHICH GATE FAILS.** One throttled log of `normal_body`, `is_ground_normal`,
-   `is_landing` and the :141 early return, then one seed. Do this before writing any physics
-   code — the paragraph above is a reading of source, not an observation, and it decides
-   between steps 3 and the world-side shortcut. **Needs a flight → ask the owner first.**
+1. ✅ **ANSWERED 2026-08-29 — it is GATE B, the collision-normal test.** Three CitySample seeds
+   (`citysample-gate1-seed{1,2,3}`, cold stack per seed), **3 of 3 split**, all caught live by the
+   step-2 detector and VOIDed. Seed 3, timestamped: **295 consecutive B-gate failures over 141 s**
+   with `abs_nz` between **0.00000 and 0.00086** against `kAxisTolerance = 0.25`, each followed by
+   `gate=C-NO-LOCK ground_collision=0 lock_enabled=1`, while the integrator accelerated from
+   0.684 to **2.452 m/s**. `abs_nz ≈ 0` is a normal perpendicular to vertical — a **wall**, not a
+   floor. Healthy touchdowns in the same session report `abs_nz = 0.99999–1.00000` and
+   `C-GROUND-LOCK ENGAGED`, so the populations are **1.00000 vs 0.00027**: there is no tolerance to
+   tune, and `kAxisTolerance` must NOT be touched. `lock_enabled` was 1 throughout and gate A never
+   rejected the contact, so both are exonerated — **the fix belongs at the `is_ground_normal`
+   decision and nowhere else**, which is the shape step 3 already had. Caveat: seeds 1 and 2 were
+   captured without timestamps, so only seed 3 is quoted as the measurement; timestamps belong in
+   the probe's own output, not in how it is captured.
+   Previously: 🟡 **PARTLY MEASURED 2026-08-29 — instrumented, flown once, not yet answered.** Worklog:
+   `docs/worklog/2026-08-29-sim27-which-gate-rejects-the-ground.md`. Probe:
+   `patches/cosys-airsim/experimental/0008-sim27-groundlock-gate-probe.patch` (logging only,
+   applied to the CitySample world's plugin and built in; pristine binary kept at
+   `AirSimBackups/sim27-pre-probe/`, md5 `a77bfe1c`).
+   **Settled:** 513 `SIM27` lines appeared, so the engine loaded the patched binary — the
+   shadowing question the file checks could not answer.
+   **Measured, and it cuts against the leading hypothesis:** on a HEALTHY CitySample landing
+   gate B reports `abs_nz = 0.99999` against `kAxisTolerance 0.25` — a textbook ground normal,
+   `normal_body = (0.002, 0.003, -1.000)`, `is_landing = 1`, `lock_enabled = 1`. A-gate contacts
+   are 330 resting-ground (`dot = 0.00000`, `nextvel = 0`) and **180 wall normals**
+   `(-1.000, -0.003, 0.000)`, which prevented nothing on this flight.
+   **NOT answered:** the split did not reproduce (~1 in 10 per seed), so the FAILING case has
+   still never been seen with instrumentation attached — and the first probe could not have
+   reported gate C anyway: one throttle timer was shared by every call site, and gate B's line
+   (microseconds earlier, same call) always suppressed it. Fixed to per-gate timers and rebuilt.
+   **Next: THREE CitySample seeds, under distinct tags.** Agreed with the owner 2026-08-29.
+   Three, not ten: the CitySample rate is **~70–90% per seed** (a 10-seed CitySample gate split on
+   9 of 10, and 7 of those traces trip the step-2 detector on replay), so three seeds carry ~97%
+   odds of catching at least one failure. An earlier note in this session said "~1 in 10" — that
+   was the **Blocks** figure (1.7%, where the fault essentially cannot occur) and it was wrong for
+   CitySample. Distinct tags because re-flying `citysample-sensors-seed1` is what destroyed the
+   evidence above. **Needs a flight → ask the owner first.**
 2. ✅ **DONE 2026-08-28 — the split is a named fault.** Worklog:
    `docs/worklog/2026-08-28-sim27-naming-the-split.md`. `SplitWatch` (`probe_landing.py`) trips on
    `dz >= 1.0 m` held `>= 1.0 s` over `>= 3` samples while descending (`vz >= +0.1`, and `dz > 0`
@@ -3269,6 +3316,10 @@ why Blocks cannot express this fault at all. **Which of the two gates actually a
 3. **THE ACTUAL FIX: stop inferring ground from a collision normal.** Trace downward from the
    vehicle; blocking geometry within a few cm + slow descent ⇒ ground-lock. World-agnostic, which
    is what *bring your own `.uproject`* requires. Patch in `patches/cosys-airsim/`.
+   **UNBLOCKED 2026-08-29 by step 1's measurement, and constrained by it:** the failing contacts
+   report `abs_nz ≈ 0.0003` where healthy ones report `1.00000`, so (a) do not widen
+   `kAxisTolerance` — no threshold separates those populations usefully; (b) gate A and
+   `EnableGroundLock` are exonerated, so the change belongs at `is_ground_normal` (`:156`) alone.
 4. **Optional, fits `SIM-36`:** a landing-site precondition — trace down from the planned landing
    point before arming and refuse if it is a proxy or an unloaded cell.
 
@@ -4226,6 +4277,40 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 **Until it is fixed, every gate run must say plainly that no chase video exists** rather than let
 `video_written: True` imply the rule was met.
+
+---
+
+## `SIM-41` — a re-run silently destroys the evidence a ticket is built on
+
+**Status:** 🟡 **open** — found **2026-08-29** the expensive way: re-flying
+`citysample-sensors` seed 1 for `SIM-27` step 1 overwrote the 2026-08-27 failing run's trace,
+result JSON, chase video and MCAP bag. `SIM-27`'s START HERE section cites those files by name as
+its freshest evidence. Only a partial copy survived, and only by accident.
+
+**Nothing here was a bug.** `run_scenario.py` clears `<tag>-landing.jsonl`, `<tag>.json`,
+`<tag>-chase.mp4` and the bag up-front *on purpose*, and the comments say why: a stale file
+reported as this run's evidence is worse than no file, and this repo has already had a run cite a
+video recorded twenty minutes earlier. The tag is `<scenario>-seed<N>`, which is also correct —
+it is what makes an artifact traceable to the run that produced it.
+
+The two correct rules combine into a trap: **the freshest evidence for a defect lives at exactly
+the path the next reproduction attempt will delete**, and the more important the run, the more
+likely someone re-flies that seed.
+
+### Options, roughly in order of cost
+
+- **Archive on clear, when the previous run FAILED or VOIDED.** Move the existing artifacts to
+  `out/archive/<tag>-<ISO8601>/` instead of deleting, but only when the previous `<tag>.json`
+  records a non-success. Cheap, keeps the up-front clear (so no stale-evidence regression), and
+  bounded — successful runs are still overwritten, which is what makes it affordable on a 40-seed
+  gate. Deletes nothing, ever, that recorded a failure.
+- **Refuse and require a flag.** `--overwrite-failed-run` to re-fly a seed whose last result was a
+  failure. Safer, but it interrupts a gate, which is where re-flying is normal.
+- **Document only.** A rule in `AGENTS.md`: archive before re-flying a cited seed. Free, and
+  exactly as reliable as the person remembering it — which today it was not.
+
+**Recommended:** the first. The evidence that matters is precisely the evidence of failure, and it
+is the one case where the up-front clear has nothing to protect.
 
 ---
 

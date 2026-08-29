@@ -1,0 +1,68 @@
+# SIM-27 step 1 — three CitySample seeds under a tag of their own.
+#
+# A COPY of citysample-sensors.yaml, differing ONLY in `name:`. That one field becomes the
+# artifact tag (<name>-seed<N>), and re-flying citysample-sensors seed 1 on 2026-08-29 is what
+# destroyed the 2026-08-27 failing run's trace, video and bag -- the evidence SIM-27 is built on.
+# run_scenario.py clears its artifacts up-front by design, so the only protection is not reusing
+# the tag. See SIM-41.
+#
+# Delete this file once step 1 has its answer; it is a measurement fixture, not a scenario anyone
+# should have to maintain.
+
+# City Sample with the full sensor suite recorded.
+#
+# The same out-and-back as citysample-updown-30m, but declaring `sensors:` so the run captures
+# depth, LiDAR and the inertial suite alongside the telemetry — not just RGB.
+name: citysample-gate1
+description: >-
+  Take off to 30 m over City Sample, translate 10 m north, return, and land — recording depth,
+  GPU-LiDAR, IMU, GPS, magnetometer and odometry into the MCAP bag alongside PX4 telemetry.
+
+world: ${DRONE_SIM_WORLDS}/CitySample/CitySample.uproject
+
+# WHAT `sensors:` DOES, because it is not just a list of topics.
+#
+# It starts the perception graph — `sim_up.sh` does not, so without this the topics below simply
+# do not exist and would record as empty. It then appends their topics to record_topics, and
+# AFTER the flight it counts the messages actually in the bag: a sensor that was asked for and
+# recorded nothing VOIDS the run rather than passing quietly -- instrumentation, not a flight
+# result, and a void BLOCKS the gate criterion outright where a failure only lowers a rate.
+#
+# Cameras bring their camera_info with them. Frames without intrinsics and a TF frame are not
+# usable for anything geometric, and discovering that after the flight is too late.
+#
+# Cost, measured on CitySample: RGB ~10.6 Hz, depth ~10.5 Hz, GPU-LiDAR ~5.5 Hz (about a third of
+# the rates Blocks posts, under real scene load), and ~30 s of extra settle per bring-up. The bag
+# is the deliverable, so that is a price worth paying — but it is per seed, so think before
+# putting this scenario in a 40-seed gate.
+sensors:
+  - depth
+  - lidar
+  - imu
+  - gps
+  - magnetometer
+  - odometry
+
+mission:
+  takeoff_altitude_m: 30.0
+  waypoints_enu:
+    - [0.0, 10.0, 30.0]
+    - [0.0,  0.0, 30.0]
+
+# Telemetry stays. A depth frame with no vehicle pose is not evidence of anything — the bag has to
+# say where the aircraft was when the frame was taken.
+record_topics:
+  - /fmu/out/vehicle_local_position
+  - /fmu/out/vehicle_status_v1
+  - /fmu/out/vehicle_land_detected
+  - /mission/status
+  - /mission/result
+
+tolerances:
+  accept_radius_m: 1.0
+  hold_seconds: 2.0
+  state_timeout_s: 180.0
+
+seeded:
+  spawn_xy_jitter_m: 5.0
+  spawn_yaw_jitter_rad: 3.14159
