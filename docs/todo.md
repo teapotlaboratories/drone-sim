@@ -3171,7 +3171,37 @@ on the evidence drive is not worth it; new runs are correct.
 
 ## `SIM-27` — a landing that never terminates, and physics that disagrees with the render
 
-**Status:** 🟢 **UN-PARKED 2026-08-28 by the owner** — *"lets clear your context and start on
+**Status:** 🔵 **CAUSE FOUND 2026-08-31 — it is OUR collision witness, not the simulator.**
+Worklog: `docs/worklog/2026-08-31-sim27-the-witness-was-the-bug.md`.
+
+`watch_collisions.py` polls `simGetCollisionInfo` at 20 Hz on every gate run. **That RPC is
+read-and-reset** — the flag is one-shot and the first reader clears it — so the witness consumes
+the touchdown before `FastPhysicsEngine:102` can use it. No collision response, no ground lock,
+and the integrator descends through the world while the actor stays on the surface.
+
+| configuration | runs | pose splits | takeoff timeouts |
+|---|---|---|---|
+| witness ON | 12 | **10** | 0 |
+| witness OFF | 7 | **0** | **2** |
+
+Measured directly: with the witness on, `gate=F-HIT` shows Unreal firing contacts continuously
+with a textbook ground normal while `gate=G-TICK` reports `collided=0` and the body sinks past
+2 m. With nothing polling, the same fixture logs `collided=1`, `C-GROUND-LOCK ENGAGED`, and lands.
+**It also explains the rate** — 1.7% on Blocks vs 70–90% on CitySample: Blocks re-fires contacts
+densely enough that physics usually catches one between polls.
+
+⚠️ **"Turn the witness off" is NOT the fix.** Without any reader the flag is never cleared, the
+engine re-responds to a contact that keeps being re-reported, and the vehicle is pinned to the
+ground: 2 takeoff timeouts in 7 runs, against 0 in 12. The theft was masking a second defect —
+see `SIM-43`. The fix needs a read that observes WITHOUT consuming, leaving the engine the sole
+owner of the reset.
+
+**Everything below this line predates the finding.** The gate-A/B/C analysis, the "it is gate B"
+conclusion and the `0009` downward-trace patch were all aimed at a cause that was not the cause;
+`0009` is reverted from the deployed plugin. Kept, not deleted, because the wrong turns are
+recorded in the worklog and are the instructive part.
+
+**Previous status:** 🟢 **UN-PARKED 2026-08-28 by the owner** — *"lets clear your context and start on
 sim-27."* Active work. It was PARKED 2026-08-18 together with `SIM-32`; that parking is
 superseded. `SIM-32` stays parked.
 **Step 2 of the plan below is DONE (2026-08-28)** — the split now ends the run in ~1 s and VOIDs
@@ -3244,7 +3274,18 @@ why Blocks cannot express this fault at all. **Which of the two gates actually a
 
 ### The plan
 
-1. ✅ **ANSWERED 2026-08-29 — it is GATE B, the collision-normal test.** Three CitySample seeds
+1. ⚠️ **PARTLY ANSWERED — and the 2026-08-29 conclusion below is CORRECTED (2026-08-30).**
+   Gate B is **one** mechanism, not **the** mechanism. Across six instrumented splits: **one**
+   seed rejected on the normal (`abs_nz` 0.0000–0.0009, 295 times, no lock), and **five** passed
+   gate B with `abs_nz = 1.00000`, **engaged the ground lock**, and split anyway. So the dominant
+   failure is DOWNSTREAM of the lock: it engages at touchdown and is then lost, while the actor
+   stays blocked by geometry — which grows a split at exactly `MPC_LAND_SPEED`. The next suspect
+   is the release path (`setGrounded(false)`, near `:351`, upstream-commented *"Losing ground lock
+   due to body_wrench"*): during AUTO.LAND PX4 still commands thrust, and a wrench test that
+   releases the lock every tick fits every observation. **UNMEASURED — instrument it before
+   writing another fix.** The original entry, wrong only in how far it generalised, follows.
+
+   ~~ANSWERED 2026-08-29 — it is GATE B, the collision-normal test.~~ Three CitySample seeds
    (`citysample-gate1-seed{1,2,3}`, cold stack per seed), **3 of 3 split**, all caught live by the
    step-2 detector and VOIDed. Seed 3, timestamped: **295 consecutive B-gate failures over 141 s**
    with `abs_nz` between **0.00000 and 0.00086** against `kAxisTolerance = 0.25`, each followed by
@@ -3316,6 +3357,15 @@ why Blocks cannot express this fault at all. **Which of the two gates actually a
 3. **THE ACTUAL FIX: stop inferring ground from a collision normal.** Trace downward from the
    vehicle; blocking geometry within a few cm + slow descent ⇒ ground-lock. World-agnostic, which
    is what *bring your own `.uproject`* requires. Patch in `patches/cosys-airsim/`.
+   **ATTEMPTED AND NOT VERIFIED (2026-08-30).**
+   `patches/cosys-airsim/0009-ground-lock-from-a-downward-trace.patch` implements shape A (owner's
+   choice): `bool is_ground` on `CollisionInfo`, set by a 50 cm downward trace in
+   `PawnSimApi::onCollision`, read by the engine as `collision_info.is_ground || <upstream normal
+   test>` — additive, so worlds where the normal test works are untouched. It builds and it does
+   what it says. **It does not fix the fault:** re-flying `citysample-gate1` at 3 seeds after the
+   change split 3 of 3 again, because on those seeds gate B was already passing and the lock was
+   already engaging. The patch addresses the minority mechanism only. Keep it, do not present it
+   as the fix, and do not commit it as working code until a run passes.
    **UNBLOCKED 2026-08-29 by step 1's measurement, and constrained by it:** the failing contacts
    report `abs_nz ≈ 0.0003` where healthy ones report `1.00000`, so (a) do not widen
    `kAxisTolerance` — no threshold separates those populations usefully; (b) gate A and
@@ -4277,6 +4327,75 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 **Until it is fixed, every gate run must say plainly that no chase video exists** rather than let
 `video_written: True` imply the rule was met.
+
+---
+
+## `SIM-43` — with nobody consuming the collision flag, the vehicle cannot take off
+
+**Status:** 🟡 **open** — found **2026-08-31** while proving `SIM-27`'s cause. Second defect,
+masked until now by the first.
+
+`simGetCollisionInfo` is read-and-reset and `has_collided` is a one-shot flag. `SIM-27` is what
+happens when the collision witness steals it. **This is what happens when nobody clears it at
+all:** 2 of 7 runs flown with no witness failed `timeout in state takeoff`, against 0 of 12 with
+the witness running. Measured on the stock binary, so it is not an artifact of any local patch.
+
+```
+gate=G-TICK grounded=0 z=0.803 vz=-2.641 collided=1
+```
+
+Commanding 2.6 m/s of climb, `collided` still set, and the vehicle does not move. The engine's
+guard at `:102` admits the collision path whenever `has_collided` is true and the timestamp
+differs from the last response — and while the vehicle sits on the ground Unreal re-reports the
+contact continuously, so a fresh timestamp always arrives.
+
+**Why it matters for `SIM-27`'s fix.** The obvious remedy — stop the witness polling — trades a
+landing defect for a takeoff one. Any fix has to keep *someone* clearing the flag while stopping
+the witness from being that someone. The likely shape: a non-consuming snapshot for observers,
+with the physics engine remaining the sole consumer.
+
+**Unmeasured:** whether this also occurs with the witness at a lower poll rate, and whether the
+takeoff case has a different root (the two failures are 2 of 7, so the rate is loosely bounded).
+
+---
+
+## `SIM-42` — a run that splits AND collides reports only the collisions
+
+**Status:** 🟡 **open** — found **2026-08-30** on `citysample-gate1` seed 3. The run descended to
+**−3.1 m AGL** — the `SIM-27` pose split, same as its two siblings — and also took **187 contacts**
+with `BP_CrowdCharacter_C_6` while it did so. The gate reported:
+
+```
+[ 3/3] seed 3   FAIL  worst 0.840 m  — 187 collision(s) with BP_CrowdCharacter_C_6, FastGeoSurrogateActor_0
+```
+
+**No mention of the split.** Its two siblings, which split without hitting anything, were correctly
+VOIDed and named. So the same defect reports as a VOID with a diagnosis when it happens alone, and
+as a control FAILURE with a different cause when a pedestrian wanders in — and the pedestrian is
+downstream of the split, because the aircraft is only among them for as long as the landing refuses
+to terminate.
+
+**Why it happens.** In `run_gate.py` the collision verdict is computed from the witness and reaches
+`check_run` before the void reasons are consulted; the split's `split_void_reason` never gets to
+speak because the run already has a failure. That ordering is right for the case it was written for
+(a real crash must not be laundered into a void) and wrong here.
+
+**Why it matters more than a mislabelled seed.** It is the exact shape `SIM-27` step 2 was built to
+remove: a *consequence* named where the *cause* should be. A gate where every affected seed also
+clips scenery would report a fleet of collision failures and never mention the landing defect at
+all.
+
+**Not obvious what the right rule is**, which is why this is a ticket rather than a patch:
+
+- **Split wins when the split trips first.** Defensible — the collisions happened during a descent
+  that should have ended — but it needs the timestamps to compare, and `pose_split_fault` carries
+  one while the witness's records carry their own.
+- **Report both.** A verdict is one line, but nothing stops the seed carrying `also_collided`, and
+  the summary already prints a separate pose-split line.
+- **Never void a run with collisions.** Simplest, and probably wrong: it hides the cause exactly
+  when the world is most obviously involved.
+
+Whichever it becomes, the report must stop dropping one of the two facts on the floor.
 
 ---
 

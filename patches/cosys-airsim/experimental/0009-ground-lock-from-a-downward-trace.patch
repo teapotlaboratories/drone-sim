@@ -1,0 +1,144 @@
+Decide ground by tracing downward, not by the shape of the collision normal. (SIM-27)
+
+⚠️ NOT APPLIED, AND NOT THE FIX. Written 2026-08-30 against a cause that turned out to be wrong.
+It builds, it flies, and it changes nothing about the fault: three CitySample seeds split with it
+in place exactly as they did without it. The real cause is the collision witness consuming a
+read-and-reset flag before the physics engine sees it -- see the 2026-08-31 worklog and SIM-27.
+
+It lives under experimental/ so the build scripts' *.patch glob does NOT pick it up. Kept rather
+than deleted for two reasons: it does address a genuine minority mechanism (one seed of six
+rejected the surface on a wall-shaped normal), and the runs carrying it tracked actor-vs-integrator
+noticeably tighter (0.33-0.46 m) than stock did (0.68-0.84 m) -- unexplained, possibly worth
+revisiting once the real fix lands.
+
+
+THE DEFECT. FastPhysicsEngine has exactly one branch that stops a descent -- the ground lock,
+which zeroes velocity and pins the body to the contact point. Reaching it requires the engine to
+recognise the contact as ground, and it decides that ENTIRELY from the collision normal:
+
+    const bool is_ground_normal = Utils::isApproximatelyEqual(std::abs(normal_body.z()), 1.0f,
+                                                              kAxisTolerance);   // 0.25f
+
+That asks "does this surface face up?", which is a proxy for "can I rest on this". On coarse
+world geometry the proxy fails. MEASURED on Epic's CitySample (2026-08-29, three seeds, all
+three affected): during a landing that never terminated, the contact reported |normal.z| between
+0.00000 and 0.00086 -- a sideways normal, geometrically a wall -- 295 consecutive times over
+141 s, while the vehicle sat on the surface the renderer showed beneath it. ground_collision
+stayed false, the lock never engaged, and the integrator ran on downward at up to 2.45 m/s to
+tens of metres below the world while the Unreal actor stayed put.
+
+Every sensor PX4 receives is synthesised from that integrator, so the aircraft is told it is
+still falling, never disarms, and the landing state times out. It presents as a control failure
+on a flight that flew every waypoint.
+
+WHY NOT WIDEN kAxisTolerance. Healthy touchdowns in the same three runs measure 0.99999-1.00000.
+The two populations sit at opposite ends of the scale; no threshold separates them, and 0.25
+versus 0.05 versus 0.9 changes nothing.
+
+THE FIX. Trace one ray straight down from the vehicle and report whether anything solid is under
+it. That question can only be asked where a world exists, so it is asked in PawnSimApi (Unreal
+side) and carried to the engine as a flag on CollisionInfo, which is a plain struct with no
+engine-specific types in it.
+
+  1. CollisionInfo gains `bool is_ground` (defaults false -- anything that does not know says no)
+  2. PawnSimApi::onCollision sets it from GetObstacle, straight down, 50 cm, ignoring the vehicle
+  3. FastPhysicsEngine accepts EITHER signal: `collision_info.is_ground || <the normal test>`
+
+ADDITIVE, NOT A REPLACEMENT. The upstream test remains as the fallback, so every world where it
+already works -- Blocks, and any simulator that never sets the flag -- behaves exactly as before.
+`is_landing` still gates the use of it, so "something underneath" only counts while the motion is
+downward-dominant; no new threshold is introduced beyond the 50 cm probe.
+
+WHY 50 cm: the landing gear puts the contact point ~32 cm below the vehicle origin (measured on
+a default spawn -- body at NED +0.582, contact with the ground at +0.900). The probe reaches a
+surface the vehicle is standing on and nothing further; in flight it finds nothing.
+
+WHAT OWNS THE SURFACE IS DELIBERATELY NOT PART OF THE TEST. A rooftop, a bridge deck or a parked
+car is as landable as a road. A rule that looked for the landscape would pass the seeds this was
+measured against and break the first time someone landed on a building.
+
+Paths are given under Unreal/Plugins/AirSim/Source/ because that is the tree the patch is applied
+to (build_blocks.sh and convert_world.sh, via vp_apply_unreal -p4). Upstream's build.sh rsyncs
+AirLib/ over Source/AirLib, so re-running it drops hunks 1 and 2 -- re-apply and rebuild, and
+verify the strings are in the .so that LOADED, not the one on disk.
+
+--- a/Unreal/Plugins/AirSim/Source/AirLib/include/common/CommonStructs.hpp
++++ b/Unreal/Plugins/AirSim/Source/AirLib/include/common/CommonStructs.hpp
+@@ -240,6 +240,14 @@
+         unsigned int collision_count = 0;
+         std::string object_name;
+         int object_id = -1;
++        // TRUE when there is blocking geometry DIRECTLY BENEATH the vehicle.       (SIM-27)
++        //
++        // Set by the simulator side, which is the only place a world exists to trace against,
++        // and left false by anything that does not know. It answers the one question the
++        // collision normal cannot: whether the vehicle is settling onto something solid --
++        // a road, a rooftop, a bridge deck, a parked car. What owns the surface is
++        // deliberately not part of the test.
++        bool is_ground = false;
+ 
+         CollisionInfo()
+         {
+--- a/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
++++ b/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
+@@ -153,7 +153,29 @@
+ 
+             //see if impact is straight at body's surface (assuming its box)
+             const Vector3r normal_body = VectorMath::transformToBodyFrame(collision_info.normal, current.pose.orientation);
+-            const bool is_ground_normal = Utils::isApproximatelyEqual(std::abs(normal_body.z()), 1.0f, kAxisTolerance);
++            // GROUND IS NO LONGER INFERRED FROM THE NORMAL ALONE.                 (SIM-27)
++            //
++            // The normal test asks whether the contact surface FACES UP. That is a proxy for
++            // "can I rest on this", and on coarse world geometry the proxy fails: measured on
++            // CitySample, a landing that never terminated reported |normal.z| between 0.00000
++            // and 0.00086 -- a sideways normal, i.e. a wall -- 295 times over 141 s, while the
++            // vehicle sat on the surface the render showed beneath it. The ground lock is the
++            // only branch that stops a descent, so it never engaged and the integrator ran on
++            // to tens of metres below the world.
++            //
++            // Widening kAxisTolerance cannot fix that: healthy touchdowns in the same runs
++            // measure 0.99999-1.00000, so the two populations sit at opposite ends of the
++            // scale and no threshold separates them.
++            //
++            // So the simulator side now traces DOWNWARD and reports whether anything solid is
++            // under the vehicle, and either signal is enough. The upstream test is kept as the
++            // fallback rather than replaced: where it already works -- every flat world, and
++            // every simulator that does not set the flag -- behaviour is unchanged.
++            //
++            // `is_landing` still gates the use of this below, so "something underneath" only
++            // counts while the motion is downward-dominant. No new threshold is introduced.
++            const bool is_ground_normal = collision_info.is_ground ||
++                                          Utils::isApproximatelyEqual(std::abs(normal_body.z()), 1.0f, kAxisTolerance);
+             bool ground_collision = false;
+             const float z_vel = vcur_avg.z();
+             const bool is_landing = z_vel > std::abs(vcur_avg.x()) && z_vel > std::abs(vcur_avg.y());
+--- a/Unreal/Plugins/AirSim/Source/PawnSimApi.cpp
++++ b/Unreal/Plugins/AirSim/Source/PawnSimApi.cpp
+@@ -294,6 +294,27 @@
+     state_.collision_info.time_stamp = msr::airlib::ClockFactory::get()->nowNanos();
+     state_.collision_info.object_name = std::string(Other ? TCHAR_TO_UTF8(*(Other->GetName())) : "(null)");
+     state_.collision_info.object_id = comp ? comp->CustomDepthStencilValue : -1;
++    // IS THERE ANYTHING SOLID UNDER US?                                            (SIM-27)
++    //
++    // Answered HERE because this is where a world exists to ask. AirLib is engine-agnostic by
++    // design -- FastPhysicsEngine has no way to trace -- so it had to decide "is this the
++    // ground?" from the collision normal, and a coarse proxy defeats that: measured
++    // |normal.z| = 0.0003 on a surface the vehicle was resting on.
++    //
++    // One ray, straight down from the vehicle origin, ignoring the vehicle itself. Distance is
++    // 50 cm: the landing gear puts the contact point ~32 cm below the origin (measured on a
++    // default spawn -- body at NED +0.582, contact with the ground at +0.900), so this reaches
++    // a surface the vehicle is standing on and nothing further. In flight it finds nothing.
++    //
++    // WHAT OWNS THE SURFACE IS NOT PART OF THE TEST. A rooftop, a bridge deck or a parked car
++    // is as landable as a road, and a rule that looked for the landscape would work on the
++    // seeds this was measured against and break the first time someone landed on a building.
++    static constexpr float kGroundProbeUU = 50.0f;
++    const FVector probe_start = getUUPosition();
++    const FVector probe_end = probe_start - FVector(0.0f, 0.0f, kGroundProbeUU);
++    FHitResult ground_hit = FHitResult(ForceInit);
++    state_.collision_info.is_ground = UAirBlueprintLib::GetObstacle(
++        params_.pawn, probe_start, probe_end, ground_hit, params_.pawn);
+ 
+     ++state_.collision_info.collision_count;
+ 

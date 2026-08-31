@@ -1,0 +1,80 @@
+Log every contact event and every physics tick.                          (SIM-27)
+
+MEASUREMENT ONLY. REQUIRES 0008, 0009 and 0010 applied first -- it is cut against that exact
+stack (it extends 0008's gate enum and sits beside 0009's edit in onCollision).
+
+WHY. With 0008 + 0010 deployed, the split window produced NO log lines at all: no contact
+(A/B/C), no grounded tick (D), no release (E). Gate D only fires while the body is grounded, so
+silence there means "not grounded" -- and silence in A/B/C means the engine was never told about
+a contact. Silence is not evidence, and this ticket has already twice read it as if it were.
+
+  gate=G-TICK  EVERY physics tick, grounded or not: grounded flag, z, vz, and whether the
+               stored collision info says has_collided. Unconditional, so a descent through
+               the surface produces a visible trace instead of an absence.
+  gate=F-HIT   every Unreal hit event reaching PawnSimApi::onCollision (10 Hz throttle):
+               count, object name, impact z, actor z, and the normal as UE reported it.
+
+WHAT IT DECIDES. If F is silent through the descent while G shows the body falling, Unreal is
+not generating hit events for whatever is stopping the actor, and no change inside
+FastPhysicsEngine can help -- the fix belongs in how the pawn is moved or how that geometry
+responds. If F fires and G shows the body still descending, the events are arriving and being
+discarded, and the discard is findable.
+
+Read with:  docker logs sim-unreal 2>&1 | grep -E "gate=[FG]"
+
+--- a/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
++++ b/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
+@@ -88,6 +88,14 @@
+             body.lock();
+             //get current kinematics state of the body - this state existed since last dt seconds
+             const Kinematics::State& current = body.getKinematics();
++            // SIM-27: gate G -- EVERY tick, grounded or not. Gate D only logged while the body
++            // was grounded, so a descent through the surface produced silence, and silence was
++            // read (wrongly, twice) as evidence. This line is unconditional: it says where the
++            // body is, how fast, and whether the engine considers it on the ground, throughout.
++            sim27Log(kGateG, Utils::stringf(
++                "gate=G-TICK grounded=%d z=%.3f vz=%.3f collided=%d",
++                body.isGrounded() ? 1 : 0, current.pose.position.z(), current.twist.linear.z(),
++                body.getCollisionInfo().has_collided ? 1 : 0));
+             Kinematics::State next;
+             Wrench next_wrench;
+ 
+@@ -320,7 +328,7 @@
+         // that measured this produced 386 lines and not one gate=C, from a landing that
+         // demonstrably ground-locked. A throttle shared across call sites cannot answer a
+         // question about which call site fires.
+-        enum Sim27Gate { kGateA = 0, kGateB, kGateC, kGateD, kGateE, kSim27GateCount };
++        enum Sim27Gate { kGateA = 0, kGateB, kGateC, kGateD, kGateE, kGateG, kSim27GateCount };
+         static void sim27Log(Sim27Gate gate, const std::string& msg, double seconds = 0.25)
+         {
+             static uint64_t last_ns[kSim27GateCount] = { 0 };
+--- a/Unreal/Plugins/AirSim/Source/PawnSimApi.cpp
++++ b/Unreal/Plugins/AirSim/Source/PawnSimApi.cpp
+@@ -317,6 +317,27 @@
+         params_.pawn, probe_start, probe_end, ground_hit, params_.pawn);
+ 
+     ++state_.collision_info.collision_count;
++    // SIM-27: gate F -- did Unreal tell us about this contact AT ALL?
++    //
++    // The open question is whether the descent produces hit events that the physics engine
++    // then discards, or no hit events at all. Nothing downstream can answer it: the engine
++    // only ever sees what this handler stores. Throttled to 10 Hz -- presence or absence
++    // through the descent window is the whole signal, not the exact count.
++    {
++        static uint64_t sim27_last_ns = 0;
++        const uint64_t now_ns = Utils::getTimeSinceEpochNanos();
++        if (now_ns - sim27_last_ns > 100000000ULL) {
++            sim27_last_ns = now_ns;
++            Utils::log(Utils::stringf(
++                "SIM27 gate=F-HIT n=%u object=%s impact_z=%.3f actor_z=%.3f normal=(%.3f,%.3f,%.3f)",
++                state_.collision_info.collision_count,
++                state_.collision_info.object_name.c_str(),
++                state_.collision_info.impact_point.z(),
++                state_.collision_info.position.z(),
++                state_.collision_info.normal.x(), state_.collision_info.normal.y(),
++                state_.collision_info.normal.z()));
++        }
++    }
+ 
+     UAirBlueprintLib::LogMessageString("Collision", Utils::stringf("#%d with %s - ObjID %d", state_.collision_info.collision_count, state_.collision_info.object_name.c_str(), state_.collision_info.object_id), LogDebugLevel::Informational);
+ }

@@ -1,0 +1,102 @@
+Log the ground-lock RELEASE, which the gate probe could not see.        (SIM-27)
+
+MEASUREMENT ONLY. Adds no behaviour. REQUIRES 0008 (it uses that patch's sim27Log and its
+per-gate throttle enum); apply 0008 first.
+
+WHY THIS EXISTS. 0008 answered "which acquisition gate rejects the landing surface" and the
+answer was read too broadly. Across six instrumented splits, ONE rejected on the collision
+normal (gate B, |normal.z| ~ 0.0003, no lock) and FIVE passed gate B with |normal.z| = 1.00000,
+ENGAGED the ground lock, and split anyway. So on the dominant path the lock is acquired and the
+vehicle still descends -- which means the fault is downstream of acquisition, where nothing was
+being logged.
+
+The suspect is right there in getNextKinematicsNoCollision:
+
+    if (body.isGrounded()) {
+        float external_force_magnitude = body_wrench.force.squaredNorm();
+        Vector3r weight = body.getMass() * body.getEnvironment().getState().gravity;
+        float weight_magnitude = weight.squaredNorm();
+        if (external_force_magnitude >= weight_magnitude)
+            body.setGrounded(false);          // <- upstream: "Losing ground lock due to body_wrench"
+
+The lock holds only while the net external force stays BELOW the vehicle's weight. During
+AUTO.LAND the rotors sit at very nearly hover thrust -- which is, by definition, about equal to
+weight. So this comparison sits exactly on its own boundary at the one moment it has to hold,
+and if it tips, the body is released back into free integration while the Unreal actor stays
+blocked by the geometry it landed on. That would grow a split at precisely MPC_LAND_SPEED, which
+is what every failing trace shows.
+
+  gate=D-LOCK-HELD      every tick the body is grounded: force^2, weight^2, their ratio,
+                        and whether this tick releases
+  gate=E-LOCK-RELEASED  the release actually taken, with the descent rate at that moment
+
+If D shows ratio hovering at ~1.0 and E fires repeatedly through the descent, the acquisition
+gates were never the fault and the fix belongs in this release test. If E never fires, the lock
+is being lost somewhere else and this rules out the obvious place.
+
+EVERY LINE NAMES ITS BODY, and the first version of this probe is why. It printed
+force2=0.0000 for 171 s straight, across a mission the aircraft visibly flew -- and a body under
+rotor thrust cannot report zero wrench. The lines were describing some other body in the physics
+world, and with no identity in them there was no way to tell which. Position, velocity and mass
+are printed for the same reason: they say whether the body being logged is the one that
+descended. An instrument that cannot say what it measured produces confident nonsense.
+
+Read with:  docker logs sim-unreal 2>&1 | grep -E "gate=[DE]"
+
+--- a/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
++++ b/Unreal/Plugins/AirSim/Source/AirLib/include/physics/FastPhysicsEngine.hpp
+@@ -265,8 +265,8 @@
+ 
+                 //throttledLogOutput("*** Triggering ground lock", 0.1);
+                 // SIM-27 step 1: gate C, taken. This is the ONLY branch that stops a descent.
+-                sim27Log(kGateC, Utils::stringf("gate=C-GROUND-LOCK ENGAGED at z=%.3f",
+-                                        collision_info.position.z()));
++                sim27Log(kGateC, Utils::stringf("gate=C-GROUND-LOCK ENGAGED body=%s at z=%.3f",
++                                        body.getName().c_str(), collision_info.position.z()));
+             }
+             else {
+                 // SIM-27 step 1: gate C, not taken -- the integrator keeps its velocity and
+@@ -298,7 +298,7 @@
+         // that measured this produced 386 lines and not one gate=C, from a landing that
+         // demonstrably ground-locked. A throttle shared across call sites cannot answer a
+         // question about which call site fires.
+-        enum Sim27Gate { kGateA = 0, kGateB, kGateC, kSim27GateCount };
++        enum Sim27Gate { kGateA = 0, kGateB, kGateC, kGateD, kGateE, kSim27GateCount };
+         static void sim27Log(Sim27Gate gate, const std::string& msg, double seconds = 0.25)
+         {
+             static uint64_t last_ns[kSim27GateCount] = { 0 };
+@@ -400,8 +400,34 @@
+                 float external_force_magnitude = body_wrench.force.squaredNorm();
+                 Vector3r weight = body.getMass() * body.getEnvironment().getState().gravity;
+                 float weight_magnitude = weight.squaredNorm();
++                // SIM-27: gate D -- the ground lock RELEASE test, which the A/B/C probe could
++                // not see. The lock holds only while net external force stays BELOW the
++                // vehicle's weight; during AUTO.LAND the rotors sit at nearly hover thrust,
++                // which is about equal to weight, so this sits on its own boundary exactly
++                // when it matters.
++                //
++                // THE BODY IS NAMED, and the first version of this probe is why: it printed
++                // force2=0.0000 for 171 s straight, through a mission the aircraft visibly
++                // flew. A body under rotor thrust cannot report zero wrench, so the lines were
++                // describing something else -- and with no identity in them there was no way
++                // to tell what. Position and velocity are printed for the same reason: they
++                // say whether this body is the one that descended.
++                sim27Log(kGateD, Utils::stringf(
++                    "gate=D-LOCK-HELD body=%s force2=%.4f weight2=%.4f ratio=%.4f release=%d "
++                    "z=%.3f vz=%.3f mass=%.3f",
++                    body.getName().c_str(),
++                    external_force_magnitude, weight_magnitude,
++                    (weight_magnitude > 0.0f ? external_force_magnitude / weight_magnitude : -1.0f),
++                    (external_force_magnitude >= weight_magnitude) ? 1 : 0,
++                    current.pose.position.z(), current.twist.linear.z(), body.getMass()));
+                 if (external_force_magnitude >= weight_magnitude) {
+                     //throttledLogOutput("*** Losing ground lock due to body_wrench " + VectorMath::toString(body_wrench.force), 0.1);
++                    // SIM-27: gate E -- the release actually taken.
++                    sim27Log(kGateE, Utils::stringf(
++                        "gate=E-LOCK-RELEASED body=%s ratio=%.4f z=%.3f vz=%.3f",
++                        body.getName().c_str(),
++                        (weight_magnitude > 0.0f ? external_force_magnitude / weight_magnitude : -1.0f),
++                        current.pose.position.z(), current.twist.linear.z()));
+                     body.setGrounded(false);
+                 }
+                 next_wrench.force = Vector3r::Zero();

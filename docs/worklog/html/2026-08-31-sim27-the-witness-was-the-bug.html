@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Witness Was The Bug</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-31 &middot; SIM-27</span>
+  <nav><a href="#finding">The finding</a><a href="#evidence">Evidence</a><a href="#trap">The sting</a><a href="#wrong">Three wrong answers</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-31 &middot; SIM-27 &middot; 19 flights</span>
+  <h1>The Witness<br>Was The Bug</h1>
+  <p class="sub">For three weeks a landing that never terminated was blamed on the simulator&rsquo;s ground detection. It was our own collision monitor, eating the one-shot flag the physics engine needed &mdash; and the fix is not to switch it off, because that breaks takeoff instead.</p>
+  <div class="mastmeta"><span>Witness on <b>10 splits / 12</b></span><span>Witness off <b>0 splits / 7</b></span><span>But takeoffs lost <b>2 / 7</b></span><span>Wrong answers first <b>3</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat stop"><div class="k">The cause</div><div class="v">read-and-reset</div><div class="n">first reader clears the flag; the witness polls at 20 Hz</div></div>
+<div class="stat ok"><div class="k">Proven by</div><div class="v">0 of 7</div><div class="n">no splits with nothing polling, on two binaries</div></div>
+<div class="stat warn"><div class="k">The sting</div><div class="v">2 of 7</div><div class="n">takeoffs lost when nobody clears it at all</div></div>
+</div>
+
+<h2 id="finding"><span class="secnum">01</span> What was actually happening</h2>
+<p><code>watch_collisions.py</code> is harness plumbing, not part of the aircraft: it polls the
+simulator 20 times a second so the gate can score whether a flight hit anything. The RPC it calls,
+<code>simGetCollisionInfo</code>, is <strong>read-and-reset</strong> &mdash; <code>has_collided</code>
+is one-shot, and the first reader clears it.</p>
+<p>The physics engine needs that same flag to run collision response:</p>
+<pre>if (body.isGrounded() || (collision_info.has_collided &amp;&amp; collision_response.collision_time_stamp != collision_info.time_stamp))</pre>
+<p>The witness kept winning the race. No flag &rarr; no collision response &rarr; <strong>no ground
+lock</strong> &rarr; the integrator descends through the world while the Unreal actor stays on the
+surface. Every PX4 sensor is derived from that integrator, so the aircraft is told it is still
+falling, never disarms, and the landing times out &mdash; reported, until last week, as a flight-control
+failure.</p>
+<div class="tw"><table>
+<thead><tr><th>Configuration</th><th>Runs</th><th>Pose splits</th><th>Takeoff timeouts</th></tr></thead>
+<tbody>
+<tr><td>witness ON</td><td class="num">12</td><td class="num"><strong>10</strong></td><td class="num">0</td></tr>
+<tr><td>witness OFF</td><td class="num">7</td><td class="num"><strong>0</strong></td><td class="num"><strong>2</strong></td></tr>
+</tbody>
+</table></div>
+<p>It also settles the rate that never made sense &mdash; 1.7% on Blocks against 70&ndash;90% on
+CitySample. Blocks re-fires contacts densely enough that physics usually catches one between polls;
+the CitySample surrogate does not.</p>
+
+<h2 id="evidence"><span class="secnum">02</span> The evidence, in one pair of lines</h2>
+<p>With the witness running, mid-descent &mdash; Unreal reporting contact after contact against an
+actor resting at 0.759, with a textbook ground normal, while the engine sees nothing:</p>
+<pre>gate=F-HIT  n=100 object=FastGeoSurrogateActor_0 impact_z=0.959 actor_z=0.759 normal=(0.000,0.000,-1.000)
+gate=G-TICK grounded=0 z=2.081 vz=0.695 <b>collided=0</b></pre>
+<p>Same fixture, same world, nothing polling the RPC:</p>
+<pre>gate=C-GROUND-LOCK ENGAGED body=MultiRotorPhysicsBody at z=0.759
+gate=G-TICK grounded=1 z=0.759 vz=0.000 <i>collided=1</i></pre>
+<p>The flag survives to the physics tick, the lock engages, the landing ends.</p>
+
+<h2 id="trap"><span class="secnum">03</span> Why &ldquo;switch it off&rdquo; is not the fix</h2>
+<div class="note stop"><span class="lbl">The theft was masking a second defect</span>
+<p>With no reader at all, the flag is never cleared, the engine keeps taking the collision path
+against a contact Unreal re-reports every tick, and the vehicle is pinned to the ground:</p>
+<pre>gate=G-TICK grounded=0 z=0.803 vz=<b>-2.641</b> collided=1   &larr; commanding 2.6 m/s of climb, not moving</pre>
+<p>Two takeoff timeouts in seven runs, against zero in twelve. Filed as <code>SIM-43</code>. Any fix
+has to keep <em>someone</em> clearing the flag while stopping the witness being that someone &mdash;
+most likely a non-consuming snapshot for observers, with the engine as sole consumer.</p></div>
+
+<h2 id="wrong"><span class="secnum">04</span> Three wrong answers first</h2>
+<p>Recorded because the pattern is the useful part, and all three were stated with more confidence
+than they had earned.</p>
+<div class="tw"><table>
+<thead><tr><th>Claimed</th><th>Why it was wrong</th></tr></thead>
+<tbody>
+<tr><td>&ldquo;Gate B rejects the surface &mdash; the normal reads as a wall&rdquo;</td><td>True on one seed of six. Generalised from a single measurement, and it produced a C++ patch against a cause that was not the cause. It flew, and changed nothing.</td></tr>
+<tr><td>&ldquo;The ground lock works, the body is static&rdquo;</td><td>Compared <strong>seed 1&rsquo;s probe trace against seed 2&rsquo;s engine log</strong> &mdash; two different flights, aligned on wall-clock by assumption.</td></tr>
+<tr><td>&ldquo;The engine is never told about the contact&rdquo;</td><td>Right that it was not told; wrong about why. The events were arriving and being eaten by our own tool.</td></tr>
+</tbody>
+</table></div>
+<p>The instrumentation was wrong twice as well: one shared throttle timer starved the rare gate so
+<code>gate=C</code> could never print, and the first release probe named no body, so 171 s of
+zero-wrench lines could not be attributed to anything.</p>
+<div class="note ok"><span class="lbl">What actually worked</span>
+<p>Refusing to read silence as evidence. Every wrong answer came from treating an absence &mdash; no
+gate C lines, no engine activity, no contact &mdash; as if it meant something. The <code>gate=G-TICK</code>
+probe, which logs unconditionally on every tick whether grounded or not, is what made absence
+impossible and ended the guessing.</p></div>
+
+<footer>
+  <span>Worklog &middot; 2026-08-31 &middot; SIM-27</span>
+  <span>19 flights &middot; every stack torn down and verified</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>
