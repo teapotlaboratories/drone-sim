@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Collisions Became Real</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-08-31 &middot; SIM-27 fix</span>
+  <nav><a href="#fix">The fix</a><a href="#trap">The build trap</a><a href="#verify">Verified</a><a href="#uncovered">What it uncovered</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-08-31 &middot; follows &ldquo;The Witness Was The Bug&rdquo;</span>
+  <h1>Collisions<br>Became Real</h1>
+  <p class="sub">Two lines moved the collision flag&rsquo;s ownership from an observer to the physics pipeline. The landing defect is gone &mdash; and the first thing honest collision handling revealed is that every flight on this world had been passing straight through the city&rsquo;s proxy geometry.</p>
+  <div class="mastmeta"><span>Worst split <b>24.75 &rarr; 1.009 m</b></span><span>RPC reads per flight <b>~2,000 &rarr; 2</b></span><span>Vendor patches <b>0</b></span><span>Rewritten <b>2026-09-02</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat ok"><div class="k">Landing defect</div><div class="v">fixed</div><div class="n">0 splits in 3 seeds with the witness running</div></div>
+<div class="stat warn"><div class="k">Cost of the first try</div><div class="v">a whole gate</div><div class="n">edited a .cpp that the build never compiles</div></div>
+<div class="stat stop"><div class="k">Uncovered</div><div class="v">real collisions</div><div class="n">the proxy was always solid; nothing was told</div></div>
+</div>
+
+<div class="note stop"><span class="lbl">Rewritten 2026-09-02, and that needs saying out loud</span>
+<p>Worklogs here are frozen once written &mdash; the rule exists so a record cannot be tidied after
+the fact. This file is the documented exception, at the owner&rsquo;s instruction in
+<code>handoff-2026-09-01.md</code>: <em>&ldquo;is WRONG. It describes the vendor-patch fix, which was
+abandoned twice over after it was written. Rewrite it around the harness-side fix before committing
+anything.&rdquo;</em> It had never been committed, so nothing in history is changed. The cause and the
+two hard-won lessons survive; the fix and its measurements are replaced, because the old numbers
+measured a patch that was deleted.</p></div>
+
+<h2 id="cause"><span class="secnum">01</span> The cause &mdash; unchanged, and still the whole story</h2>
+<p><code>has_collided</code> is one-shot, and upstream clears it inside
+<code>getCollisionInfoAndReset()</code>, reached only from the <code>simGetCollisionInfo</code> RPC
+binding. So an external <strong>observer</strong> was clearing a flag the <strong>physics
+engine</strong> depends on: <code>watch_collisions.py</code> polled that RPC at 20 Hz, consumed the
+touchdown contact, and <code>FastPhysicsEngine</code> never engaged the ground lock.</p>
+<p>The integrator kept descending through the world while the Unreal actor rested on the surface.
+Every PX4 sensor described a fall that was not happening, so touchdown never registered and
+<code>LAND</code> ran out its budget &mdash; reported, for weeks, as a flight-control failure.</p>
+
+<h2 id="notshipped"><span class="secnum">02</span> The fix that was NOT shipped, and why</h2>
+<p>The direct fix moves the ownership inside Cosys-AirSim: stop <code>getCollisionInfoAndReset()</code>
+resetting, add a <code>clearCollisionFlag()</code> called from
+<code>MultirotorPawnSimApi::updateRenderedState</code> immediately after the contact is copied into
+the physics body, making that handoff the sole consumer. It works, and it was measured working.</p>
+<div class="note stop"><span class="lbl">It was still the wrong change</span>
+<p>Patching an upstream so that <em>our</em> observation tool stops breaking it inverts this
+project&rsquo;s primary rule &mdash; reuse and integrate upstream, don&rsquo;t reinvent. The tool is
+ours and the defect is ours; the vendor tree was doing exactly what its own API documents.</p>
+<p>Patch <code>0012</code> was deleted, the plugin reverted to byte-identical upstream, and
+<code>test_no_vendor_patch_is_needed_for_the_collision_fix</code> now fails if a collision-ownership
+patch reappears in the auto-applied directory.</p></div>
+
+<h2 id="trap"><span class="secnum">03</span> Two things the abandoned attempt taught</h2>
+<p><strong>A change under <code>AirLib/src</code> does nothing.</strong> The obvious first edit was the
+RPC binding itself, <code>AirLib/src/api/RpcLibServerBase.cpp</code>. It compiles, the build reports
+success, and it changes nothing: AirLib ships as a <strong>prebuilt static library</strong>
+(<code>AirSim.Build.cs:53</code>, <code>AddLibDependency</code> &rarr;
+<code>Source/AirLib/lib/libAirLib.a</code>), so UnrealBuildTool never compiles
+<code>AirLib/src/*.cpp</code>. It cost a full verification gate to discover &mdash; 3 seeds, ~35
+minutes, behaving exactly as before.</p>
+<p><strong>Headers are compiled</strong> into the plugin&rsquo;s own translation units, which is why
+every probe in <code>FastPhysicsEngine.hpp</code> worked and this did not. The rule: a change under
+<code>AirLib/src</code> requires rebuilding the static library; a change in plugin sources or AirLib
+headers does not.</p>
+
+<h2 id="shipped"><span class="secnum">04</span> What shipped: bracket the flight, do not watch it</h2>
+<p>If the RPC cannot be read without consuming the flag &mdash; and it cannot; the alternative channel
+is closed too, because upstream&rsquo;s <code>UE_LOG</code> calls in
+<code>UAirBlueprintLib::LogMessage</code> are commented out &mdash; then an observer must stop reading
+it during a flight.</p>
+
+<figure>
+<svg viewBox="0 0 960 220" role="img" aria-labelledby="brkt">
+  <title id="brkt">Two reads per flight, both outside it</title>
+  <path class="e" d="M60 170 C 200 40, 760 40, 900 170" />
+  <circle cx="150" cy="96" r="7" fill="var(--ok)"/>
+  <circle cx="810" cy="96" r="7" fill="var(--ok)"/>
+  <text class="nid" x="150" y="80" text-anchor="middle">read 1</text>
+  <text class="nlb" x="150" y="126" text-anchor="middle">crossing the gate, going up</text>
+  <text class="nid" x="810" y="80" text-anchor="middle">read 2</text>
+  <text class="nlb" x="810" y="126" text-anchor="middle">crossing it, coming down</text>
+  <rect x="230" y="60" width="500" height="72" rx="3" fill="none" stroke="var(--stop)"
+        stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text class="nid" x="480" y="88" text-anchor="middle" fill="var(--stop)">BLIND &mdash; and it says so</text>
+  <text class="nlb" x="480" y="110" text-anchor="middle">not one RPC read while the aircraft is flying</text>
+  <text class="axl" x="60" y="196">ground</text>
+  <text class="axl" x="868" y="196">ground</text>
+</svg>
+<figcaption>The witness cannot watch a flight without breaking it, so it brackets one instead.</figcaption>
+</figure>
+
+<p>It samples <code>collision_count</code> as the vehicle crosses an altitude gate going up, and
+again as it crosses back down, and reports the difference. That counter is monotonic and was never
+part of the reset. <code>simGetVehiclePose</code> is a plain getter that consumes nothing, so the gate
+itself can be polled as fast as we like.</p>
+<div class="note ok"><span class="lbl">The blind spot is declared, not hidden</span>
+<p>A run that never crosses the gate reports <code>measured: false</code> and scores UNKNOWN &mdash;
+never clean. An unobserved run and a clean run are indistinguishable from outside, and only one of
+them is safe to call clean.</p></div>
+
+<h2 id="verify"><span class="secnum">05</span> Verified where it failed before</h2>
+<p><code>citysample-gate1</code>, 3 seeds, witness ON &mdash; the configuration that split 10 of 12.</p>
+<div class="tw"><table>
+<thead><tr><th></th><th>before</th><th>after</th></tr></thead>
+<tbody>
+<tr><td>worst pose split</td><td class="num">24.75 m</td><td class="num"><strong>1.009 m</strong></td></tr>
+<tr><td>RPC reads during a flight</td><td class="num">~2,000</td><td class="num"><strong>0</strong></td></tr>
+<tr><td>vendor patches required</td><td class="num">1</td><td class="num"><strong>0</strong></td></tr>
+</tbody>
+</table></div>
+<p>The flag survives to the physics tick, the ground lock engages, landings terminate.</p>
+
+<h2 id="uncovered"><span class="secnum">06</span> What it uncovered, and how that premise changed</h2>
+<p>Making collisions honest surfaced a seed held several metres above the ground, climbing, in
+continuous contact with the same actor this ticket had circled from the start. It was filed as
+<code>SIM-44</code> on the theory that a far-field visual impostor was carrying collision geometry it
+should not.</p>
+<div class="note stop"><span class="lbl">That premise was corrected on 2026-09-01, and the theory withdrawn</span>
+<p>Zooming the chase footage and pulling the aircraft&rsquo;s own front camera at the same instant
+settles it: a branch passes through the drone, and the onboard view is filled by trunk and canopy at
+AirSim truth <code>z = -4.98 m</code>. <strong>It is a tree.</strong> The aircraft took off under one
+and climbed into it, and the collision is entirely legitimate &mdash; stripping the proxy&rsquo;s
+collision would have let the aircraft fly through trees.</p>
+<p>So the finding is not about physics at all. It is about <strong>where the vehicle was put</strong>,
+which is what <code>SIM-44</code> became &mdash; and what <code>SIM-45</code> was eventually built to
+make visible.</p></div>
+
+<footer>
+  <span>Worklog &middot; 2026-08-31 &middot; SIM-27 fix</span>
+  <span>25 flights over three days &middot; machine clean</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

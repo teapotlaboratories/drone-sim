@@ -856,11 +856,16 @@ def test_down_flag_exists_and_is_documented():
     assert "--down                tear the stack down and VERIFY" in src
 
 
-def test_teardown_verification_uses_the_canonical_five_container_list():
+def test_teardown_removes_the_canonical_container_list():
     """Hand-typed lists have consistently missed sim-xrce, whose stale copy holds udp/8888
-    while MicroXRCEAgent exits 0 on a bind failure."""
+    while MicroXRCEAgent exits 0 on a bind failure.
+
+    The list was hand-typed in TWO places until `SIM-46` added a sixth container (sim-webui,
+    the ground station) and made it one `STACK_CONTAINERS` array. The membership of that array
+    and the fact that the verifier derives from it are pinned in
+    tests/test_stack_containers.py; this keeps checking the wiring around it."""
     src = _sim_up()
-    assert 'docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce "$SIM"' in src
+    assert 'docker rm -f "${STACK_CONTAINERS[@]}"' in src
     assert "down_and_verify()" in src and "teardown\n  verify_down" in src
 
 

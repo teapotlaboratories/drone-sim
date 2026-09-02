@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://relaxng.org/ns/structure/1.0"?>
+<package format="3">
+  <name>webui</name>
+  <version>0.1.0</version>
+  <description>Hand-flying web interface: rosbridge, web_video_server, and the chase camera as a ROS 2 topic (SIM-45). SITL only.</description>
+  <maintainer email="aldwinakbar@gmail.com">Aldwin Hermanudin</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>drone_interfaces</exec_depend>
+  <!-- The two upstream components this package exists to wrap rather than reimplement.
+       Pinned in versions.lock and installed by docker/ros2.Dockerfile. -->
+  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>web_video_server</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

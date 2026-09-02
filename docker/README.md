@@ -1,4 +1,4 @@
-# `docker/` — the six images the simulator runs on
+# `docker/` — the seven images the simulator runs on
 
 **There is no compose file, and never was one for this stack.** Bring-up is
 [`../scripts/sim_up.sh`](../scripts/sim_up.sh) driving raw `docker run`. That is deliberate:
@@ -11,6 +11,11 @@ origin, and a second, half-correct path is worse than none.
 ./scripts/sim_up.sh --world /path/to/Your.uproject   # your own Unreal world
 ```
 
+**One build order matters**: `drone-sim/webui` does `COPY --from=drone-sim/ros2:v1.16.0`, so the
+companion image must exist before the ground-station image is built. Everything else is
+independent. Recorded here because a build order that lives only in someone's head is not
+reproducible.
+
 ## The images
 
 | Image | Dockerfile | Base | Role |
@@ -18,6 +23,7 @@ origin, and a second, half-correct path is worse than none.
 | `drone-sim/px4:v1.16.0` | `px4.Dockerfile` | `ubuntu:24.04` | PX4 v1.16.0 SITL + ROS 2 Jazzy + the uXRCE-DDS agent + branch-matched `px4_msgs`. **11.0 GB.** Base of the next three |
 | `drone-sim/ros2:v1.16.0` | `ros2.Dockerfile` | `drone-sim/px4` | the companion-computer image — where every ROS 2 node and the Cosys-AirSim wrapper run |
 | `drone-sim/qgc:v1.16.0` | `qgc.Dockerfile` (+ `qgc-entrypoint.sh`) | `drone-sim/px4` | QGroundControl headless — the **only** component that speaks MAVLink over IP |
+| `drone-sim/webui:v1.16.0` | `webui.Dockerfile` (+ `webui-profile.sh`) | `ubuntu:24.04` | **the ground station** (`SIM-46`) — rosbridge_suite, web_video_server and the hand-flying page. Runs `sim-webui`, a sibling of `sim-qgc`: on real hardware the ROS 2 graph runs on the companion computer and a web page that flies the aircraft runs on someone's laptop. **Build it AFTER `drone-sim/ros2`** — it `COPY --from`s that image's `px4_msgs` install tree, so both sides run the same built messages rather than two builds of one SHA. Deliberately carries **no AirSim client, no msgpack and none of our own nodes**: the ground station has no path to the simulator, and the build asserts it. (ffmpeg *is* present — it is a hard `Depends` of `web_video_server`, so the boundary rests on there being no node here that opens a display, not on ffmpeg being absent) |
 | `drone-sim/video:v1.16.0` | `video.Dockerfile` | `drone-sim/px4` | a thin ffmpeg layer, used only to re-encode renders |
 | `drone-sim/unreal:ue5.8` | `unreal.Dockerfile` | `ghcr.io/epicgames/unreal-engine` (by **digest**) | the renderer — Epic's UE5.8 image plus the three tools Cosys-AirSim's `build.sh` needs and `dev-slim` lacks (`cmake`, `rsync`, `wget`). The Cosys-AirSim tree itself is **mounted from `vendor/` at run time**, not baked in |
 | `drone-sim/airsim-client:1` | `airsim-client.Dockerfile` | `python:3.11-slim` | 0.6 GB AirSim RPC client for measurement — capture harness, not flight |

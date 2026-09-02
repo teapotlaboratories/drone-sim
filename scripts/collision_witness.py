@@ -30,7 +30,11 @@ proves nothing, and the previous run's file must be deleted first or a stale res
 this run's verdict.
 
 `has_collided` alone is useless: it reports CURRENT contact, and a parked drone is in contact
-with the floor. Ground is separated by `object_name` inside `watch_collisions.py`.
+with the floor. Since SIM-27 the observer BRACKETS the airborne phase with two RPC reads
+rather than polling: reading `simGetCollisionInfo` consumes a one-shot flag the physics engine
+needs at touchdown, and polling it at 20 Hz produced 10 pose splits in 12 CitySample runs. The
+cost is that ground contacts are excluded by ALTITUDE rather than by object name, and no
+per-event detail survives -- see that script's header.
 """
 from __future__ import annotations
 
@@ -84,8 +88,12 @@ def stop_and_score(save_to: Path | None = None) -> tuple[int, str]:
     """
     try:
         _dexec("bash", "-lc", "pkill -INT -f watch_collisions.py || true")
-        # SIGINT, then a beat: the observer flushes on the way out. It also flushes continuously,
-        # so this sleep is belt-and-braces rather than the only thing keeping the file current.
+        # SIGINT, then a beat: the observer flushes on the way out. It also flushes at each
+        # bracket transition -- when the vehicle crosses the altitude gate going up, and again
+        # coming down -- so a witness that dies after the descent still leaves a scoreable
+        # record and this sleep is belt-and-braces rather than the only thing keeping the file
+        # current. It is NOT a per-poll flush: between those two transitions the file does not
+        # change, because nothing in it does.
         time.sleep(1.0)
         p = _dexec("cat", REMOTE_JSON)
         if p.returncode != 0:
@@ -97,12 +105,24 @@ def stop_and_score(save_to: Path | None = None) -> tuple[int, str]:
             # chose 20 m for square-10m.
             save_to.parent.mkdir(parents=True, exist_ok=True)
             save_to.write_text(json.dumps(d, indent=2))
-        n = int(d.get("collision_count", 0))
+        # UNKNOWN IS NOT ZERO, and the witness now says which it means.          (SIM-27)
+        #
+        # It can no longer watch a flight -- reading simGetCollisionInfo consumes a flag the
+        # physics engine needs, so it brackets the airborne phase with two samples instead. A
+        # run it could not bracket (never crossed the altitude gate, or stopped before coming
+        # back down) reports `measured: false`, and that must score as UNKNOWN (-1), never as a
+        # clean 0. Same rule this module has always applied to an unreadable file.
+        if not d.get("measured", False):
+            return -1, ("collision witness could not bracket the flight "
+                        f"(baseline={d.get('baseline_count')}, final={d.get('final_count')})")
+        n = int(d.get("airborne_contacts") or 0)
         if not n:
             return 0, ""
-        names = sorted({e.get("object_name", "?") for e in d.get("collisions", [])})
-        shown = ", ".join(names[:3]) + (f" (+{len(names) - 3} more)" if len(names) > 3 else "")
-        return n, f"{n} collision(s) with {shown}"
+        # ONE NAME, NOT A SET. Two samples cannot produce a per-event breakdown; the object is
+        # whatever was in contact at the closing read. Reporting it as though it were the full
+        # inventory would overclaim, so the wording says what it is.
+        last = d.get("last_object") or "?"
+        return n, f"{n} contact(s) while airborne, last with {last}"
     except Exception as exc:
         return -1, f"collision witness unreadable: {exc}"
 

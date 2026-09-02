@@ -110,6 +110,39 @@ DISPLAY_GEOM=${DISPLAY_GEOM:-1920x1080}
 # machine has, including the VPN. MAVLink is unauthenticated -- anyone routable can arm and
 # command the vehicle. docs/docker/todo.md records that port 14540 was previously reachable
 # over the netbird overlay for exactly this reason. Use host mode on a network you trust.
+# WHERE THE WEB INTERFACE IS PUBLISHED. Loopback by default.                    (SIM-45)
+#
+# 127.0.0.1 means a browser on THIS machine and nothing else -- not the LAN, not a VPN. That
+# is the right default for a page with a button that arms an aircraft: see hard stop 1 in
+# CLAUDE.md, and the exposure recorded in the NET_MODE comment below for MAVLink port 14540.
+#
+# TO REACH IT FROM ANOTHER MACHINE, prefer an SSH tunnel -- it needs no change here and keeps
+# the aircraft behind your existing authentication:
+#
+#     ssh -N -L 8080:127.0.0.1:8080 -L 9090:127.0.0.1:9090 -L 8181:127.0.0.1:8181 host
+#
+# If you would rather publish it, name ONE address rather than widening to 0.0.0.0:
+#
+#     WEB_BIND=127.0.0.1,100.127.184.189 ./scripts/sim_up.sh --display
+#
+# A COMMA-SEPARATED LIST, and keeping 127.0.0.1 in it matters: publishing MOVES the binding
+# rather than widening it, so naming only the overlay address takes loopback away and the
+# browser on this machine stops working.
+#
+# THREE THINGS TO KNOW BEFORE DOING THAT.
+#   1. THE PAGE HAS NO AUTHENTICATION. Anything that can reach the address can fly. On a
+#      netbird overlay the access control is netbird's -- enrolled peers plus whatever policy
+#      you have set -- and that is the only thing standing in front of the aircraft.
+#   2. ALL THREE PORTS ARE REQUIRED. The page, the websocket and the video are separate
+#      servers, and app.js builds its URLs from `window.location.hostname`, so a browser that
+#      loads the page from an address must be able to reach 9090 and 8181 at that same address.
+#   3. IT IS STILL SITL-ONLY. control/sitl_interlock.py refuses every take-off unless AirSim's
+#      RPC answers, wherever the command came from. Exposing the page does not widen that.
+#
+# 0.0.0.0 is deliberately NOT the documented option: it publishes on every interface this
+# machine has, which is how port 14540 ended up reachable over the overlay once already.
+WEB_BIND=${WEB_BIND:-127.0.0.1}
+
 NET_MODE=${NET_MODE:-shared}
 case "$NET_MODE" in shared|host) ;; *) echo "NET_MODE must be 'shared' or 'host'" >&2; exit 2 ;; esac
 
@@ -244,12 +277,23 @@ fi
 fi   # end of the bring-up-only preparation skipped by --down
 
 # --------------------------------------------------------------------------------------
+# EVERY CONTAINER THIS STACK OWNS, IN ONE PLACE.                              (SIM-46)
+#
+# It used to be written twice -- once in teardown() and once in the verifier below -- and the
+# two were kept in step by hand. Adding sim-webui to one and not the other would produce the
+# worst outcome available here: a container left running under a teardown that printed
+# "verified". That is the failure the hard stops record ("a teardown that reported success has
+# already been found to leave four containers up for two hours"), so the list is now a single
+# variable and tests/test_stack_containers.py asserts nothing else names containers.
+#
+# sim-xrce is listed although this script no longer creates it: the agent moved into sim-ros2,
+# and a stale sim-xrce left by an older checkout would still hold udp/8888, so the new agent
+# would fail to bind -- and it exits 0 when it does.
+STACK_CONTAINERS=(sim-ros2 sim-webui sim-qgc sim-px4 sim-xrce "$SIM")
+
 teardown() {
   log "removing any previous stack"
-  # sim-xrce is listed although this script no longer creates it: the agent moved into
-  # sim-ros2, and a stale sim-xrce left by an older checkout would still hold udp/8888,
-  # so the new agent would fail to bind -- and it exits 0 when it does.
-  docker rm -f sim-ros2 sim-qgc sim-px4 sim-xrce "$SIM" >/dev/null 2>&1 || true
+  docker rm -f "${STACK_CONTAINERS[@]}" >/dev/null 2>&1 || true
 }
 
 # --------------------------------------------------------------------------------------
@@ -291,7 +335,9 @@ verify_down() {
   # DOCKER_HOST alike, leaving `live` empty -- so the primary check printed "none running" and
   # the command exited 0 having seen nothing. That is this function's own header argument.
   live=$(docker ps --format '{{.Names}}  {{.Status}}' 2>/dev/null) || docker_ok=0
-  live=$(printf '%s\n' "$live" | grep -E '^(sim-ros2|sim-qgc|sim-px4|sim-xrce|'"$SIM"')  ' || true)
+  # BUILT FROM STACK_CONTAINERS, never hand-written -- see the comment on that array.
+  local names; names=$(IFS='|'; printf '%s' "${STACK_CONTAINERS[*]}")
+  live=$(printf '%s\n' "$live" | grep -E "^($names)  " || true)
   n=$(printf '%s' "$live" | grep -c . || true)
   if [ "$docker_ok" -eq 0 ]; then
     printf '  %-32s %s\n' "containers (sim-*)" "UNKNOWN -- docker did not answer"
@@ -482,14 +528,64 @@ start_sim() {
     log "world: $uproject"
   fi
   local netargs=(--ipc shareable --shm-size=2g)
+  # THE WEB INTERFACE'S PORTS, PUBLISHED ON THE NAMESPACE OWNER.                  (SIM-45)
+  #
+  # In `shared` mode this container owns the network namespace every other container joins,
+  # so a port has to be published HERE or nothing that binds inside the stack is reachable
+  # from a browser -- and until now nothing was published at all.
+  #
+  # BOUND TO 127.0.0.1, not to 0.0.0.0. One of these ports carries a websocket that can
+  # publish /mission/command, which arms an aircraft; see hard stop 1 in CLAUDE.md, and the
+  # exposure this script already records at the NET_MODE comment above for MAVLink 14540. A
+  # loopback publish is reachable by a browser on this machine and by nothing else.
+  #
+  # PUBLISHED UNCONDITIONALLY, even though the servers are started separately by
+  # scripts/web_ui.sh. Docker can only publish a port at container CREATION, so making this
+  # conditional would mean deciding at bring-up whether the operator will later want to fly
+  # by hand -- and getting it wrong costs a full teardown and restart of a 57 GB renderer.
+  # Nothing listens until web_ui.sh starts, so the cost of always publishing is three unused
+  # loopback mappings.
+  # ADDED IN THE `shared` BRANCH ONLY, below -- not here. The host branch REASSIGNS netargs
+  # rather than appending, so adding them at this point would happen to work and would read
+  # as a bug to the next person, or become one the moment that branch is edited.
+  # $WEB_BIND, not a literal -- see the WEB_BIND block near the top of this script.
+  #
+  # A COMMA-SEPARATED LIST, because publishing MOVES the binding rather than widening it: the
+  # first version of this took one address, and setting it to a netbird IP silently took
+  # 127.0.0.1 away -- the browser on the machine running the simulator stopped working, which
+  # is the last thing an operator expects from a flag called "expose".
+  local webports=() addr
+  local IFS_SAVE=$IFS; IFS=','
+  for addr in $WEB_BIND; do
+    IFS=$IFS_SAVE
+    addr="${addr// /}"
+    [ -n "$addr" ] || continue
+    webports+=(-p "$addr":8080:8080 -p "$addr":9090:9090 -p "$addr":8181:8181)
+    IFS=','
+  done
+  IFS=$IFS_SAVE
+  [ "${#webports[@]}" -gt 0 ] || die "WEB_BIND is empty -- it must name at least one address"
   if [ "$NET_MODE" = host ]; then
     # NETWORK namespace only. `--ipc host` is NOT used: this daemon refuses it
     # ("error mounting mqueue ... operation not permitted" under rootless/nested Docker), and
     # it buys nothing for the case host mode exists for -- a peer on another machine reaches
     # us over UDP, never over shared memory. The renderer still donates the IPC namespace, so
     # the containers keep their fast local path to each other.
+    # NO -p HERE. `--network host` means the container has no separate namespace to publish
+    # a port OUT of, and docker rejects the combination outright. Under host mode the web
+    # interface is confined by its BIND ADDRESS instead -- webui.launch.py defaults to
+    # 127.0.0.1 and scripts/web_ui.sh keeps it there for exactly this mode.      (SIM-45)
     netargs=(--network host --ipc shareable --shm-size=2g)
     log "NET_MODE=host -- the graph will be reachable off this machine (see the header)"
+      log "NET_MODE=host -- web interface ports are NOT published; it binds 127.0.0.1 instead"
+  else
+    netargs+=("${webports[@]}")
+    if [ "$WEB_BIND" != "127.0.0.1" ]; then
+      # LOUD, because this is the one setting here that puts an arm button on a network.
+      log "WEB_BIND=$WEB_BIND -- the web interface will be reachable at that address."
+      log "  The page has NO AUTHENTICATION: whatever can reach it can fly the aircraft."
+      log "  Take-off is still refused unless AirSim's RPC answers (SITL-only interlock)."
+    fi
   fi
   # The renderer's command line differs in exactly one respect between the two modes: whether
   # the engine is given a surface. Everything else -- the image, the plugin, the settings, the
@@ -1109,7 +1205,7 @@ docker run -d --name sim-ros2 "${ROS2_NS[@]}" ${DS_ENV[@]+"${DS_ENV[@]}"} \
     rm -f /ros2_ws/.build-ok
     mkdir -p /ros2_ws/src
     # A failed copy used to be indistinguishable from a healthy start. Fail loudly.
-    for p in interfaces control bringup; do
+    for p in interfaces control bringup chase_camera depth_view; do
       rm -rf "/ros2_ws/src/$p"
       cp -r "/ros2_ws_src/src/$p" "/ros2_ws/src/$p" \
         || { echo "ros2: FATAL - could not copy $p from /ros2_ws_src"; exit 1; }
@@ -1140,6 +1236,54 @@ join sim-px4  drone-sim/px4:v1.16.0 bash -lc \
 # only by transport -- so this container is load-bearing, not a convenience. Stop it and
 # arming is denied, verified both directions.
 join sim-qgc  drone-sim/qgc:v1.16.0
+
+# THE GROUND STATION.                                                          (SIM-46)
+#
+# `sim-qgc` above and this are siblings: both are ground-station software, neither belongs on
+# the companion computer. On real hardware the ROS 2 graph runs on the Jetson and a web page
+# that flies the aircraft runs on someone's laptop -- so it gets a container, exactly as QGC
+# has had one since the Gazebo era.
+#
+# IT JOINS THE NAMESPACE like everything else, so DDS discovery just works and 127.0.0.1 means
+# the same thing here as it does to PX4. The published ports stay on the RENDERER, which owns
+# the namespace: docker can only publish at container creation, and this container has no
+# namespace of its own to publish out of.
+#
+# NOTHING IS STARTED HERE. The container comes up holding a built workspace and idles;
+# `scripts/web_ui.sh start` launches rosbridge, web_video_server and the page into it. Bringing
+# the stack up must not put a control surface with an ARM button on a port -- that is a
+# separate, deliberate act by the operator. See hard stop 1.
+#
+# The workspace it builds is deliberately SMALL: `interfaces` (for MissionCommand, the one
+# topic a browser may publish) and `webui` (the page and its launch). It does NOT get `control`
+# -- the flight code has no business on a ground station -- and it does not get `chase_camera`,
+# which reads the renderer's screen and belongs to the simulator.
+mapfile -t WEBUI_NS < <(netns_args)
+docker run -d --name sim-webui "${WEBUI_NS[@]}" ${DS_ENV[@]+"${DS_ENV[@]}"} \
+  -v "$REPO/ros2_ws:/ros2_ws_src:ro" drone-sim/webui:v1.16.0 bash -lc '
+    rm -f /gcs_ws/.build-ok
+    mkdir -p /gcs_ws/src
+    for p in interfaces webui; do
+      rm -rf "/gcs_ws/src/$p"
+      cp -r "/ros2_ws_src/src/$p" "/gcs_ws/src/$p" \
+        || { echo "webui: FATAL - could not copy $p from /ros2_ws_src"; exit 1; }
+    done
+    cd /gcs_ws
+    # ASSERT ON ARTIFACTS, NOT ON THE EXIT STATUS -- colcon exits 0 when it finds no packages
+    # at all, and an ament_python build never checks imports. The marker is written only after
+    # both the message package and the page are proven present.
+    if colcon build --symlink-install > /gcs_ws/build.log 2>&1; then
+      if bash -lc ". /gcs_ws/install/setup.bash && python3 -c \"import drone_interfaces.msg\"" >/dev/null 2>&1 \
+         && [ -f /gcs_ws/install/webui/share/webui/static/index.html ]; then
+        touch /gcs_ws/.build-ok; echo "webui: ground station built, artifacts verified"
+      else
+        echo "webui: FATAL - colcon reported success but the artifacts are not there"
+      fi
+    else
+      echo "webui: FATAL - ground-station build failed; see /gcs_ws/build.log"
+      tail -30 /gcs_ws/build.log
+    fi
+    exec sleep infinity' >/dev/null
 
 # Three distinct waits, in order, because they fail for different reasons and a single
 # combined timeout cannot tell them apart:

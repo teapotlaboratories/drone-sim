@@ -309,6 +309,32 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.bash \
  && test -x /airsim_root/ros2/install/airsim_ros_pkgs/lib/airsim_ros_pkgs/airsim_node \
  && echo "cosys-airsim ${COSYS_TAG} ${COSYS_SHA}" >> /etc/drone-sim-versions
 
+# ---------------------------------------------------------------------------
+# ffmpeg, FOR THE CHASE CAMERA.                                    (SIM-45, SIM-46)
+#
+# `chase_camera` spawns it to grab the renderer's X screen. The chase view cannot be fetched
+# over RPC -- AirSimCameraDirector has no binding -- and is not otherwise a topic, so this is a
+# real runtime dependency of a node this container runs.
+#
+# rosbridge_suite and web_video_server USED TO BE HERE and were moved out by SIM-46. They are
+# the ground station, and the ground station is now `sim-webui` with its own image. Hosting a
+# general ROS-to-websocket bridge on the companion computer was the wrong shape for what this
+# repo claims about sim-to-real, and it is exactly what hard stop 1 in CLAUDE.md is about.
+#
+# x11-utils gives xdpyinfo, used when diagnosing a display that will not answer.
+#
+# IT LIVES IN THE IMAGE, NOT IN A BRING-UP SCRIPT. The AirSim wrapper (SIM-37) is the
+# cautionary case: built into a RUNNING container, it lived only in that container's writable
+# layer, vanished on every teardown, and left a freshly brought-up stack with no camera topics
+# at all while every check reported success.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        x11-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && ffmpeg -hide_banner -version | head -1 \
+    && dpkg-query -W -f='ffmpeg ${Version}\n' ffmpeg >> /etc/drone-sim-versions
+
 # Back to where the image used to leave callers.                          (review, PR 63)
 # `WORKDIR /airsim_root` above changed the image's default working directory from /ros2_ws --
 # an unintended change to the container's public interface. Every current `docker exec` uses

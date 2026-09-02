@@ -248,19 +248,30 @@ if [ "$COLL_RC" -eq 2 ]; then
        clean. Treating it as FAIL; check /tmp/collision_witness.log inside sim-ros2."
   MISSION_RC=1
 elif [ "$COLL_RC" -ne 0 ]; then
+  # KEYS MATCH THE BRACKETING WITNESS (SIM-27), which no longer writes `collisions` or
+  # `ground_contacts` -- it cannot, because it is forbidden from polling during a flight and
+  # so has no per-event list to report. It writes the difference across the flight instead.
+  # The old keys KeyError'd, stderr was discarded, and the operator saw the misleading
+  # fallback below on every collision. (review)
   python3 -c "
 import json
 d = json.load(open('$RUN/collisions.json'))
-print(f\"  COLLISION: {d['collision_count']} contact(s) -- run is a FAIL whatever the legs say\")
-for e in d['collisions'][:5]:
-    print(f\"    t+{e['t']}s  {e['object_name']}  {e.get('duration_s',0)}s in contact  at {e['impact_point']}\")
+n = d.get('airborne_contacts')
+obj = d.get('last_object') or 'unknown object'
+print(f\"  COLLISION: {n} contact(s) while airborne -- run is a FAIL whatever the legs say\")
+print(f\"    last object: {obj}   counter {d.get('baseline_count')} -> {d.get('final_count')}\")
 " 2>/dev/null || log "COLLISION detected (collisions.json unreadable)"
   MISSION_RC=1
 else
-  log "no collisions ($(python3 -c "
+  # NOT `except: print(0)`. That printed "0 ground contacts" for a file it could not read,
+  # reporting an unmeasured run as a measured clean one -- the exact substitution this
+  # project's collision scoring exists to prevent. (review)
+  log "no collisions in the airborne bracket ($(python3 -c "
 import json
-try: print(json.load(open('$RUN/collisions.json'))['ground_contacts'])
-except Exception: print(0)" 2>/dev/null) ground contacts, expected at takeoff and landing)"
+try:
+    d = json.load(open('$RUN/collisions.json'))
+    print('measured' if d.get('measured') else 'NOT MEASURED')
+except Exception: print('collisions.json unreadable')" 2>/dev/null))"
 fi
 
 # GPU-LiDAR scans lost to an empty readback.                                     (SIM-24)

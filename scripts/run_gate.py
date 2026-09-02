@@ -82,11 +82,26 @@ def check_run(result: dict, scenario: dict, collisions: int = 0,
     # impact those numbers describe a crash that happened to land near the waypoint.
     if collisions > 0:
         return False, collision_detail or f"{collisions} collision(s)"
-    if collisions < 0:
+    # UNMEASURED IS NOT A REASON WHEN THE FLIGHT ALREADY HAS ONE.                (review)
+    #
+    # The bracketing witness (SIM-27) reports -1 for any run that never crossed the 2 m gate --
+    # which includes every `timeout in state arm`, every failed offboard handover, and every
+    # takeoff that stalled against an obstacle below 2 m. Reporting "collision state unknown"
+    # for those replaces the controller's actual failure_reason with a note about our own
+    # instrumentation, and SIM-27's header is an argument against exactly that: the order
+    # decides which sentence the report carries.
+    #
+    # So an unmeasured run that ALSO failed is reported by its flight reason. It still fails --
+    # nothing here turns unknown into clean -- but it fails for the thing that went wrong.
+    flight_failed = result.get("outcome") != "success"
+    if collisions < 0 and not flight_failed:
         return False, collision_detail or "collision state unknown"
 
-    if result.get("outcome") != "success":
-        return False, result.get("failure_reason") or "outcome not success"
+    if flight_failed:
+        reason = result.get("failure_reason") or "outcome not success"
+        if collisions < 0:
+            reason += " (collisions unmeasured: the flight never crossed the witness gate)"
+        return False, reason
 
     total = result.get("waypoints_total", 0)
     reached = result.get("waypoints_reached", 0)

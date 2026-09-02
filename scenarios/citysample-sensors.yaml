@@ -32,6 +32,22 @@ sensors:
   - magnetometer
   - odometry
 
+# TAKEOFF CORRIDOR, MEASURED NOT GUESSED.                                          (SIM-44)
+#
+# Without this the spawn is the world origin, which sits in a plaza under trees. Once collisions
+# began reaching the physics engine (SIM-27), a seed that jittered into the canopy could not
+# climb out of it: the aircraft stalled at 4.82 m against branches, took 1,399 contacts and
+# timed out in takeoff. Two of three seeds cleared the trees; the third did not. Whether a run
+# flies was decided by 5 m of spawn jitter.
+#
+# (-8, -8) was chosen by pointing the camera STRAIGHT UP from 5 m at the centre AND at the four
+# extremes of the +/-5 m jitter disc -- all five show open sky, buildings only at the frame
+# edges. With jitter, "the spawn is clear" is a claim about the whole disc, not its centre.
+# Images: out/sim44-up-cand*.png.
+spawn:
+  x: -8.0
+  y: -8.0
+
 mission:
   takeoff_altitude_m: 30.0
   waypoints_enu:

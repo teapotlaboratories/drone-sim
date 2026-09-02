@@ -3196,6 +3196,71 @@ ground: 2 takeoff timeouts in 7 runs, against 0 in 12. The theft was masking a s
 see `SIM-43`. The fix needs a read that observes WITHOUT consuming, leaving the engine the sole
 owner of the reset.
 
+### ✅ THE FIX, BUILT AND VERIFIED (2026-08-31)
+
+`patches/cosys-airsim/0012-collision-flag-consumed-by-physics-not-observers.patch` — applied by
+the build (top level, inside the `*.patch` glob). Two lines, both in **plugin** sources:
+`PawnSimApi::getCollisionInfoAndReset()` stops resetting (name kept, so AirLib's RPC binding is
+unchanged and becomes read-only), and a new `PawnSimApi::clearCollisionFlag()` is called from
+`MultirotorPawnSimApi::updateRenderedState` right after the contact is handed to the physics body.
+`watch_collisions.py` now scores on the monotonic `collision_count` instead of the one-shot flag.
+
+**Verified on `citysample-gate1`, 3 seeds, witness ON** — the configuration that split 10 of 12:
+
+| | before | after |
+|---|---|---|
+| pose splits | 10 of 12 | **0 of 3** |
+| worst split | 24.75 m | **0.665 m** |
+| `G-TICK collided=1` | 14 of 3,598 ticks | **715** |
+
+**A first attempt cost a whole gate and did nothing:** it edited the RPC binding in
+`AirLib/src/api/RpcLibServerBase.cpp`, and AirLib ships as a **prebuilt static library**
+(`AirSim.Build.cs:53`), so UnrealBuildTool never compiles it. Headers are compiled; `AirLib/src`
+is not. Worklog: `docs/worklog/2026-08-31-sim27-the-fix-and-what-it-uncovered.md`.
+
+**NOT COMMITTED YET** — see `SIM-44`. Seed 2 of the verification gate failed
+`timeout in state takeoff`, and the cause is not the fix: the aircraft was stuck 4.88 m up in
+continuous contact with `FastGeoSurrogateActor_0`. That is a real collision it used to fly
+straight through, because the witness was consuming nearly every contact on this world.
+
+### The proposed fix (2026-08-31) — needs sign-off before any code
+
+**Every writer of the flag, grepped:** `PawnSimApi.cpp:289` sets `has_collided = true` on a hit;
+`PawnSimApi.cpp:510` (`getCollisionInfoAndReset`) sets it false. **Nothing else clears it**, and
+that function is called from exactly one place — the `simGetCollisionInfo` RPC binding
+(`RpcLibServerBase.cpp:435`). So upstream's design makes an *external observer* responsible for
+clearing a flag the *physics engine* depends on. That is the whole defect; `SIM-27` and `SIM-43`
+are its two faces.
+
+**Part 1 — move the reset from the RPC to the physics handoff.** `MultirotorPawnSimApi::
+updateRenderedState` already copies the contact into the body (`setCollisionInfo`). Clear
+`has_collided` immediately after that copy, and drop the reset from `getCollisionInfoAndReset`.
+The engine then receives every contact exactly once, no observer can steal one, and nothing
+depends on an external reader — which fixes both faces at once.
+
+**Part 2 — the witness stops needing the one-shot flag.** With Part 1, `has_collided` is true for
+at most one render tick, so a 20 Hz poller would miss almost everything. `CollisionInfo` already
+carries `collision_count`, which is **monotonic and never reset**. Rewrite `watch_collisions.py`
+to score on increments of that counter instead. It can then poll as often as it likes, and the
+gate's collision verdict stops being coupled to physics timing at all.
+
+**Why not the alternatives:**
+- *A second, non-consuming RPC* (`simGetCollisionInfoNoReset`): leaves the engine still dependent
+  on someone calling the consuming one, so `SIM-43` survives. Rejected.
+- *Reading contacts from the renderer log* (as `lidar_drops.py` does): no vendor patch, and the
+  lines exist — but it also leaves nobody clearing the flag, so `SIM-43` survives. Rejected for
+  the same reason.
+- *Polling more slowly*: reduces the race without removing it, and the failure is already
+  70–90% per seed on CitySample. Rejected.
+
+**Verification when it lands:** `citysample-gate1`, 3 seeds, witness ON — the configuration that
+split 10 of 12. Plus a Blocks seed for regression, and specifically watching for takeoff timeouts,
+which is what `SIM-43` predicts if Part 1 is got wrong.
+
+**Cost:** a real divergence in a vendored tree (two files), carried in `patches/cosys-airsim/` and
+re-applied on every plugin build. Worth it — the alternative is a harness that cannot observe
+collisions without breaking flight.
+
 **Everything below this line predates the finding.** The gate-A/B/C analysis, the "it is gate B"
 conclusion and the `0009` downward-trace patch were all aimed at a cause that was not the cause;
 `0009` is reverted from the deployed plugin. Kept, not deleted, because the wrong turns are
@@ -4330,7 +4395,16 @@ against the rule that archival recordings belong on the 7 TB drive.
 
 ---
 
-## `SIM-43` — with nobody consuming the collision flag, the vehicle cannot take off
+## `SIM-43` — ~~with nobody consuming the collision flag, the vehicle cannot take off~~ CORRECTED
+
+**Status:** ⚠️ **REFRAMED 2026-08-31 — the original reading was wrong.** The takeoff failures are
+not caused by the flag going unconsumed. With `SIM-27`'s fix in place the flag *is* consumed
+correctly, and a takeoff still failed — because the aircraft was **actually colliding**, stuck
+4.88 m up against `FastGeoSurrogateActor_0` with 1,399 contacts on an oblique face. It is a real
+obstacle the vehicle used to pass through while the witness was eating the contacts. See `SIM-44`,
+which is the live ticket; this entry stays for the measurements and the wrong turn.
+
+**Original entry, superseded:**
 
 **Status:** 🟡 **open** — found **2026-08-31** while proving `SIM-27`'s cause. Second defect,
 masked until now by the first.
@@ -4356,6 +4430,602 @@ with the physics engine remaining the sole consumer.
 
 **Unmeasured:** whether this also occurs with the witness at a lower poll rate, and whether the
 takeoff case has a different root (the two failures are 2 of 7, so the rate is loosely bounded).
+
+---
+
+## `SIM-49` — a spotlight for the camera views
+
+**Status:** ✅ **DONE 2026-09-02.** One large, two stacked beside it; click or 1/2/3 to
+promote. **322 tests** (3 new), local CI tier 1 green, teardown verified.
+Screenshot: `out/sim49-webui-spotlight.png`.
+
+**No stream restarts on a swap**, proven over CDP rather than assumed — promoting the depth
+pane and reading `naturalWidth` 1.0 s later shows all three still decoding, where a torn-down
+stream reads 0. `ros_threads` went 2 → 6 because the page now holds three streams open
+permanently and a starved request answers HTTP 200 with an empty body rather than erroring —
+the failure shape that cost the long hunt in `SIM-46`. Measured concurrently: 80 / 74 / 51
+frames in 8 s.
+
+One layout bug found by looking: `align-items: start` left ~360 px of dead space beside a
+letterboxed 4:3 depth frame. Fixed with two equal rows the spotlight spans.
+
+*(Asked for by the owner: "is there a way to put the multiple videos in a spotlight? like make
+it the biggest")*
+
+Three equal panes was fine at two and is wrong at three: the view an operator is actually
+using is the same size as the two they are not, and each one shrinks as another is added.
+
+**One large, two stacked beside it. Click a thumbnail — or press 1/2/3 — to promote it.**
+
+**The swap is CSS grid placement and nothing else.** Not a DOM move, not a `src` reassignment.
+Either would tear down the `multipart/x-mixed-replace` connection and re-open it, so the view
+just asked for would go blank for about a second — at exactly the moment someone wanted to look
+at it. A test asserts `setSpotlight` contains no `.src`, `appendChild`, `insertBefore`,
+`prepend` or `replaceChild`.
+
+Details that follow from that:
+
+- **All three keep streaming.** Shrinking a view does not disconnect it, so promotion is
+  instant. The cost is three concurrent streams, which is why `web_video_server`'s
+  `ros_threads` goes from its default of **2 to 6**. A starved request does not error — it
+  answers HTTP 200, writes the multipart boundary and closes, which the browser renders as an
+  empty pane. That failure shape already cost a long hunt in `SIM-46`.
+- **Digits, not letters, for the shortcuts.** `W A S D`, `R F` and `Q E` fly the aircraft; a
+  layout shortcut sharing those would move the vehicle on a mis-hit.
+- **The choice is remembered** in `localStorage`, guarded — a private window or blocked site
+  data throws on access, and the page must still render.
+- **Thumbnails drop what cannot be read at that size**: the depth legend, the fallback text and
+  the topic name in the caption. They gain a `↗` and a button role.
+- **Below 900 px the layout stacks**, because a 1fr sidebar at phone width is a postage stamp.
+
+---
+
+## `SIM-48` — the depth camera in the web interface
+
+**Status:** ✅ **DONE 2026-09-02.** Third pane live, with a legend. **319 tests** (17 new),
+local CI tier 1 green, teardown verified. No image rebuild needed — `cv_bridge`, OpenCV 4.6.0
+and numpy were already in `drone-sim/ros2`.
+
+Measured on the stack: `/depth_view/image/compressed` at 6.2 Hz, 53 frames / 10 s through
+`web_video_server` (first frame 51,426 B), `/depth_view/range` publishing `[0.5, 40.0]`. The
+frame shows ground dark, bollards and benches resolving against the plaza, buildings in red and
+the **sky black** — no-return, plainly not "far". Screenshot: `out/sim48-webui-depth.png`.
+
+*(Asked for by the owner: "There is a depth camera sensor on the drone. Correct? If so, can you
+also show it in the web interface?")*
+
+**Correct.** `sim/ue5/settings.json:157` configures `ImageType: 1` — **DepthPlanar**, the
+Z-distance rather than ray length — at 640x480, and it reaches the graph as
+`/airsim_node/PX4/front_center_DepthPlanar/image`: `sensor_msgs/Image`, **`32FC1`, metres**,
+measured 16.6 Hz. The gate scenarios already record it.
+
+**It cannot simply be added as a third pane, and that is the whole ticket.** `web_video_server`
+knows `bgr8` and `bgra8` and nothing else — its streamers carry no `min`/`max`/colormap
+parameters, checked against the shipped `.so` rather than its README. Pointed at a `32FC1`
+topic it fails or renders garbage. Depth has to be turned into an image before a browser can
+see it.
+
+### What that means, and the decisions inside it
+
+**A node converts `32FC1` metres to a colourised JPEG and publishes a `CompressedImage`** —
+exactly the shape `chase_camera` already established, so `web_video_server`'s `ros_compressed`
+streamer forwards it with no transcode.
+
+- **It runs on the SIMULATOR side**, in `sim-ros2`. Not tidiness: the raw topic is 640x480x4 =
+  **1.2 MB per frame**, ~157 Mbit/s at 16.6 Hz. `docker/ros2.Dockerfile` already records the
+  measurement that raw imagery does not survive a WAN while JPEG does. Colourise at the source
+  and ship kilobytes.
+- **A FIXED range, not per-frame auto-scaling.** Auto-scaling makes the picture flicker as the
+  aircraft moves and — worse — makes a colour mean a different distance in every frame, so two
+  frames cannot be compared. A fixed `near`/`far` means a colour is a distance. That is what a
+  site survey needs: *is that wall 5 m away or 20*.
+- **Invalid returns are rendered as their own thing, not as "far".** AirSim gives sky a huge
+  value, and NaN/inf are possible; mapping those onto the end of the colour ramp would draw a
+  confident distance where there is no measurement. This project has a rule about that — a
+  value that never arrived must not look like a measurement — and it applies to pixels too.
+- **RELIABLE, depth 1.** The lesson `SIM-45` already paid for: `web_video_server` subscribes
+  RELIABLE, and a BEST_EFFORT publisher matches nothing while looking perfectly healthy.
+- **A scale on the page.** A colourised depth image without a legend is decoration. The pane
+  carries a near→far ramp with the metres written on it.
+
+**New package `depth_view`**, not folded into `chase_camera`: that package is named for its one
+node and shares no code with this one (no ffmpeg, no X). `TOPICS_SUB` in the rosbridge allowlist
+gains `/depth_view/*`.
+
+No image rebuild: `cv_bridge`, OpenCV 4.6.0 and numpy are already in `drone-sim/ros2`.
+
+---
+
+## `SIM-47` — the drone you can actually move
+
+**Status:** ✅ **DONE 2026-09-01 — built and flown.** Translate, altitude and yaw from the
+page, with the envelope enforced in the node. **302 tests** (17 new), local CI tier 1 green,
+teardown verified.
+
+**Flown, and the body frame proved itself in the air.** One 90 s sortie from `(0, 0)`:
+4 × forward 5 m moved it EAST to `E=21.4`; after yawing 90° left, 3 × forward moved it NORTH to
+`N=16.5` while east held. The same command, two directions, because the aircraft had turned — a
+world-frame delta would have kept going east.
+
+**The fence, probed deliberately, and every bound announced:**
+
+```
+move forward 500 m   ->  moved 3.6 m     WARN  move clamped: step 500.0 m -> 5.0 m
+move up     -500 m   ->  15.0 -> 9.9 m   WARN  move clamped: climb -500.0 m -> -5.0 m
+descend to the floor ->  2.1 m           WARN  move clamped: altitude -2.0 m -> floor 2.0 m
+```
+
+**It took off from `(0, 0)` and landed at `(20.0, 20.1)` — 28 m away.** That is the capability
+that was missing, in one number. Screenshot: `out/sim47-webui-movement.png`; chase video
+`out/sim47-survey-chase.mp4` (311 s).
+
+Worklog: [`worklog/2026-09-01-sim45-a-web-interface-over-ros-2.md`](worklog/2026-09-01-sim45-a-web-interface-over-ros-2.md), third section.
+
+**The page was restyled and then REVERTED**, at the owner's request both times: *"I like the
+previous design better. its more clearer."* The restyle optimised for density and for the
+video dominating the page; what it cost was labelling, and on a tool whose job is letting
+someone see what is where, legible beats sleek. The revert is a reconstruction rather than a
+`git checkout` — nothing here has been committed — and it keeps the three fixes that were
+bugs rather than styling: the Chrome MJPEG `display:block` deadlock, the `naturalWidth` poll,
+and the unencoded slashes in the camera URL. Verified in `HOVER` on the running stack:
+`out/sim47-webui-reverted.png`.
+
+**Still open:** the downward site survey itself — `SIM-44`'s remaining half. `SIM-47` built the
+thing that makes it possible; the survey has not been flown.
+
+*(Originally filed because the owner asked "where is the button to control the drone movement?"
+and there wasn't one.)*
+
+**There is no such button, and that was the wrong call.** `SIM-45` shipped TAKE OFF, LAND and
+HOLD, and recorded "manual translation and yaw" as out of scope. The ticket had asked for
+take-off and land "at minimum" and the minimum is what got built.
+
+**Why it is wrong:** `SIM-45` exists because three failures came down to *where the aircraft was
+put* — a tree over the takeoff point, a parked car under the landing point, a takeoff corridor.
+What the interface does today is rise vertically from the spawn, hover, and descend onto the same
+spot. It inspects exactly one column of air. Checking whether there is a car in the landing bay
+10 m north still means editing a scenario and re-flying — the archaeology the ticket was written
+to end. **It surveys the one place you already know about.**
+
+**What it needs:**
+
+- Translate and yaw from the page, held or clicked.
+- The aircraft's existing hold mechanism does the work: `HOVER` already holds `target_enu` and
+  `_tick` already streams it at 20 Hz, so moving is nudging that target.
+
+### The leash is the actual work
+
+An unbounded delta from a browser is how an aircraft flies into a building nobody could see. The
+envelope is **enforced in the node, never in the page** — the page cannot be the thing that keeps
+the aircraft safe, because `ros2 topic pub` does not run the page. Four bounds, all ROS
+parameters:
+
+| parameter | default | what it stops |
+|---|---|---|
+| `move_step_max_m` | 5.0 | one command teleporting the hold point across the map |
+| `move_radius_max_m` | 50.0 | drifting arbitrarily far from where the operator watched it take off |
+| `move_alt_min_m` / `move_alt_max_m` | 2.0 / 60.0 | descending into the ground, or climbing out of sight |
+| `move_yaw_step_max_rad` | π/4 | a spin |
+
+**Clamp, do not refuse.** A refusal near the boundary makes a held key do nothing with no
+explanation; clamping gives the operator a fence they can feel. Every clamp is logged with what
+was asked and what was granted, so "it stopped moving" is never mysterious.
+
+This is a GEOMETRIC envelope on the commanded position, and it is complementary to — not a
+replacement for — the PX4 rate limits `scripts/check_envelope.py` verifies from a bag.
+
+### Deltas are body-frame, and the rotation goes in `frames.py`
+
+An operator watching the chase camera thinks "forward", not "north". So a delta is FLU body
+frame, per `docs/conventions.md` §3, rotated into ENU by the node using current yaw.
+
+That rotation is a new opportunity for a sign error, which conventions §3 is explicit about:
+*"One conversion, in one function, with a unit test."* So it lives in `control/frames.py` beside
+the other conversions, with tests — not inline in the command handler.
+
+**Safety is unchanged.** `MOVE` is accepted only from `HOVER`, so it is reachable only through a
+TAKEOFF that already satisfied the SITL interlock; it re-checks the interlock anyway, because
+refusing to move is safe (the aircraft holds) in a way that refusing to LAND is not.
+
+**Then, the thing this unblocks:** the downward site survey the `SIM-44` handoff left open. The
+upward survey that chose `(-8, -8)` verified clear sky and never looked at the ground, and the
+gate's seed 2 has been landing on a parked car ever since. A drone that can be moved is what
+makes that survey possible from a browser.
+
+---
+
+## `SIM-46` — the web interface becomes a ground station, in its own container
+
+**Status:** ✅ **DONE 2026-09-01 — built, flown and verified.** `sim-webui` is a real
+container (`drone-sim/webui:v1.16.0`, 2.56 GB). One hand sortie flown from the ground station:
+12.0 m commanded → **12.00 m**, 0.03 m to target, held 30 s, landed and recycled to `idle`.
+Teardown verified. 285 tests pass; local CI tier 1 green.
+
+**Process placement, read from `ps` on the running stack:**
+
+```
+sim-webui  (ground station)      rosbridge_websocket · web_video_server · http.server
+sim-ros2   (companion computer)  offboard_control · chase_camera · airsim_node · MicroXRCEAgent
+```
+
+The publish allowlist still holds from its new home (`/fmu/in/vehicle_command` → **0 bytes**),
+all 9 telemetry topics arrive at the ground station, and both cameras stream — the chase camera
+published on the companion and served to the browser by the ground station, crossing the
+boundary over DDS as it would from a laptop. Screenshots: `out/sim46-webui-hover.png`,
+`out/sim46-webui-idle.png`; chase video `out/sim46-handfly-chase.mp4`.
+
+**Four things the split broke, all found by running it** — see the worklog for detail:
+
+1. The ground-station image had **no compiler**, so `drone_interfaces` failed to build. The
+   container came up with `px4_msgs` fine and `MissionCommand` missing: the browser could have
+   read everything and published nothing.
+2. **`pkill -f chase_camera` would have signalled the uXRCE-DDS agent's supervisor.** Moving the
+   package put that string into `sim_up.sh`'s sim-ros2 entrypoint, so `pgrep -f` matched PID 44.
+   The `SIM-45` version of this trap only misreported; this one would have taken every `/fmu/*`
+   topic down. Caught by the test written for the first occurrence.
+3. **The page percent-encoded the slashes in every camera topic.** `web_video_server` does not
+   url-decode that parameter, so it answered HTTP 200, wrote the multipart boundary and closed —
+   22 bytes, an `<img>` that never decodes, and a pane indistinguishable from "no camera is
+   publishing". Three confident wrong theories came first (a headless artifact, the `load`
+   event, `display:none`); a server log settled it in one line.
+4. `/snapshot` is broken for these topics while `/stream` is fine. Not chased down; recorded
+   because it misdirected one diagnostic and will meet anyone who switches endpoints.
+
+**One build assertion was wrong and the build refused it**, which is the assertion working:
+`ffmpeg` is a hard `Depends:` of `ros-jazzy-web-video-server` and cannot be removed. The claim
+was narrowed to what is true — no AirSim RPC client, no msgpack, no vendored Cosys-AirSim, no
+chase camera — so the boundary now rests on there being no node there that opens a display.
+
+Worklog: [`worklog/2026-09-01-sim45-a-web-interface-over-ros-2.md`](worklog/2026-09-01-sim45-a-web-interface-over-ros-2.md)
+([HTML](worklog/html/2026-09-01-sim45-a-web-interface-over-ros-2.html)), second half.
+
+**Why.** `SIM-45` put rosbridge, `web_video_server` and the page inside `sim-ros2` — the
+companion computer. That was the right call for a SITL-only survey tool and it is the wrong
+shape for what this repo claims: on real hardware the ROS 2 graph runs on the Jetson and a
+ground-station web page does not. It runs on someone's laptop. `sim-qgc` has modelled exactly
+that boundary since the Gazebo era and is a separate container for exactly this reason.
+
+Putting a general ROS-to-websocket bridge on the companion computer is also the thing hard
+stop 1 cares about, so the move is a safety improvement as well as a fidelity one.
+
+**The split, and the one thing that cannot move.**
+
+| | `SIM-45` | `SIM-46` |
+|---|---|---|
+| rosbridge, `web_video_server`, the page | `sim-ros2` | **`sim-webui`** — the ground station |
+| `chase_camera` + ffmpeg | `sim-ros2` | **stays** on `sim-ros2` |
+| `offboard_control` + the SITL interlock | `sim-ros2` | **stays** — unchanged |
+
+**The chase camera cannot move, and that is a design constraint rather than a compromise.** It
+reads the renderer's screen through an X **abstract** socket, which Linux scopes to the network
+namespace. More to the point: *a real aircraft has no chase camera*. It is simulator
+scaffolding, in the same family as ground truth, and it belongs on the simulator side of the
+boundary this ticket is drawing. A ground station that could produce it would be less faithful,
+not more.
+
+**Two packages, so the separation is physical rather than a convention:**
+
+- `ros2_ws/src/webui/` — ground-station side. Static page and `webui.launch.py`. **No Python
+  nodes at all**, so there is no code in the GCS image that could touch a simulator.
+- `ros2_ws/src/chase_camera/` — simulator side. The node, `mjpeg.py`, and its launch.
+
+NOT `perception/`: that directory's README says plainly it is "a sketch, not a package" held
+for `isaac_ros_visual_slam` and `nvblox`, and taking the name for something else would spend a
+reservation this project has been deliberate about.
+
+**Image `drone-sim/webui:v1.16.0`**, from `docker/webui.Dockerfile`:
+
+- `ros-jazzy-ros-base` (not `desktop`), rosbridge_suite, web_video_server, colcon.
+- `px4_msgs` arrives by `COPY --from=drone-sim/ros2:v1.16.0` — **the same built artifact, not
+  merely the same pinned SHA**. `versions.lock` calls version coupling the architecture; two
+  independent builds of the same SHA satisfy that nominally, one shared build satisfies it
+  literally. It also avoids a second 15-minute message build. Multi-stage `COPY --from` is
+  already house style — `px4.Dockerfile` is built that way.
+- **No AirSim client, no msgpack, and none of our own nodes.** The build asserts it, so the
+  fidelity claim is something a `docker run` can check.
+  **ffmpeg is present and that is upstream's doing** -- a hard `Depends` of
+  `web_video_server`. The first draft asserted its absence and the build refused, correctly.
+  The boundary rests on there being no node here that opens a display, not on ffmpeg.
+
+**`sim-webui` joins the namespace like every other container**, via `join()` — the same one
+line `sim-qgc` uses. Ports stay published on `sim-unreal`: it owns the namespace, and Docker
+can only publish at container creation.
+
+**THE TRAP THIS TICKET MUST NOT FALL INTO.** `sim_up.sh` holds the container list **twice** —
+`teardown()` at `:252` removes them, and the verifier at `:294` greps a separately written
+list. Updating one and not the other produces the worst available outcome: a container left
+running under a teardown that printed "verified". That is the failure hard stop 5 records
+("a teardown that reported success has already been found to leave four containers up for two
+hours"). A test asserts the two lists name the same set.
+
+---
+
+## `SIM-45` — a web interface to fly and survey the world by hand
+
+**Status:** ✅ **DONE 2026-09-01 — built, flown and verified end to end.** 21 files added,
+11 changed, **41 off-target tests**, local CI tier 1 green. Six SITL flights: two hand-flown
+sorties from the browser, a 3-seed `citysample-gate1`, and one baseline seed. Stack torn down
+and teardown verified.
+
+**Verified on the stack, not argued:**
+
+| | |
+|---|---|
+| bring-up | 91 s, EKF origin **0.000 m** from GPS |
+| chase camera | topic 9.99 Hz; **120 frames / 10 s** at 1920x1080 through `web_video_server` |
+| drone camera | **63 frames / 10 s**, first frame 118,281 B, well-formed |
+| telemetry | **9 of 9 topics, every field the page reads present** |
+| allowlist | publish to `/fmu/in/vehicle_command` → **0 bytes on the topic**, refusal logged |
+| sortie 1 | 12.0 m commanded → **11.98 m**, held 12 s, landed in 19 s |
+| sortie 2 | 6.0 m commanded → **6.14 m**, landed in 11 s — same node, no restart |
+
+**Running it found seven defects the tests could not**, every one a claim about the target:
+an `ldd` assertion that needed ROS sourced (and that I had checked with `bash -lc`, which
+masks it); a missing `setup.cfg` so the console script installed to `bin/` and the launch
+could not find its own executable; **`pgrep -f offboard_control` matching the sim-ros2
+entrypoint's own comment text**; the chase camera published BEST_EFFORT against
+`web_video_server`'s RELIABLE subscription, so the topic ran at 9.99 Hz and the browser got
+22 bytes; `/fmu/out/sensor_gps` not existing (it is `/fmu/out/vehicle_gps_position`); rclpy
+handling SIGINT but not SIGTERM, so `destroy_node()` never ran and ffmpeg was orphaned; and
+`pgrep` matching zombies. Nine of the 41 tests were written afterwards to pin these.
+
+**The gate is 2/3 and it was 2/3 before this work.** Seed 2 fails `timeout in state land` —
+the parked car the handoff names. Settled by measurement rather than argument: reverting
+`offboard_control.py` to `HEAD` (byte-identical, zero occurrences of `manual`) and reflying
+seed 2 reproduces it exactly — z range 0.026 m vs 0.023 m, descent +1.73 m/s vs +1.76 m/s.
+**The gate did not move.** The remaining red is `SIM-44`'s open half: the site survey pointed
+DOWN, which is now a browser tab.
+
+Worklog: [`worklog/2026-09-01-sim45-a-web-interface-over-ros-2.md`](worklog/2026-09-01-sim45-a-web-interface-over-ros-2.md)
+([HTML](worklog/html/2026-09-01-sim45-a-web-interface-over-ros-2.html)). Chase video:
+`out/sim45-handfly-chase.mp4`.
+
+**Publishing it beyond loopback** *(added 2026-09-01, at the owner's request)*. `WEB_BIND` takes
+a comma-separated list of addresses to publish on; the default is `127.0.0.1`, and an SSH tunnel
+remains the recommended way to reach it from elsewhere. Two things learned doing it: publishing
+**moves** a binding rather than widening it, so the first single-address version silently took
+loopback away — hence the list; and `0.0.0.0` is deliberately not documented as an option,
+because that is how MAVLink 14540 reached the overlay once already. A non-default `WEB_BIND`
+logs a loud three-line warning at bring-up. Verified over netbird: the page loaded from
+`100.127.184.189:8080` connected rosbridge and rewrote its video URLs to the same address.
+
+**Reproduce:**
+
+```bash
+./scripts/sim_up.sh --display --world assets/CitySample/CitySample.uproject
+./scripts/web_ui.sh start        # then open http://127.0.0.1:8080
+./scripts/web_ui.sh stop
+./scripts/sim_up.sh --down
+```
+
+**Out of scope, deliberately:** manual translation and yaw, waypoint editing, recording from
+the browser, a map.
+
+**Why it is wanted:** three consecutive failures (`SIM-44`, the tree; the parked car; the takeoff
+corridor) came down to *where* the aircraft was put, and each was diagnosed by teleporting a
+disarmed vehicle and taking photographs through a throwaway script. A person with a browser and a
+live view would have found all three in minutes. Site survey is currently an archaeology exercise.
+
+**What it must do:**
+
+- **Fly it by hand** — a TAKE OFF button and a LAND button, at minimum.
+- **See it** — the chase camera and the vehicle's own camera(s), live.
+- **Read it** — telemetry: GPS, local XYZ, speed, attitude/IMU, and whatever else the graph
+  already carries.
+
+**Constraint from the owner:** as much as possible over **ROS 2** rather than new AirSim RPC
+paths. That fits `docs/conventions.md` — the ROS 2 graph is the control interface, and the RPC is
+a back door for ground truth. **The design below reaches this in full: the browser talks to
+nothing but ROS 2.** The one RPC call left is a safety interlock, not a control or telemetry path.
+
+---
+
+### The three open questions, settled
+
+**1. Transport — `rosbridge_suite`, chosen by the owner 2026-09-01.**
+
+The alternative considered and rejected was a purpose-built HTTP+SSE server with a hard-coded
+two-command allowlist, which would have needed no new dependency. `rosbridge` wins on the
+project's primary rule (reuse upstream) and costs an image rebuild, two pins, and the work of
+re-imposing the safety rule on top of a bridge that is general by design.
+
+`ros-jazzy-rosbridge-suite` **2.7.0** and `ros-jazzy-web-video-server` **3.1.0** are both in
+Jazzy's apt repository — checked in a throwaway `drone-sim/ros2:v1.16.0` container, not assumed.
+
+**2. Video path — `web_video_server`, and the chase camera becomes a ROS 2 topic.**
+
+No new measurement was needed for the vehicle cameras: `compressed_image_transport` is already
+baked into the image and already measured at 15.1 Hz / 32.9 KB per frame (q95) and 17.9 Hz /
+12.8 KB (q70) — see `docs/quickstart.md`. That is MJPEG-grade already, and `web_video_server`
+serves a `CompressedImage` topic straight through.
+
+The chase camera was the hard half, because it is **not a ROS topic and cannot become one over
+RPC** — `AirSimCameraDirector` has no binding and `simGetImages` serves vehicle-mounted cameras
+only (`scripts/record_chase.sh` documents both). It is therefore **published into the graph** by
+a small node, which then makes it identical to every other camera as far as the browser is
+concerned.
+
+**That node runs in `sim-ros2` and grabs the RENDERER's X screen**, which works because of a fact
+this repo already paid to learn: an X server binds an **abstract** unix socket, and Linux scopes
+abstract sockets to the **network namespace** — which every container in this stack shares. It is
+the same mechanism recorded at `scripts/sim_up.sh:75`, where `:99` let the chase recorder film
+QGroundControl's map view instead of the world.
+
+Verified 2026-09-01 with two throwaway containers sharing one netns:
+
+```
+filesystem socket /tmp/.X11-unix/X77 visible from the second container : False
+abstract socket   @/tmp/.X11-unix/X77 from the second container        : CONNECTED
+ffmpeg -f x11grab -i :77 -frames:v 5 -f mpjpeg                         : 5 JPEG frames, 8270 B
+```
+
+(The probe logged a MIT-SHM `major_code:130` error and fell back to a plain read, because the
+probe shared only the network namespace. The real stack shares IPC as well — `--ipc container:`
+— so the shared-memory path is available there.)
+
+**3. Where it runs — inside `sim-ros2`. No sixth container.**
+
+`scripts/sim_up.sh --down` removes exactly `sim-ros2 sim-qgc sim-px4 sim-xrce sim-unreal`
+(`sim_up.sh:252`). Everything here is a process inside `sim-ros2`, so teardown is correct without
+being touched — which is the failure this ticket was written to avoid.
+
+Ports must be **published**, though: in the default `NET_MODE=shared` the renderer owns a private
+network namespace and `sim_up.sh` publishes nothing at all, so a browser on the host can reach
+none of it today. `sim-unreal` — the namespace owner — gains three loopback-only mappings.
+
+---
+
+### The design
+
+```
+browser (host, 127.0.0.1)
+   │  :8080  static page + vendored roslib.js
+   │  :9090  rosbridge websocket   — telemetry in, two commands out
+   │  :8181  web_video_server      — both cameras, MJPEG
+   ▼
+sim-ros2 :  rosbridge_websocket   (pub glob: /mission/command ONLY)
+            web_video_server
+            chase_camera  ── x11grab :77 ──▶ /chase/image/compressed
+            offboard_control manual:=true
+   ▼  uXRCE-DDS
+PX4 SITL
+```
+
+**`/mission/command`, a new topic in an already-frozen namespace.** `docs/conventions.md` §2
+freezes `/mission/*` as "mission spec **in**, status and result out" — the *in* half has been
+declared since the freeze and has never had a topic. This fills it; it renames nothing. The
+freeze still requires a documented reason and a consumer sweep, so conventions §2 gets an entry
+rather than this landing quietly.
+
+**Manual mode is a new entry point to `offboard_control`, not a second controller.** A `manual`
+parameter (default `false`, so the gate path is untouched) adds two states to the existing flat
+machine:
+
+- `IDLE` — on the ground, nothing streaming, and the **only** state besides `HOVER` exempt from
+  the per-state timeout. Every existing state keeps its timeout exactly as it is.
+- `HOVER` — holds the takeoff setpoint and keeps streaming `OffboardControlMode`, because PX4
+  drops out of offboard after 500 ms of silence.
+
+TAKE OFF walks `IDLE → STREAM_SETPOINTS → REQUEST_OFFBOARD → ARM → TAKEOFF → HOVER` through the
+existing `_do_*` handlers unchanged; LAND walks `HOVER → LAND → IDLE`. `WAYPOINTS` is never
+entered. `MissionStatus` gains `STATE_IDLE` and `STATE_HOVER` beside the existing eight, in the
+`STATE_TO_MSG` dict that already fails loudly on drift.
+
+**Telemetry** is read from `/fmu/out/*` — the same topics a real Pixhawk publishes — at
+BEST_EFFORT + TRANSIENT_LOCAL depth 1 (conventions §5), through the `px4_ns` helper, never as
+string literals: `vehicle_local_position` (XYZ and the three speeds), `vehicle_global_position`
+and `sensor_gps` (lat/lon/alt, fix, satellites), `vehicle_attitude`, `sensor_combined` (gyro and
+accel), `vehicle_status_v1`, `vehicle_land_detected`, `battery_status`, plus `/mission/status`.
+**NED→ENU happens in `control.frames` and nowhere else** (conventions §3) — the page renders what
+it is given and owns no conversion. Any field not arriving renders as `—` beside its topic name,
+never as a plausible zero.
+
+---
+
+### HARD SAFETY RULE — and how a general bridge is made to satisfy it
+
+This is a control surface with a button that arms an aircraft. It is **SITL-only** until
+explicitly reworked. See hard stop 1 in `CLAUDE.md`: commanding the real Pixhawk needs per-run
+human approval, and a browser button is the opposite of that.
+
+- **The publish allowlist is enforced, and it was read before being trusted.**
+  `rosbridge_library/capabilities/publish.py` checks `topics_pub_glob` **before** it creates the
+  registration and returns silently on no match; `topics_pub_glob` is separate from
+  `topics_sub_glob`. So `topics_pub_glob:="['/mission/command']"` means the browser can publish
+  that topic and no other — `/fmu/in/vehicle_command` included. Note the parameter is a **string
+  containing a list literal**, not a string array, and that an unset glob means *no checking at
+  all* (`parse_glob_string("")` returns `None`).
+- **Services and actions are shut off** with `services_glob:="[]"` and `actions_glob:="[]"`,
+  which blocks every node's `set_parameters` — otherwise the page could retune
+  `takeoff_altitude` mid-flight. rosbridge appends `/rosapi/*` to a non-`None` services glob by
+  itself, so roslibjs still resolves topic types.
+- **Loopback only.** rosbridge's `address` parameter defaults to `""` (all interfaces) and is set
+  explicitly. Under `NET_MODE=host` the container namespace *is* the host's, so the bind address
+  is what keeps the buttons off the VPN — the exposure `sim_up.sh:104` records for MAVLink port
+  14540. The launcher reads `docker inspect sim-unreal` to decide, and the node's own default is
+  the safe one.
+- **The proof-of-sim interlock lives in `offboard_control`, not in the transport.** Manual mode
+  refuses to start, and refuses each command, unless the AirSim RPC answers at
+  `127.0.0.1:41451`. That is a *positive* proof that a simulator is present rather than an
+  absence-of-hardware check, and putting it at the thing that arms protects every route to
+  `/mission/command`, not just the browser. It is the only RPC call in the feature and it is
+  read-only.
+- **No authentication is claimed.** Anyone with loopback on this box can fly it. Said plainly in
+  the docs rather than implied away.
+
+---
+
+### Scope of the first pass
+
+**In:** take off, land, both cameras, the telemetry listed above.
+**Out:** manual translation and yaw, waypoint editing, recording from the browser, a map.
+
+**Verification.** Off-target `pytest` first — the manual state machine's transitions, its refusal
+to arm without the interlock, the glob strings, and the frame conversions. Then, and **only with
+the owner's go-ahead for that specific run**: `sim_up.sh --display`, a hand take-off and landing
+from the browser, every telemetry field cross-checked against `ros2 topic echo`, and a 3-seed
+`citysample-gate1` to prove the gate path did not move — followed by `./scripts/sim_up.sh --down`
+and a verified teardown.
+
+---
+
+## `SIM-44` — ~~should a far-field visual impostor carry collision geometry?~~ IT IS A TREE
+
+**Status:** 🔵 **PREMISE CORRECTED 2026-09-01 — the obstacle is a TREE, and the collision is
+legitimate.** The ticket below was written from an oblique contact normal and one camera angle in
+which the aircraft *looked* like it was hovering in a gap. Zooming the chase footage and pulling
+the aircraft's own front camera at the same instant settles it: a branch passes through the drone,
+and the onboard view is filled by trunk and canopy at `AirSim truth z = -4.98 m`. The aircraft
+took off under a tree and climbed into it.
+
+**So the proxy's collision is NOT phantom** — at least here it stands in for a real, rendered
+object, and stripping it (option 1 below) would let the aircraft fly through trees. That option is
+withdrawn.
+
+**What is actually wrong is the scenario.** `citysample-*` spawns on a plaza pavement among trees
+and then commands a vertical climb. With ±5 m of seed jitter, whether a seed clears the canopy is
+luck: 2 of 3 pass, the third does not. The fix is a takeoff point with clear air above it, not a
+change to the simulator.
+
+**And it retro-explains the history.** Before `SIM-27`'s witness fix, the collision witness was
+consuming these contacts, so the aircraft flew *through* the tree and every run looked clean.
+Making collisions honest did not create this; it revealed something that was always true — **every
+CitySample flight in this project's history has been passing through solid objects.**
+
+**Still genuinely open, and narrower:** whether the *merged* proxy's collision volume matches the
+rendered trees closely, or is a coarse box that happens to enclose them. The measured normal
+`(-0.275, -0.781, 0.561)` is oblique, which is consistent with either a branch or a box corner.
+That matters for BYO worlds, not for this fix.
+
+**Previous status:** 🟡 open — found **2026-08-31**, the moment collisions became honest on
+CitySample.
+
+`SIM-27`'s fix stopped the collision witness consuming contacts before the physics engine saw
+them. The first consequence: the aircraft now **collides with `FastGeoSurrogateActor_0`**, the
+coarse far-field proxy, and one verification seed was held 4.88 m above the ground by it —
+climbing at 2–3 m/s, 1,399 contacts, normal `(-0.275, -0.781, 0.561)`, i.e. an oblique face of a
+box that is not where the rendered city has anything solid.
+
+**The implication is larger than one seed.** Before the fix the engine was told about almost no
+contacts on this world, so **every CitySample flight in this project's history has been passing
+through the surrogate's collision volume without noticing.** Collision-free flights on this world
+were not evidence of clean flying.
+
+**The question:** a far-field impostor exists to be *seen*, not touched. Options, unmeasured:
+
+- **Disable collision on the surrogate** (`SetActorEnableCollision(false)`, or a channel that the
+  vehicle ignores) — closest to intent, but needs to be sure nothing else relies on it, and it is
+  world-side rather than plugin-side.
+- **Ignore it in the vehicle's collision channel only** — narrower, keeps the actor solid for
+  anything else.
+- **Accept it and spawn away from it** — cheapest, and dishonest: a BYO world will have its own
+  proxies, so the harness should not depend on the spawn point avoiding them.
+
+**Blocks `SIM-27`'s fix from landing:** a gate on this world cannot pass while a takeoff can be
+caught by proxy geometry. The fix itself is verified for the landing defect and is waiting behind
+this.
+
+**Third defect with this actor at the centre**, after `SIM-27` and `SIM-32`'s streaming gate.
 
 ---
 
