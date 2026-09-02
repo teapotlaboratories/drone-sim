@@ -22,6 +22,11 @@ uint8 STATE_WAYPOINTS        = 5
 uint8 STATE_LAND             = 6
 uint8 STATE_DONE             = 7
 uint8 STATE_FAILED           = 8
+# Hand-flying only (SIM-45, `manual:=true`). A mission run never reports either, so a bag
+# from a gate run is unchanged. Appended rather than inserted: these numbers are the
+# contract, and renumbering the eight above would silently rewrite every recorded run.
+uint8 STATE_IDLE             = 9
+uint8 STATE_HOVER            = 10
 uint8 state
 
 # 0-based, and only meaningful in STATE_WAYPOINTS.

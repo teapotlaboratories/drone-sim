@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>drone-sim — hand flying</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>drone-sim <span class="sub">hand flying &amp; site survey</span></h1>
+  <div id="link" class="link link-down">rosbridge: connecting…</div>
+</header>
+
+<!--
+  THE BANNER IS NOT DECORATION. This page has a button that arms an aircraft. CLAUDE.md hard
+  stop 1 requires per-run human approval before the real Pixhawk moves, and a web page cannot
+  ask for it. The enforcement is in control/sitl_interlock.py, which refuses every takeoff
+  unless an AirSim RPC server answers; this says so where the person pressing the button can
+  read it.
+-->
+<div class="banner">
+  <strong>SITL only.</strong> Take-off is refused unless a simulator answers on the AirSim RPC.
+  This interface has no authentication — anyone who can reach it can fly.
+</div>
+
+<main>
+
+  <!--
+    SPOTLIGHT LAYOUT. One view large, the other two stacked beside it; click a thumbnail
+    (or press 1/2/3) to promote it. The swap is done with CSS GRID PLACEMENT ONLY -- the
+    <img> elements never move in the DOM and their src is never reassigned, because either
+    would tear down and re-open the multipart stream and the promoted view would go blank
+    for a second at exactly the moment someone wanted to look at it.
+  -->
+  <section class="cameras" id="views" data-spot="chase">
+    <figure data-cam="chase" tabindex="0">
+      <figcaption>chase camera <span class="hint">renderer screen → /chase/image</span></figcaption>
+      <div class="viewport"><img id="cam-chase" alt="chase camera"></div>
+      <p class="fallback" id="fb-chase">
+        no stream — the stack must be up with <code>./scripts/sim_up.sh --display</code>
+      </p>
+    </figure>
+    <figure data-cam="drone" tabindex="0">
+      <figcaption>drone camera <span class="hint">/airsim_node/PX4/front_center_Scene/image</span></figcaption>
+      <div class="viewport"><img id="cam-drone" alt="drone front camera"></div>
+      <p class="fallback" id="fb-drone">
+        no stream — start perception:
+        <code>ros2 launch bringup perception.launch.py</code>
+      </p>
+    </figure>
+    <!--
+      DEPTH. The raw camera is 32FC1 metres, which web_video_server cannot render (it knows
+      bgr8/bgra8 only), so `depth_view` colourises it beside the simulator and publishes a
+      JPEG. The legend below is NOT hard-coded -- it is drawn from /depth_view/range, so it
+      cannot disagree with the colour map the node is actually using.
+    -->
+    <figure data-cam="depth" tabindex="0">
+      <figcaption>depth camera <span class="hint">/depth_view/image · DepthPlanar, metres</span></figcaption>
+      <div class="viewport"><img id="cam-depth" alt="depth camera"></div>
+      <div class="legend" id="depth-legend">
+        <span class="ramp"></span>
+        <span class="marks" id="depth-marks"><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i></span>
+        <span class="noret"><b></b> no return</span>
+      </div>
+      <p class="fallback" id="fb-depth">
+        no stream — needs perception <em>and</em> <code>depth_view</code>
+        (<code>./scripts/web_ui.sh start</code>)
+      </p>
+    </figure>
+  </section>
+
+  <section class="controls">
+    <div class="statebox">
+      <div class="label">flight state</div>
+      <div id="state" class="state">—</div>
+      <div id="state-detail" class="detail">waiting for /mission/status</div>
+    </div>
+    <div class="buttons">
+      <label for="alt">take-off altitude
+        <input id="alt" type="number" value="10" min="1" max="120" step="1"> m
+      </label>
+      <button id="btn-takeoff" class="btn btn-takeoff" disabled>TAKE OFF</button>
+      <button id="btn-land" class="btn btn-land" disabled>LAND</button>
+      <button id="btn-hold" class="btn btn-hold" disabled>HOLD</button>
+    </div>
+
+    <!--
+      MOVEMENT. Body frame: forward/left is what an operator watching the chase camera thinks
+      in. Every delta is a REQUEST -- the node clamps it against its move_* parameters and
+      logs what it clamped. The page cannot widen that envelope, which is the point: ros2
+      topic pub does not run this page.
+    -->
+    <div class="mover" id="mover">
+      <div class="pad">
+        <span class="padlabel">translate <em>body frame</em></span>
+        <div class="dpad">
+          <button class="nudge" data-fwd="1"                 style="grid-area:n"  title="forward (W)">▲</button>
+          <button class="nudge" data-left="1"                style="grid-area:w"  title="left (A)">◀</button>
+          <button class="nudge" data-fwd="-1"                style="grid-area:s"  title="back (S)">▼</button>
+          <button class="nudge" data-left="-1"               style="grid-area:e"  title="right (D)">▶</button>
+          <span class="stepnote" style="grid-area:c" id="stepnote">2 m</span>
+        </div>
+      </div>
+      <div class="pad">
+        <span class="padlabel">altitude</span>
+        <div class="updown">
+          <button class="nudge" data-up="1"  title="up (R)">▲ up</button>
+          <button class="nudge" data-up="-1" title="down (F)">▼ down</button>
+        </div>
+      </div>
+      <div class="pad">
+        <span class="padlabel">yaw</span>
+        <div class="updown">
+          <button class="nudge" data-yaw="1"  title="yaw left (Q)">↺ left</button>
+          <button class="nudge" data-yaw="-1" title="yaw right (E)">↻ right</button>
+        </div>
+      </div>
+      <div class="pad">
+        <span class="padlabel">step size</span>
+        <input id="step" type="range" min="0.5" max="5" step="0.5" value="2">
+        <span class="hint" id="steplabel">2.0 m · 15°</span>
+        <span class="hint">keys: W A S D · R F · Q E</span>
+      </div>
+    </div>
+
+    <div id="log" class="log" aria-live="polite"></div>
+  </section>
+
+  <section class="telemetry">
+
+    <div class="group">
+      <h2>position <span class="hint">/fmu/out/vehicle_local_position</span></h2>
+      <div class="alt-hero"><span id="t-alt">—</span><span class="unit">m above the EKF origin</span></div>
+      <!--
+        NED IS SHOWN AS PX4 PUBLISHES IT, AND SAID SO.
+        conventions §3 puts the one NED->ENU conversion in control/frames.py and nowhere else;
+        a second one here would be a second place for a sign error, and the sign trap is this
+        project's most expensive. So the raw z is shown with its sign convention named, and
+        the altitude above is the single derived value (-z), labelled.
+      -->
+      <dl>
+        <dt>x <span class="hint">north</span></dt><dd id="t-x">—</dd>
+        <dt>y <span class="hint">east</span></dt><dd id="t-y">—</dd>
+        <dt>z <span class="hint">NED, down positive</span></dt><dd id="t-z">—</dd>
+        <dt>heading</dt><dd id="t-hdg">—</dd>
+        <dt>valid</dt><dd id="t-valid">—</dd>
+      </dl>
+    </div>
+
+    <div class="group">
+      <h2>speed <span class="hint">/fmu/out/vehicle_local_position</span></h2>
+      <dl>
+        <dt>ground</dt><dd id="t-gspd">—</dd>
+        <dt>vertical <span class="hint">+ = climbing</span></dt><dd id="t-vspd">—</dd>
+        <dt>vx / vy / vz</dt><dd id="t-vel">—</dd>
+      </dl>
+    </div>
+
+    <div class="group">
+      <h2>GPS <span class="hint">/fmu/out/vehicle_global_position · vehicle_gps_position</span></h2>
+      <dl>
+        <dt>latitude</dt><dd id="t-lat">—</dd>
+        <dt>longitude</dt><dd id="t-lon">—</dd>
+        <dt>altitude <span class="hint">AMSL</span></dt><dd id="t-amsl">—</dd>
+        <dt>fix</dt><dd id="t-fix">—</dd>
+        <dt>satellites</dt><dd id="t-sats">—</dd>
+        <dt>eph <span class="hint">horiz. accuracy</span></dt><dd id="t-eph">—</dd>
+      </dl>
+    </div>
+
+    <div class="group">
+      <h2>attitude <span class="hint">/fmu/out/vehicle_attitude</span></h2>
+      <dl>
+        <dt>roll</dt><dd id="t-roll">—</dd>
+        <dt>pitch</dt><dd id="t-pitch">—</dd>
+        <dt>yaw</dt><dd id="t-yaw">—</dd>
+      </dl>
+    </div>
+
+    <div class="group">
+      <h2>IMU <span class="hint">/fmu/out/sensor_combined</span></h2>
+      <dl>
+        <dt>gyro <span class="hint">rad/s</span></dt><dd id="t-gyro">—</dd>
+        <dt>accel <span class="hint">m/s²</span></dt><dd id="t-accel">—</dd>
+      </dl>
+    </div>
+
+    <div class="group">
+      <h2>vehicle <span class="hint">/fmu/out/vehicle_status_v1 · land_detected · battery</span></h2>
+      <dl>
+        <dt>armed</dt><dd id="t-armed">—</dd>
+        <dt>nav state</dt><dd id="t-nav">—</dd>
+        <dt>landed</dt><dd id="t-landed">—</dd>
+        <dt>battery</dt><dd id="t-batt">—</dd>
+      </dl>
+    </div>
+
+  </section>
+</main>
+
+<footer>
+  <code>SIM-45</code> · <code>SIM-46</code> · <code>SIM-47</code> · <code>SIM-48</code> · <code>SIM-49</code> · every value on this page is
+  read from ROS 2 through rosbridge; the browser may publish <code>/mission/command</code> and
+  nothing else.
+</footer>
+
+<script src="vendor/roslib.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

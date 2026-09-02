@@ -35,9 +35,11 @@ from px4_msgs.msg import (
     VehicleStatus,
 )
 
-from drone_interfaces.msg import MissionResult, MissionStatus
+from drone_interfaces.msg import MissionCommand, MissionResult, MissionStatus
 
-from control.frames import enu_to_ned, yaw_enu_to_ned
+from control.frames import enu_to_ned, flu_to_enu, yaw_enu_to_ned, yaw_ned_to_enu
+from control import manual_policy
+from control.sitl_interlock import simulator_present
 
 # PX4 mode ids for VEHICLE_CMD_DO_SET_MODE. param1 = MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
 # param2 = PX4 custom main mode. These are PX4's, not MAVLink standard, and are not
@@ -46,6 +48,12 @@ from control.frames import enu_to_ned, yaw_enu_to_ned
 # Deliberately not "" -- see _abort_requested. An abort with no legible reason is still an
 # abort, and saying so beats a 240 s timeout that blames the flight controller.
 UNPARSEABLE_ABORT = "the runner aborted this flight (its reason could not be read)"
+
+def _wrap_pi(angle: float) -> float:
+    """Wrap to [-pi, pi) -- the range PX4 documents for TrajectorySetpoint.yaw. Same helper as
+    control.frames._wrap_pi; not imported because that one is private to that module."""
+    return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
 
 PX4_CUSTOM_MODE_ENABLED = 1.0
 PX4_MAIN_MODE_OFFBOARD = 6.0
@@ -61,6 +69,9 @@ class State(Enum):
     LAND = "land"
     DONE = "done"
     FAILED = "failed"
+    # HAND-FLYING ONLY (SIM-45, `manual:=true`). A mission run enters neither.
+    IDLE = "idle"      # on the ground, disarmed, streaming nothing, waiting for a human
+    HOVER = "hover"    # holding the takeoff setpoint, waiting for a human
 
 
 # State -> MissionStatus constant. Kept beside the enum so the two cannot drift silently:
@@ -76,7 +87,45 @@ STATE_TO_MSG = {
     State.LAND: MissionStatus.STATE_LAND,
     State.DONE: MissionStatus.STATE_DONE,
     State.FAILED: MissionStatus.STATE_FAILED,
+    State.IDLE: MissionStatus.STATE_IDLE,
+    State.HOVER: MissionStatus.STATE_HOVER,
 }
+
+# What a hand-flown command is allowed to do, by the state it arrives in.
+#
+# THE POLICY ITSELF IS IN `control/manual_policy.py`, which imports nothing, so the
+# off-target tests can assert the table this node actually runs rather than a copy of it
+# (see that file's docstring). Here it is only mapped onto the State enum.
+#
+# The mapping is strict: an unknown state name raises at IMPORT, so renaming a State value
+# without updating the policy kills the node at start-up instead of silently narrowing what
+# the operator is allowed to do -- a failure that would otherwise look like an unresponsive
+# button.
+_BY_VALUE = {st.value: st for st in State}
+
+
+def _states(names) -> frozenset:
+    missing = sorted(set(names) - set(_BY_VALUE))
+    if missing:
+        raise RuntimeError(
+            f"manual_policy names states that offboard_control.State does not define: "
+            f"{missing}. The policy and the state machine have drifted.")
+    return frozenset(_BY_VALUE[n] for n in names)
+
+
+UNTIMED_STATES = _states(manual_policy.UNTIMED)
+MANUAL_TRANSITIONS = {cmd: _states(froms)
+                      for cmd, froms in manual_policy.ALLOWED_FROM.items()}
+
+# The .msg constants and the policy strings are two spellings of the same tokens. Asserted
+# here so a mismatch is a start-up crash rather than a command the node silently calls
+# unknown; `tests/test_manual_flight.py` makes the same join off-target by parsing the .msg.
+for _cmd, _const in ((manual_policy.COMMAND_TAKEOFF, MissionCommand.COMMAND_TAKEOFF),
+                     (manual_policy.COMMAND_LAND, MissionCommand.COMMAND_LAND),
+                     (manual_policy.COMMAND_HOLD, MissionCommand.COMMAND_HOLD)):
+    if _cmd != _const:
+        raise RuntimeError(
+            f"manual_policy says {_cmd!r} where MissionCommand.msg says {_const!r}")
 
 
 class OffboardControl(Node):
@@ -121,6 +170,23 @@ class OffboardControl(Node):
         # MissionStatus -- on a run whose mission typically flew perfectly, which is exactly
         # the evidence that proves the aircraft was not at fault.
         self.declare_parameter("abort_file", "")
+        # HAND FLYING.                                                            (SIM-45)
+        #
+        # Default FALSE, so every existing caller -- run_scenario.py, run_gate.py,
+        # control.launch.py -- gets byte-identical behaviour and the gate path is not
+        # touched. Manual mode adds two states and one subscription; it replaces nothing.
+        self.declare_parameter("manual", False)
+        # THE LEASH for hand-flown movement (SIM-47). Defaults live in
+        # control/manual_policy.DEFAULT_LIMITS so the tests exercise the same numbers the
+        # aircraft runs. Exposed as parameters so a scenario that genuinely needs a wider
+        # envelope sets it at launch, where it is recorded -- rather than a browser widening
+        # it at run time, which is the thing that must never be possible.
+        _lim = manual_policy.DEFAULT_LIMITS
+        self.declare_parameter("move_step_max_m", _lim["step_max_m"], num)
+        self.declare_parameter("move_radius_max_m", _lim["radius_max_m"], num)
+        self.declare_parameter("move_alt_min_m", _lim["alt_min_m"], num)
+        self.declare_parameter("move_alt_max_m", _lim["alt_max_m"], num)
+        self.declare_parameter("move_yaw_step_max_rad", _lim["yaw_step_max_rad"], num)
         # Scenario-supplied mission: a FLAT list of ENU triples, x,y,z,x,y,z,... relative
         # to the home position. Empty (the default) keeps the built-in square, so the node
         # stays runnable by hand with no scenario file. Flat rather than nested because
@@ -141,6 +207,14 @@ class OffboardControl(Node):
         self.state_timeout_s = float(self.get_parameter("state_timeout_s").value)
         self.result_path = self.get_parameter("result_path").value
         self.abort_file = self.get_parameter("abort_file").value
+        self.manual = bool(self.get_parameter("manual").value)
+        self.move_limits = {
+            "step_max_m": float(self.get_parameter("move_step_max_m").value),
+            "radius_max_m": float(self.get_parameter("move_radius_max_m").value),
+            "alt_min_m": float(self.get_parameter("move_alt_min_m").value),
+            "alt_max_m": float(self.get_parameter("move_alt_max_m").value),
+            "yaw_step_max_rad": float(self.get_parameter("move_yaw_step_max_rad").value),
+        }
         raw_wps = list(self.get_parameter("waypoints_enu").value or [])
         # A single 0.0 is the "unset" sentinel — ROS 2 rejects a genuinely empty double
         # array as an ambiguous type, so it cannot be the default.
@@ -192,6 +266,19 @@ class OffboardControl(Node):
             VehicleStatus, f"{ns}/fmu/out/vehicle_status_v1",
             self._on_status, sub_qos)
 
+        # THE SUBSCRIPTION ONLY EXISTS IN MANUAL MODE.                             (SIM-45)
+        #
+        # Not "exists and is ignored" -- it is never created. A gate run therefore cannot be
+        # perturbed by a stray `ros2 topic pub /mission/command`, and `ros2 topic info` shows
+        # zero subscribers, which is a checkable statement rather than a promise in a comment.
+        #
+        # RELIABLE (the ROS default, conventions §5), unlike the /fmu/* subscriptions above:
+        # a button press is a one-shot event, and BEST_EFFORT is worst at exactly those.
+        self.sub_command = None
+        if self.manual:
+            self.sub_command = self.create_subscription(
+                MissionCommand, "/mission/command", self._on_command, 10)
+
         # --- state ------------------------------------------------------------------
         self.state = State.WAIT_FOR_FCU
         self.position: VehicleLocalPosition | None = None
@@ -205,13 +292,41 @@ class OffboardControl(Node):
         self.errors: list[float] = []
         self.last_distance_m = 0.0
         self.failure_reason = ""
+        # One command deep, deliberately. Buttons are pressed faster than an aircraft can
+        # respond, and a queue would replay a stale intent into a state the operator can no
+        # longer see. The newest instruction wins and the rest are dropped, loudly.
+        self.pending_command: MissionCommand | None = None
+        self.manual_ready = False
+        # The commanded ENU yaw. 0.0 is what every setpoint has carried since this node was
+        # written (`_publish_setpoint`'s default), so a mission run is bit-for-bit unchanged;
+        # only MOVE ever alters it.                                                (SIM-47)
+        self.target_yaw_enu = 0.0
 
         self.rate_hz = rate
         self.timer = self.create_timer(1.0 / rate, self._tick)
         shown_ns = ns if ns else "(none)"
         self.get_logger().info(
             f"offboard_control up: px4_ns='{shown_ns}' alt={self.alt} m "
-            f"side={self.side} m rate={rate} Hz")
+            f"side={self.side} m rate={rate} Hz manual={self.manual}")
+
+        # THE INTERLOCK, CHECKED AT START-UP AND AGAIN AT EVERY TAKEOFF.           (SIM-45)
+        #
+        # Start-up so the operator learns it is refused before they are looking at a page
+        # with a button on it; per-takeoff because the answer can change under a
+        # long-running node and the start-up result would then be a stale permission.
+        #
+        # Mission mode is NOT gated. It is launched by a human running run_scenario.py, which
+        # is the per-run approval hard stop 1 asks for; this gate exists because a browser
+        # button is not.
+        if self.manual:
+            ok, why = simulator_present()
+            self.manual_ready = ok
+            if ok:
+                self.get_logger().info(f"manual mode: SITL interlock satisfied -- {why}")
+            else:
+                self.get_logger().error(
+                    "manual mode: SITL INTERLOCK NOT SATISFIED -- every command will be "
+                    f"REFUSED. {why}")
 
     # -- subscriptions ---------------------------------------------------------------
 
@@ -220,6 +335,31 @@ class OffboardControl(Node):
 
     def _on_status(self, msg: VehicleStatus) -> None:
         self.status = msg
+
+    def _on_command(self, msg: MissionCommand) -> None:
+        """A hand-flying command arrives.                                        (SIM-45)
+
+        VALIDATED HERE, ACTED ON IN _tick. The callback runs on the executor's thread at
+        whatever moment a button is pressed; the state machine runs on the timer. Mutating
+        `self.state` from here would race every handler in this file -- and the failure
+        would be an aircraft that changed state halfway through a tick, which is the least
+        debuggable thing this node could possibly do. So this stores an intent and returns.
+
+        Rejections are logged and DROPPED rather than latched. An operator who presses TAKE
+        OFF while already hovering has been answered by the aircraft not moving; queueing it
+        would take off again at some later moment they are no longer expecting.
+        """
+        cmd = str(msg.command or "").strip().lower()
+        if cmd not in MANUAL_TRANSITIONS:
+            self.get_logger().warning(
+                f"ignoring unknown command {cmd!r}; known: {sorted(MANUAL_TRANSITIONS)}")
+            return
+        if self.pending_command is not None:
+            self.get_logger().warning(
+                f"dropping queued {self.pending_command.command!r}, superseded by {cmd!r}")
+        msg.command = cmd
+        self.pending_command = msg
+        self.get_logger().info(f"command received: {cmd}")
 
     # -- helpers ---------------------------------------------------------------------
 
@@ -312,6 +452,25 @@ class OffboardControl(Node):
             # seed by itself. Runs are not reproducible, so the bag is the only evidence.
             self._publish_status()
             self._write_result()
+            # HAND FLYING IS A SESSION, NOT ONE FLIGHT.                           (SIM-45)
+            #
+            # A mission run is over at DONE or FAILED and the node exits, which is what the
+            # gate needs. An operator surveying a site takes off and lands repeatedly, and a
+            # node that exited after the first landing would take the web interface's control
+            # path with it -- leaving a page whose buttons silently do nothing.
+            #
+            # The terminal MissionStatus and the MissionResult are published FIRST, above, so
+            # each hand-flown sortie still leaves the same evidence a mission run does. Only
+            # then does the machine recycle.
+            if self.manual:
+                self.get_logger().info(
+                    f"manual: sortie ended ({self.state.value}"
+                    f"{': ' + self.failure_reason if self.failure_reason else ''}) -- idle")
+                self.failure_reason = ""
+                self.errors = []
+                self.wp_index = 0
+                self._enter(State.IDLE)
+                return
             rclpy.shutdown()
             return
 
@@ -328,11 +487,21 @@ class OffboardControl(Node):
             self._fail(abort)
             return
 
-        # Every state gets a timeout. Without this, a node waiting on an arming_state
-        # that never arrives hangs for the whole CI budget and reports nothing.
-        if self.ticks_in_state > self.state_timeout_s * self.rate_hz:
+        # Every state gets a timeout EXCEPT the two that wait on a human (SIM-45). Without
+        # this, a node waiting on an arming_state that never arrives hangs for the whole CI
+        # budget and reports nothing; with it applied to IDLE or HOVER, an aircraft doing
+        # exactly what the operator asked would be failed for doing it for too long.
+        if (self.state not in UNTIMED_STATES
+                and self.ticks_in_state > self.state_timeout_s * self.rate_hz):
             self._fail(f"timeout in state {self.state.value}")
             return
+
+        # A pending command is applied BEFORE the setpoint is published, so LAND stops the
+        # stream on the same tick it is accepted rather than one tick later. That one tick is
+        # not important to the aircraft; the ordering is, because the alternative reads as
+        # "the setpoint stream continued after the operator commanded a landing".
+        if self.pending_command is not None:
+            self._apply_command()
 
         # Setpoints stream through every FLYING state: PX4 drops out of offboard the
         # moment the stream lapses (COM_OF_LOSS_T, 1.0 s on v1.16.0).
@@ -342,9 +511,13 @@ class OffboardControl(Node):
         # observed as a descent that never completes and a `timeout in state land`, with
         # the vehicle happily holding 10 m. Commanding a landing means stopping telling
         # PX4 where to be.
-        if self.state not in (State.WAIT_FOR_FCU, State.LAND):
+        # IDLE joins the two exclusions for a third reason: the vehicle is on the ground and
+        # disarmed, and streaming offboard setpoints at it would leave PX4 permanently ready
+        # to accept an offboard mode switch from anything at all. An idle aircraft should be
+        # boring.
+        if self.state not in (State.WAIT_FOR_FCU, State.LAND, State.IDLE):
             self._publish_offboard_mode()
-            self._publish_setpoint(self.target_enu)
+            self._publish_setpoint(self.target_enu, self.target_yaw_enu)
 
         self._publish_status()
 
@@ -427,10 +600,17 @@ class OffboardControl(Node):
             return
         self.home_enu = (cur[0], cur[1])
         self.target_enu = (cur[0], cur[1], cur[2])
-        self.waypoints = self._build_square(cur[0], cur[1])
+        # NO MISSION IN MANUAL MODE. Not "a mission that is not flown" -- an empty list, so
+        # MissionStatus reports waypoint_total 0 and a bag from a hand-flown sortie cannot be
+        # misread later as a 4-waypoint run that reached none of them.
+        self.waypoints = [] if self.manual else self._build_square(cur[0], cur[1])
         self.get_logger().info(
             f"FCU alive; home ENU=({cur[0]:.2f}, {cur[1]:.2f}) "
             f"waypoints={[(round(a,1), round(b,1), round(c,1)) for a, b, c in self.waypoints]}")
+        if self.manual:
+            self.get_logger().info("manual mode: waiting for a command on /mission/command")
+            self._enter(State.IDLE)
+            return
         self._enter(State.STREAM_SETPOINTS)
 
     def _build_square(self, x0: float, y0: float) -> list[tuple[float, float, float]]:
@@ -453,6 +633,158 @@ class OffboardControl(Node):
             (x0, y0 + s, self.alt),
             (x0, y0, self.alt),
         ]
+
+    def _apply_command(self) -> None:
+        """Act on the pending hand-flying command, or refuse it with a reason.    (SIM-45)
+
+        Runs on the timer thread, so it is the only place `self.state` moves in response to
+        a button. Every refusal is logged: a control surface that ignores a press without
+        saying why is one the operator stops trusting, and then stops using.
+        """
+        msg, self.pending_command = self.pending_command, None
+        if msg is None:                                    # pragma: no cover - guarded above
+            return
+        cmd = msg.command
+
+        # THE STATE CHECK COMES FIRST, and that ordering is a fix rather than a preference.
+        # It is free, while the interlock below can cost seconds -- so checking the interlock
+        # first made even a command that was going to be REFUSED pay the full stall. (review)
+        allowed = MANUAL_TRANSITIONS[cmd]
+        if self.state not in allowed:
+            self.get_logger().warning(
+                f"refused {cmd} in state {self.state.value}; allowed from "
+                f"{sorted(st.value for st in allowed)}")
+            return
+
+        # THE INTERLOCK -- AND IT MUST NEVER BLOCK THIS THREAD WHILE THE AIRCRAFT IS FLYING.
+        #
+        # `_apply_command` runs on the timer callback, the same thread as `_publish_setpoint`.
+        # `simulator_present()` opens a socket with a 2 s timeout that also covers the recv,
+        # so a stalled AirSim RPC -- precisely what happens during World Partition streaming --
+        # stops the setpoint stream for seconds. PX4 drops out of offboard after COM_OF_LOSS_T
+        # (1.0 s on v1.16.0, see _tick). A single movement nudge could therefore drop the
+        # aircraft into failsafe. Found in review; it was never flown.
+        #
+        # THE SPLIT IS BY WHETHER SETPOINTS ARE STREAMING, not by which command it is:
+        #
+        #   TAKEOFF arrives in IDLE, and _tick deliberately does NOT stream setpoints in IDLE.
+        #           There is nothing to starve, so the check runs live -- which is what makes
+        #           it a real per-takeoff proof rather than a cached one.
+        #
+        #   MOVE arrives in HOVER, where the stream is the only thing holding the aircraft in
+        #        offboard. It reuses the verdict TAKEOFF established, with no network call.
+        #        That is not a weakening: the question is "is a simulator present", which does
+        #        not change between a takeoff and a nudge thirty seconds later -- and refusing
+        #        to move an aircraft because the simulator vanished would achieve nothing,
+        #        since there would be no aircraft to move.
+        if cmd in manual_policy.REQUIRES_INTERLOCK:
+            if self.state is State.IDLE:
+                ok, why = simulator_present()
+                self.manual_ready = ok
+            else:
+                ok, why = self.manual_ready, "verdict from the last take-off (not re-dialled "
+                why += "in flight: a blocking RPC here would stall the setpoint stream)"
+            if not ok:
+                self.get_logger().error(f"REFUSED {cmd}: SITL interlock not satisfied -- {why}")
+                return
+
+        if cmd == MissionCommand.COMMAND_HOLD:
+            # A no-op by construction: HOVER already holds `target_enu` and already streams.
+            # It exists so the page has a way to say "stay" that is not "do nothing", and so
+            # a future translate/yaw mode has an obvious place to land.
+            self.get_logger().info("hold: already holding")
+            return
+
+        if cmd == manual_policy.COMMAND_MOVE:
+            self._do_move(msg)
+            return
+
+        if cmd == MissionCommand.COMMAND_LAND:
+            self.get_logger().info(f"land commanded from {self.state.value}")
+            self._enter(State.LAND)
+            return
+
+        # TAKEOFF. A zero or negative altitude means "the node's parameter", so a caller that
+        # only wants the default does not have to know what it is (MissionCommand.msg).
+        # THE POSITION CHECK BEFORE THE MUTATION. Assigning self.alt first meant a takeoff
+        # REFUSED for "no position yet" still permanently changed the node's altitude, so a
+        # later takeoff sent with altitude_m = 0 ("use the node's parameter") climbed to the
+        # altitude of the command that was rejected. (review)
+        cur = self._position_enu()
+        if cur is None:
+            self.get_logger().error(
+                "REFUSED takeoff: no vehicle_local_position yet -- the aircraft does not "
+                "know where it is")
+            return
+        alt = float(msg.altitude_m)
+        if alt > 0.0:
+            self.alt = alt
+        # Home is re-read at every takeoff rather than kept from start-up. The vehicle may
+        # have been landed somewhere else, or moved; a stale home would fly it back to a
+        # position nobody asked for.
+        self.home_enu = (cur[0], cur[1])
+        self.target_enu = (cur[0], cur[1], cur[2])
+        # Reset per sortie, so a second take-off does not inherit the heading the last one
+        # was left yawed to. 0.0 is what every non-manual setpoint carries.        (SIM-47)
+        self.target_yaw_enu = 0.0
+        self.get_logger().info(
+            f"takeoff commanded to {self.alt} m from ENU=({cur[0]:.2f}, {cur[1]:.2f})")
+        self._enter(State.STREAM_SETPOINTS)
+
+    def _do_move(self, msg: MissionCommand) -> None:
+        """Nudge the hold point, inside the envelope.                             (SIM-47)
+
+        The aircraft is already holding `target_enu` and `_tick` is already streaming it at
+        `setpoint_rate_hz`, so moving is moving that target. There is no separate flight mode
+        and no second control path -- which is why MOVE needed no new state.
+        """
+        cur = self._position_enu()
+        if cur is None:
+            self.get_logger().error("REFUSED move: no vehicle_local_position")
+            return
+
+        # BODY -> WORLD, in the one function that owns rotations (conventions §3). The
+        # vehicle's heading is NED out of PX4; frames.py converts it, here and nowhere else.
+        yaw_now = yaw_ned_to_enu(self.position.heading) if self.position else self.target_yaw_enu
+        delta_enu = flu_to_enu(float(msg.forward_m), float(msg.left_m), float(msg.up_m), yaw_now)
+
+        # THE HOLD POINT MOVES, NOT THE VEHICLE'S PRESENT POSITION. Nudging from where the
+        # aircraft happens to be right now would let a burst of commands accumulate the
+        # tracking error -- each one measured from a position that had not finished arriving
+        # at the last target. Measuring from the target keeps a held key linear.
+        target, notes = manual_policy.clamp_move(
+            self.target_enu, self.home_enu or (0.0, 0.0), delta_enu, self.move_limits)
+
+        dyaw, yaw_note = manual_policy.clamp_yaw_step(
+            float(msg.yaw_delta_rad), self.move_limits)
+        if dyaw:
+            self.target_yaw_enu = _wrap_pi(self.target_yaw_enu + dyaw)
+        if yaw_note:
+            notes.append(yaw_note)
+
+        self.target_enu = target
+        if notes:
+            # EVERY CLAMP IS SAID OUT LOUD. A fence the operator cannot feel is a fence they
+            # will keep pushing against while wondering why the aircraft stopped responding.
+            self.get_logger().warning("move clamped: " + "; ".join(notes))
+        self.get_logger().info(
+            f"move -> ENU=({target[0]:.1f}, {target[1]:.1f}, {target[2]:.1f}) "
+            f"yaw={math.degrees(self.target_yaw_enu):.0f} deg")
+
+    def _do_idle(self) -> None:
+        """On the ground, disarmed, waiting. Deliberately empty.                  (SIM-45)
+
+        No timeout (UNTIMED_STATES), no setpoints (see _tick), no polling. The only way out
+        is a command, and commands are applied in _tick before the handler runs. A handler
+        that did anything here would be doing it forever."""
+
+    def _do_hover(self) -> None:
+        """Holding the takeoff setpoint, waiting.                                 (SIM-45)
+
+        Also empty, and for a reason worth stating: the hold is performed by _tick, which
+        publishes `target_enu` on every tick of every flying state. PX4 drops out of offboard
+        after COM_OF_LOSS_T (1.0 s on v1.16.0) without that stream, so the hover is the
+        stream -- there is nothing left for a handler to do."""
 
     def _do_stream_setpoints(self) -> None:
         """PX4 refuses the offboard mode switch unless a setpoint stream already exists.
@@ -482,6 +814,12 @@ class OffboardControl(Node):
     def _do_takeoff(self) -> None:
         if self._reached(self.target_enu):
             self.get_logger().info(f"reached takeoff altitude {self.alt} m")
+            if self.manual:
+                # HOVER holds exactly the setpoint TAKEOFF was already flying to, so there is
+                # nothing to set -- and nothing that could shift the aircraft at the moment of
+                # handover. WAYPOINTS is never entered in manual mode.
+                self._enter(State.HOVER)
+                return
             self.wp_index = 0
             self.target_enu = self.waypoints[0]
             self._enter(State.WAYPOINTS)
@@ -548,8 +886,12 @@ class OffboardControl(Node):
             "takeoff_altitude_m": self.alt,
             # Only meaningful for the built-in square; a scenario supplies its own path,
             # and reporting a square side for an arbitrary route reads as fact later.
-            "square_side_m": None if self.scenario_wps else self.side,
-            "mission_source": "scenario" if self.scenario_wps else "built-in-square",
+            "square_side_m": None if (self.scenario_wps or self.manual) else self.side,
+            # "manual" wins over both. A hand-flown sortie has no mission at all, and
+            # reporting "built-in-square" for one would put a square that was never flown
+            # into a bag that outlives everyone's memory of the session.       (SIM-45)
+            "mission_source": ("manual" if self.manual
+                               else "scenario" if self.scenario_wps else "built-in-square"),
             "accept_radius_m": self.accept_radius,
         }
         # allow_nan=False on purpose. Python happily writes a bare `NaN`, which is NOT

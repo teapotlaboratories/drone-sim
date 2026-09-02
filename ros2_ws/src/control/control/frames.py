@@ -14,7 +14,8 @@ asserts it explicitly.
 import math
 
 __all__ = ["enu_to_ned", "ned_to_enu", "yaw_enu_to_ned", "yaw_ned_to_enu",
-           "nwu_to_enu", "enu_to_nwu", "yaw_nwu_to_enu", "yaw_enu_to_nwu"]
+           "nwu_to_enu", "enu_to_nwu", "yaw_nwu_to_enu", "yaw_enu_to_nwu",
+           "flu_to_enu"]
 
 
 def enu_to_ned(x: float, y: float, z: float) -> tuple[float, float, float]:
@@ -102,3 +103,36 @@ def yaw_nwu_to_enu(yaw: float) -> float:
 def yaw_enu_to_nwu(yaw: float) -> float:
     """ENU yaw -> NWU yaw."""
     return _wrap_pi(yaw - math.pi / 2.0)
+
+
+def flu_to_enu(fwd: float, left: float, up: float, yaw_enu: float) -> tuple[float, float, float]:
+    """A body-frame FLU delta -> an ENU delta, given the vehicle's ENU yaw.  (SIM-47)
+
+    WHY THIS IS HERE AND NOT IN THE COMMAND HANDLER. `docs/conventions.md` §3 says it plainly:
+    "One conversion, in one function, with a unit test." Hand-flying deltas are body-frame --
+    an operator watching the chase camera thinks "forward", not "north" -- so somewhere a
+    rotation by yaw has to happen, and a rotation by yaw is exactly the kind of code that is
+    wrong by a sign and still looks plausible in flight. It belongs beside the other
+    conversions, not inline in `_apply_command`.
+
+    FLU is the body frame conventions §3 freezes: x FORWARD, y LEFT, z UP. ENU is the world
+    frame: x EAST, y NORTH, z UP. `yaw_enu` is counter-clockwise from East, which is what
+    `VehicleLocalPosition.heading` gives once it has been through `yaw_ned_to_enu`.
+
+    At yaw 0 the vehicle faces EAST, so "forward" is +x (east) and "left" is +y (north):
+
+        flu_to_enu(1, 0, 0, 0.0)        -> ( 1,  0, 0)     forward is east
+        flu_to_enu(0, 1, 0, 0.0)        -> ( 0,  1, 0)     left is north
+        flu_to_enu(1, 0, 0, pi/2)       -> ( 0,  1, 0)     facing north, forward is north
+        flu_to_enu(0, 1, 0, pi/2)       -> (-1,  0, 0)     facing north, left is west
+
+    z is untouched: both frames have z up, and the whole point of using FLU rather than FRD
+    here is that "up" means up in both.
+    """
+    c, s_ = math.cos(yaw_enu), math.sin(yaw_enu)
+    # Standard 2-D rotation of the body axes into the world. `left` is +90 deg from `fwd`,
+    # which is why it picks up (-sin, +cos) rather than (+sin, -cos) -- the sign that a
+    # right-handed FRD convention would flip, and the one this docstring's examples pin.
+    return (fwd * c - left * s_,
+            fwd * s_ + left * c,
+            up)

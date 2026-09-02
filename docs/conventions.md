@@ -77,6 +77,46 @@ controller does not care who is upstream, which is the entire point of freezing 
 **Not** `/drone_sim/*` or any project-branded prefix: these names have to survive onto real
 hardware, where nothing is a sim.
 
+### The `/mission/*` topics, concretely
+
+| Topic | Type | Direction | Added |
+|---|---|---|---|
+| `/mission/status` | `drone_interfaces/MissionStatus` | out, continuous | at the freeze |
+| `/mission/result` | `drone_interfaces/MissionResult` | out, once per sortie | at the freeze |
+| `/mission/command` | `drone_interfaces/MissionCommand` | **in** | 2026-09-01, `SIM-45` |
+
+**`/mission/command` fills a half of this namespace that the freeze already declared.** The
+table above has read "mission spec **in**, status and result out" since 2026-07-30; only the
+two outputs were ever built. Adding the input renames nothing and moves nothing, but the
+freeze requires a documented reason and a consumer sweep regardless, so both are here.
+
+*Reason.* `SIM-45` puts a TAKE OFF and a LAND button in a browser, after three consecutive
+site-survey failures that were each about where the aircraft was put. The buttons reach the
+graph through `rosbridge`, whose publish allowlist (`topics_pub_glob`) is enforced **per
+topic** — so expressing the command as a topic is what allows exactly one name to be
+writable by a browser and every other name, `/fmu/in/vehicle_command` included, to be
+refused. A service would have fallen under a different glob, which this project sets to `[]`
+precisely so a page cannot reach any node's `set_parameters`.
+
+*Consumer sweep, 2026-09-01.* One publisher (the web page, through rosbridge) and one
+subscriber: `control/offboard_control.py` **with `manual:=true`**. In mission mode the
+subscription is never created — not created and ignored, but absent — so `ros2 topic info`
+reports zero subscribers during a gate run and a stray publish cannot perturb it. Nothing
+else in the tree references the name: `run_scenario.py`, `run_gate.py`, the evaluation
+package and the launch files are all untouched.
+
+*Frames.* `altitude_m` is ENU metres, up positive, per §3 below.
+
+`SIM-47` added `COMMAND_MOVE` and four delta fields. **The deltas are BODY frame — FLU, the
+body frame §3 freezes** — because an operator watching the chase camera thinks "forward", not
+"north". The rotation into ENU happens in `control.frames.flu_to_enu` and nowhere else, which
+is §3's rule about conversions applied to the one new conversion this added; it has unit tests
+pinning the sign that an FRD convention would flip.
+
+They are **requests, not commands**: the control node clamps every one against a per-step cap,
+a radius around the take-off point and an altitude band, and logs what it clamped. That
+envelope lives in the node, never in the page — `ros2 topic pub` does not run the page.
+
 ---
 
 ## 3. Frames — ENU/FLU outside, NED inside, converted once

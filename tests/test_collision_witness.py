@@ -58,9 +58,13 @@ def fake_dexec(stdout="", returncode=0):
     return _f
 
 
-def record(count, names=()):
-    return json.dumps({"collision_count": count,
-                       "collisions": [{"object_name": n} for n in names]})
+def record(count, last=None, measured=True):
+    """A witness file in its post-SIM-27 shape: the airborne phase BRACKETED by two samples,
+    not watched. `measured` false means it could not bracket the flight at all."""
+    return json.dumps({"airborne_contacts": count, "collision_count": count,
+                       "last_object": last, "measured": measured,
+                       "baseline_count": 0 if measured else None,
+                       "final_count": count if measured else None})
 
 
 # --- the rule itself ------------------------------------------------------------------
@@ -71,11 +75,14 @@ def test_a_clean_record_scores_zero(monkeypatch):
     assert n == 0 and detail == ""
 
 
-def test_collisions_are_counted_and_named(monkeypatch):
-    monkeypatch.setattr(cw, "_dexec", fake_dexec(record(2, ["Cube_7", "Cube_49"])))
+def test_collisions_are_counted_and_the_last_one_named(monkeypatch):
+    """Two samples cannot produce an inventory, so the detail names the object in contact at
+    the closing read and says so -- overclaiming a full list would be worse than a partial
+    one."""
+    monkeypatch.setattr(cw, "_dexec", fake_dexec(record(2, "Cube_7")))
     n, detail = cw.stop_and_score()
     assert n == 2
-    assert "Cube_7" in detail and "Cube_49" in detail
+    assert "Cube_7" in detail and "last" in detail
 
 
 def test_an_unreadable_witness_is_unknown_not_clean(monkeypatch):
@@ -94,22 +101,29 @@ def test_garbage_output_is_unknown_not_clean(monkeypatch):
 
 
 def test_a_missing_count_field_is_treated_as_zero_not_crash(monkeypatch):
-    """Well-formed JSON that simply recorded nothing is a legitimately clean run."""
-    monkeypatch.setattr(cw, "_dexec", fake_dexec(json.dumps({"collisions": []})))
+    """Well-formed JSON from a bracketed flight that recorded nothing is a legitimately clean
+    run. `measured` is what separates that from "we never looked"."""
+    monkeypatch.setattr(cw, "_dexec", fake_dexec(json.dumps(
+        {"measured": True, "baseline_count": 4, "final_count": 4})))
     n, _ = cw.stop_and_score()
     assert n == 0
 
 
-def test_the_detail_is_truncated_but_says_how_many_were_hidden(monkeypatch):
-    monkeypatch.setattr(cw, "_dexec", fake_dexec(record(9, ["a", "b", "c", "d", "e"])))
-    _, detail = cw.stop_and_score()
-    assert "+2 more" in detail
+def test_a_flight_that_could_not_be_bracketed_is_unknown_not_clean(monkeypatch):
+    """The witness now needs the vehicle to cross its altitude gate twice. A run that never
+    did -- it never took off, or was stopped mid-air -- has not been shown to be clean, and
+    scoring it 0 is exactly the absence-as-evidence failure this module exists to prevent."""
+    monkeypatch.setattr(cw, "_dexec", fake_dexec(record(0, measured=False)))
+    n, detail = cw.stop_and_score()
+    assert n == -1, "an unbracketed flight must not score 0"
+    assert "bracket" in detail
 
 
 def test_the_full_record_is_persisted_not_just_the_count(monkeypatch, tmp_path):
-    """The first question after "it hit something" is "how high was the something", and only
-    the impact points answer it."""
-    monkeypatch.setattr(cw, "_dexec", fake_dexec(record(1, ["Cube_7"])))
+    """The count reaches the gate report; the file keeps everything else the witness knew --
+    the two bracketing samples, the altitude gate it used, and what it was blind to. Since
+    SIM-27 that no longer includes impact points, and the artifact says so itself."""
+    monkeypatch.setattr(cw, "_dexec", fake_dexec(record(1, "Cube_7")))
     out = tmp_path / "nested" / "collisions.json"
     cw.stop_and_score(out)
     assert out.exists(), "parent directory must be created"
@@ -162,3 +176,56 @@ def test_start_deletes_the_previous_file_before_anything_else(monkeypatch):
     cw.start()
     assert calls, "start() made no docker exec call at all"
     assert calls[0][0] == "rm", f"first call was {calls[0]!r}, not the stale-file delete"
+
+# --- the witness observes without consuming ------------------------------------ (SIM-27)
+
+def _witness_src():
+    return (REPO / "scripts" / "watch_collisions.py").read_text()
+
+
+
+def test_the_witness_brackets_the_flight_instead_of_watching_it():
+    """`simGetCollisionInfo` is read-and-reset and there is NO non-consuming way to ask -- the
+    log route is closed too, because upstream commented out the UE_LOG calls in
+    UAirBlueprintLib::LogMessage. So an observer cannot watch a flight without breaking it
+    somewhere; it can only sample the monotonic counter at each end.
+
+    Polling at 20 Hz broke landings: 10 pose splits in 12 CitySample runs, 0 in 7 without.
+    Polling only above 2 m moved the damage to the cruise instead -- an actor frozen at 4.82 m
+    while physics flew the whole mission 25 m away, and the gate scored it PASS. Two reads,
+    neither of them during a contact, is what is left."""
+    src = _witness_src()
+    loop = src[src.index("while time.time() - t0 < a.max_seconds"):src.index("except KeyboardInterrupt")]
+    assert loop.count('rpc.call("simGetCollisionInfo"') == 2, (
+        "exactly two collision reads: crossing the gate upward, and crossing back down")
+    assert 'rpc.call("simGetVehiclePose"' in loop, "the free pose read is what gates them"
+    assert "was_airborne" in loop
+
+
+def test_unmeasured_is_reported_as_unknown_not_as_zero():
+    """A flight that never crossed the gate, or was stopped before descending through it, has
+    NOT been shown to be clean. Reporting 0 there is the failure this repo has paid for
+    repeatedly: an absence of evidence rendered as evidence of absence."""
+    src = _witness_src()
+    flush = src[src.index("def flush():"):src.index("was_airborne = False")]
+    assert "None if (baseline is None or final_count is None)" in flush
+    assert '"measured"' in flush
+    assert '"blind_to"' in flush, "the artifact must state what it cannot see"
+
+def test_the_altitude_gate_is_relative_to_the_resting_height():
+    """An absolute z would be wrong on every world whose ground is not at zero -- which is every
+    world we fly: CitySample rests at ~0.75 m NED, Blocks at ~0.6."""
+    src = _witness_src()
+    assert "rest_z" in src and "rest_z - z" in src
+
+
+def test_no_vendor_patch_is_needed_for_the_collision_fix():
+    """The first fix patched Cosys-AirSim so its RPC stopped consuming. That inverted this
+    project's primary rule -- the simulator behaves correctly for its intended use, and WE
+    introduced the 20 Hz poller. The fix belongs in the witness, and the patch was deleted
+    rather than committed. If a 00NN patch touching collision ownership ever reappears at the
+    top level of patches/cosys-airsim/, it will be applied to every world build: make that a
+    deliberate decision, not a leftover."""
+    top = sorted(p.name for p in (REPO / "patches" / "cosys-airsim").glob("*.patch"))
+    assert not any("collision-flag" in n for n in top), (
+        f"a collision-ownership patch is being auto-applied: {top}")

@@ -104,8 +104,8 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
   <h1>Worklog Index</h1>
   <p class="sub">Each entry is a self-contained record of one non-trivial investigation — findings, measurements, decisions, dead ends, and what is still unverified. Written as the work happens, not reconstructed afterwards.</p>
   <div class="mastmeta">
-    <span>Entries <b>37</b></span>
-    <span>Newest <b>2026-08-31</b></span>
+    <span>Entries <b>39</b></span>
+    <span>Newest <b>2026-09-01</b></span>
   </div>
 </header>
 
@@ -114,8 +114,32 @@ footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-fam
 <h2>Worklogs</h2>
 
 <div class="grid g2">
+  <a class="card" href="2026-09-01-sim45-a-web-interface-over-ros-2.html">
+    <span class="k">2026-09-01 · SIM-45 + SIM-46 · newest</span>
+    <h3>A Web Interface, Over ROS 2</h3>
+    <p>Three site-survey failures in a row were about <em>where</em> the aircraft was put, each diagnosed by teleporting a disarmed vehicle and photographing it through a throwaway script. So: a browser, with take-off and land, both cameras and the telemetry the graph already carries. The owner chose <strong>rosbridge</strong> over a purpose-built narrow server — the right call by the reuse rule, and it moves the cost from <em>write a transport</em> to <em>make a deliberately general bridge obey hard stop 1</em>. Reading rosbridge 2.7.0&rsquo;s source first turned up the trap that decides it: <strong>an unset glob means no checking at all</strong>, so security is opt-in and a missing line <em>opens</em> the bridge. The chase camera became a ROS topic on the strength of a different fact — an X server&rsquo;s <strong>abstract</strong> socket is scoped to the network namespace, which every container here shares, so a node in <code>sim-ros2</code> can grab the renderer&rsquo;s screen. The same fact that once let the recorder film QGroundControl&rsquo;s map. <strong>46 tests, 7 flights</strong> — the interlock that refuses a real aircraft sits in the node that arms, not in the web layer, because <code>ros2 topic pub</code> walks straight past a transport. Then <code>SIM-46</code>, the same day: the owner asked for it to be <em>faithful to the real thing</em>, so the ground station became its own container — and the chase camera pointedly did not follow, because a real aircraft has no chase camera. Eleven defects that only running it could find, including a <code>pkill</code> pattern that would have signalled the uXRCE-DDS agent’s supervisor, and a page that percent-encoded the slashes in every camera topic while the server answered HTTP 200 and 22 bytes.</p>
+    <div class="tags">
+      <span class="pill p-ok">1 publishable topic</span>
+      <span class="pill p-chrome">then its own container</span>
+      <span class="pill p-warn">glob unset = open</span>
+      <span class="pill p-stop">3 wrong theories</span>
+    </div>
+  </a>
+
+  <a class="card" href="2026-08-31-sim27-the-fix-and-what-it-uncovered.html">
+    <span class="k">2026-08-31 · SIM-27</span>
+    <h3>Collisions Became Real</h3>
+    <p>The observer was clearing the flag the physics engine needed: <code>simGetCollisionInfo</code> is read-and-reset, and the witness polled it at 20 Hz, so the ground lock never engaged and every landing ran out its budget. The direct fix — move the ownership inside Cosys-AirSim — worked, was measured working, and was <strong>deleted</strong>: patching an upstream so that <em>our</em> tool stops breaking it inverts this project&rsquo;s primary rule. What shipped instead is a witness that cannot watch a flight and so <strong>brackets</strong> one, with exactly two reads outside it and its blind spot declared in its own output. <strong>Worst pose split 24.75 m → 1.009 m, zero vendor patches.</strong> The abandoned attempt still taught two things: a change under <code>AirLib/src</code> compiles and does nothing, because AirLib ships as a prebuilt <code>.a</code> the build never recompiles — and that cost a full verification gate to discover. Rewritten 2026-09-02, at the owner&rsquo;s instruction, because the original described the fix that was thrown away.</p>
+    <div class="tags">
+      <span class="pill p-ok">24.75 m → 1.009 m</span>
+      <span class="pill p-chrome">0 vendor patches</span>
+      <span class="pill p-warn">prebuilt .a trap</span>
+      <span class="pill p-stop">rewritten record</span>
+    </div>
+  </a>
+
   <a class="card" href="2026-08-31-sim27-the-witness-was-the-bug.html">
-    <span class="k">2026-08-31 · SIM-27 · newest</span>
+    <span class="k">2026-08-31 · SIM-27</span>
     <h3>The Witness Was The Bug</h3>
     <p>For three weeks a landing that never terminated was blamed on the simulator&rsquo;s ground detection. It was <strong>our own collision monitor</strong>. <code>simGetCollisionInfo</code> is <strong>read-and-reset</strong> — the flag is one-shot and the first reader clears it — and the witness polls it at 20 Hz, winning the race against the physics engine that needs the same flag to run collision response. No flag, no ground lock, and the integrator descends through the world while the actor rests on the surface. <strong>10 splits in 12 runs with it on; 0 in 7 with it off</strong>, on two different binaries — and it finally explains the 1.7% vs 70–90% rate gap between Blocks and CitySample. But switching it off is not the fix: with nobody clearing the flag, <strong>2 of 7 runs could not take off</strong>. The theft was masking a second defect. Also here: the three confident wrong answers this ticket produced first, and the one habit that ended them — refusing to read silence as evidence.</p>
     <div class="tags">

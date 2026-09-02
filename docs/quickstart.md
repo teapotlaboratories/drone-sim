@@ -557,6 +557,87 @@ cmd.command = VehicleCommand.VEHICLE_CMD_NAV_LAND
 
 Stream setpoints **before** requesting OFFBOARD, or the mode change is rejected.
 
+### Flying it by hand, from a browser
+
+For **site survey** — checking what is actually under and above a spawn point before committing a
+gate to it — there is a web interface with TAKE OFF and LAND buttons, both cameras, and the
+telemetry below. It exists because three consecutive failures (`SIM-44`'s tree, a parked car under
+the landing point, the takeoff corridor) were about *where* the aircraft was put, and each took a
+throwaway script and an afternoon to diagnose.
+
+```bash
+./scripts/sim_up.sh --display --world /path/to/Your.uproject   # --display: needed for the chase view
+./scripts/web_ui.sh start                                      # then open http://127.0.0.1:8080
+./scripts/web_ui.sh status
+./scripts/web_ui.sh stop
+```
+
+Everything runs **inside `sim-ros2`** — there is no extra container, so `./scripts/sim_up.sh --down`
+already stops it. The drone camera additionally needs perception, which `sim_up.sh` does not start:
+
+```bash
+docker exec -d sim-ros2 bash -lc "ros2 launch bringup perception.launch.py"
+```
+
+`status` reports on both cameras, so a blank pane is explained rather than guessed at.
+
+**It is SITL only, and that is enforced rather than asserted.** Hand flying refuses to arm unless
+AirSim's RPC answers — a *positive* proof that a simulator is present, not a check for the absence
+of hardware, which would fail open on any setup it did not recognise. The check lives in
+`control/sitl_interlock.py`, i.e. in the node that sends the arm command, so `ros2 topic pub` does
+not walk around it either. See hard stop 1 in `CLAUDE.md`.
+
+**What a browser is allowed to do.** rosbridge is launched with a publish allowlist of exactly one
+topic:
+
+| | |
+|---|---|
+| writable | `/mission/command` — subscribed **only** by `offboard_control` with `manual:=true` |
+| readable | `/fmu/out/*`, `/mission/status`, `/mission/result`, `/chase/*`, `/airsim_node/*`, `/clock`, `/rosout` |
+| refused | everything else, `/fmu/in/vehicle_command` included; and all services and actions |
+| reachable from | `127.0.0.1` by default. There is **no authentication** — anyone who can reach it can fly |
+
+**Reaching it from another machine.** The preferred route needs no change to the stack and keeps
+the aircraft behind authentication you already have:
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 -L 9090:127.0.0.1:9090 -L 8181:127.0.0.1:8181 <host>
+```
+
+All three ports are required: the page, the websocket and the video are separate servers, and
+`app.js` builds its URLs from `window.location.hostname`.
+
+To publish it instead, name the addresses — `WEB_BIND` takes a comma-separated list:
+
+```bash
+WEB_BIND=127.0.0.1,100.127.184.189 ./scripts/sim_up.sh --display   # loopback + netbird
+```
+
+**Keep `127.0.0.1` in the list.** Publishing *moves* a binding rather than widening it, so naming
+only the overlay address takes loopback away and the browser on the simulator's own machine stops
+working. Do not use `0.0.0.0`: that publishes on every interface, which is how MAVLink port 14540
+ended up reachable over the overlay once already (`sim_up.sh`, `NET_MODE` header).
+
+Verified over a netbird overlay 2026-09-01: the page loaded from `100.127.184.189:8080` connected
+rosbridge at `100.127.184.189:9090` and rewrote both video URLs to the same address.
+
+**What stands in front of the aircraft once it is published.** Not this page — it has no login.
+On an overlay it is the overlay's own access control (enrolled peers plus whatever policy you
+have set). The SITL interlock still refuses every take-off unless AirSim's RPC answers, wherever
+the command came from, so publishing the page does not make real hardware reachable — but it does
+mean anything on the overlay can fly the simulator.
+
+The same node in mission mode never creates the `/mission/command` subscription at all, so a gate
+run cannot be perturbed by a stray publish.
+
+You can drive it without the page:
+
+```bash
+docker exec sim-ros2 bash -lc \
+  "ros2 topic pub --once /mission/command drone_interfaces/msg/MissionCommand \
+     '{command: takeoff, altitude_m: 10.0}'"
+```
+
 ---
 
 ## 6. Verify it works

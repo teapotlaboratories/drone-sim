@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://relaxng.org/ns/structure/1.0"?>
+<package format="3">
+  <name>depth_view</name>
+  <version>0.1.0</version>
+  <description>Renders the DepthPlanar camera (32FC1 metres) as a colourised CompressedImage a browser can show (SIM-48). SIMULATOR SIDE: it colourises beside the source because the raw topic is 1.2 MB per frame.</description>
+  <maintainer email="aldwinakbar@gmail.com">Aldwin Hermanudin</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

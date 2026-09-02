@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://relaxng.org/ns/structure/1.0"?>
+<package format="3">
+  <name>chase_camera</name>
+  <version>0.1.0</version>
+  <description>Publishes AirSim's chase view into the graph as a camera (SIM-45, SIM-46). SIMULATOR SIDE: a real aircraft has no chase camera, and this reads the renderer's screen. It runs beside the simulator, never on the ground station.</description>
+  <maintainer email="aldwinakbar@gmail.com">Aldwin Hermanudin</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <!-- ffmpeg is a real runtime dependency and is installed by docker/ros2.Dockerfile.
+       It is deliberately ABSENT from docker/webui.Dockerfile: the ground station must have
+       no path to the renderer. -->
+
+  <test_depend>python3-pytest</test_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

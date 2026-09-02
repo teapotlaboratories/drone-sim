@@ -212,6 +212,61 @@ autopilot:
       reproducible pin, the dated sync stamp (20260616.084553) is. rclpy imports on
       Python 3.12.3 — this is the system-Jazzy half of the Isaac 3.11/3.12 split, and it
       must never be sourced into Isaac's interpreter.
+  # --- the hand-flying web interface's upstream halves ---------------------  (SIM-45)
+  #
+  # Wrapped, not reimplemented: rosbridge already speaks ROS-over-websocket and
+  # web_video_server already serves image topics as MJPEG. Installed by
+  # docker/ros2.Dockerfile, which asserts on the ARTIFACTS rather than on apt's exit status.
+  rosbridge_suite:
+    installed_in: drone-sim/webui   # the GROUND STATION image, not the companion (SIM-46)
+    package: ros-jazzy-rosbridge-suite
+    version: 2.7.0-1noble.20260615.164124      # resolved + read 2026-09-01
+    status: observed
+    smoke: >-
+      Not yet flown. Verified statically: rosbridge_library/capabilities/publish.py checks
+      `topics_pub_glob` BEFORE creating the topic registration and returns on no match, and
+      `topics_pub_glob` is a separate parameter from `topics_sub_glob`.
+    note: >-
+      THE VERSION IS A SAFETY PIN, not just a reproducibility one. `webui.launch.py` narrows
+      this bridge to a single publishable topic (`/mission/command`) so a browser cannot
+      reach `/fmu/in/vehicle_command`. Three properties that narrowing depends on, all read
+      out of 2.7.0's source rather than its documentation:
+        * the globs are STRINGS holding a list literal, not string arrays;
+        * an UNSET glob means NO checking (`parse_glob_string("")` returns None), so
+          security here is opt-in and a missing glob opens the bridge rather than closing it;
+        * `topics_pub_glob` and `topics_sub_glob` are independent.
+      A future version that renamed or dropped `topics_pub_glob` would keep launching, with
+      an unrecognised parameter and an open bridge. The Dockerfile greps for the name for
+      exactly that reason. Re-read the source before moving this pin.
+  web_video_server:
+    installed_in: drone-sim/webui   # the GROUND STATION image, not the companion (SIM-46)
+    package: ros-jazzy-web-video-server
+    version: 3.1.0-1noble.20260615.150732      # resolved 2026-09-01
+    status: observed
+    smoke: "Not yet flown. Streamer registry read from the shipped .so: ros_compressed present."
+    note: >-
+      Used through its `ros_compressed` streamer, which forwards a CompressedImage topic's
+      JPEG bytes with NO transcode. Both cameras on the page are already JPEG -- the chase
+      camera encodes in ffmpeg, and airsim_node's come from compressed_image_transport at a
+      measured 15-17 Hz -- so nothing re-encodes and the renderer's GPU is left alone.
+      URL contract, read from the binary: /stream, /snapshot, /stream_viewer; parameters
+      port, address, default_stream_type, publish_rate, ros_threads.
+  roslibjs:
+    file: ros2_ws/src/webui/webui/static/vendor/roslib.min.js
+    version: 1.4.1
+    source: https://cdn.jsdelivr.net/npm/roslib@1.4.1/build/roslib.min.js
+    sha256: 3c510df2bc04be9d5b07efafb01eb5f473d8a5092d93292351a715ca60daf9d6
+    bytes: 66315
+    status: observed                            # fetched + hashed 2026-09-01
+    note: >-
+      VENDORED, not loaded from a CDN: the stack is expected to run on a machine with no
+      outbound network, and a page whose control library fails to load is a page whose
+      buttons silently do nothing.
+      NOT 2.1.0 (the current `latest`, published 2026-03-03). roslibjs 2.x ships as an ES
+      module that dynamic-imports its transport -- dist/RosLib.js plus two hashed transport
+      chunks and an importmap.js, four files to pin instead of one, with names that change
+      every release. This page needs Ros, Topic, subscribe and publish, which 1.4.1 has and
+      which the rosbridge v2 protocol has not changed.
   nuttx_toolchain:
     arm_none_eabi_gcc: "20231009"
     status: observed
@@ -1179,6 +1234,34 @@ images:
       one-file change. Gazebo was removed 2026-08-04 (--no-sim-tools): 11.6 GB -> 11.0 GB.
     asserts: every pin above is verified against its recorded SHA at build time
     status: LOCKED
+
+  webui:
+    tag: drone-sim/webui:v1.16.0
+    dockerfile: docker/webui.Dockerfile
+    entrypoint: docker/webui-profile.sh
+    base: ubuntu:24.04
+    build_order: >-
+      AFTER drone-sim/ros2:v1.16.0. This image COPY --from's the px4_msgs install tree out of
+      it, so the companion image must exist first. Recorded here because a build order that
+      lives only in someone's head is not reproducible.
+    role: >-
+      THE GROUND STATION (SIM-46). rosbridge_suite, web_video_server and the hand-flying page.
+      Runs the sim-webui container -- a sibling of sim-qgc, not of sim-ros2: on real hardware
+      the ROS 2 graph runs on the companion computer and a web page that flies the aircraft
+      runs on someone's laptop.
+    contains_deliberately_not: >-
+      No AirSim RPC client, no msgpack, no Cosys-AirSim wrapper, and none of our own nodes.
+      The image asserts that at build time rather than claiming it in a comment. ffmpeg IS
+      present -- a hard Depends of web_video_server, so it cannot be removed without removing
+      the server; the first draft asserted its absence and the build correctly refused. The
+      boundary rests on there being no node here that opens a display and no client that can
+      dial the AirSim RPC. The chase camera reads the renderer's screen and therefore
+      stays on the simulator side, in drone-sim/ros2 -- a real aircraft has no chase camera.
+    px4_msgs: >-
+      COPY --from=drone-sim/ros2:v1.16.0 /ros2_ws/install -- the SAME BUILT ARTIFACT, not
+      merely the same pinned SHA. Version coupling is the architecture; two independent builds
+      of one SHA satisfy that nominally, one shared build satisfies it literally.
+    status: observed          # built + smoke-tested 2026-09-01
 
   unreal:
     tag: drone-sim/unreal:ue5.8

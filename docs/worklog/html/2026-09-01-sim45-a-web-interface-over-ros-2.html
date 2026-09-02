@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A Web Interface, Over ROS 2</title>
+<style>
+/* ==========================================================================
+   CANONICAL WORKLOG DESIGN SOURCE.
+   Copy this <style> block verbatim into every later worklog render so the set
+   does not drift. To change the design, edit it here first, then re-embed.
+
+   Matches docs/reference/*.html, with one deliberate divergence: NO external
+   font <link>. Worklog renders must be strictly self-contained (no external
+   css/js/fonts/images), so local font stacks replace Oswald / Public Sans /
+   IBM Plex Mono. Everything else — variables, layout, three-theme toggle — is
+   the same design system.
+   ========================================================================== */
+:root{
+  --paper:#E6E7E1; --panel:#EFEFEA; --panel2:#DCDDD5; --ink:#161A18; --ink2:#4A514C;
+  --rule:#C4C6BC; --chrome:#178C97; --chrome-ink:#0E5C64;
+  --air:#1584B5; --ground:#C8892B; --space:#6B4C93; --ok:#3F7A34; --stop:#A3341F;
+  --thead:#1B211E; --thead-ink:#E6E7E1; --code-bg:#1B211E; --code-ink:#D8DCD4;
+  --scan:rgba(22,26,24,.030);
+}
+[data-theme="dark"]{
+  --paper:#111512; --panel:#171C19; --panel2:#1E2421; --ink:#E4E7E0; --ink2:#9AA39C;
+  --rule:#2C332E; --chrome:#2FB3BE; --chrome-ink:#7FD8DF;
+  --air:#3BA5D4; --ground:#E0A643; --space:#9A79C4; --ok:#5FA351; --stop:#D25638;
+  --thead:#0B0E0C; --thead-ink:#D8DCD4; --code-bg:#0B0E0C; --code-ink:#CFD6CD;
+  --scan:rgba(255,255,255,.020);
+}
+[data-theme="eink"]{
+  --paper:#DCDBD5; --panel:#E5E4DE; --panel2:#CECDC7; --ink:#17170F; --ink2:#54544B;
+  --rule:#A8A79E; --chrome:#3C6B6D; --chrome-ink:#2A5153;
+  --air:#4A6C86; --ground:#877142; --space:#63566F; --ok:#4C6944; --stop:#8A4231;
+  --thead:#17170F; --thead-ink:#DCDBD5; --code-bg:#22221B; --code-ink:#CECDC7;
+  --scan:rgba(23,23,15,.022);
+}
+[data-theme="eink"] body{transition:none}
+[data-theme="eink"] *{transition:none!important}
+[data-theme="eink"] .pill{border-width:1.5px}
+[data-theme="eink"] thead th{letter-spacing:.10em}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Public Sans","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  font-size:15.5px; line-height:1.6;
+  background-image:repeating-linear-gradient(180deg,var(--scan) 0 1px,transparent 1px 4px);
+  transition:background-color .25s ease,color .25s ease;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+h1,h2,h3,h4,.disp{font-family:"Oswald","Arial Narrow",Impact,sans-serif;font-weight:500;letter-spacing:.01em;text-transform:uppercase;line-height:1.12;margin:0}
+code,pre,.mono,.tag{font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+
+/* masthead */
+.mast{border-bottom:3px solid var(--ink);padding:26px 0 14px;margin-bottom:8px;position:relative}
+.mast .eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--chrome-ink)}
+[data-theme="dark"] .mast .eyebrow{color:var(--chrome)}
+.mast h1{font-size:clamp(30px,5.4vw,58px);margin:6px 0 8px}
+.mast .sub{font-size:15px;color:var(--ink2);max-width:70ch}
+.mastmeta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink2)}
+.mastmeta b{color:var(--ink);font-weight:600}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:60;background:var(--paper);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:16px;padding:8px 24px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.topbar .brand{color:var(--chrome);font-weight:600}
+.topbar nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto}
+.topbar nav a{color:var(--ink2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.topbar nav a:hover,.topbar nav a:focus-visible{color:var(--chrome);border-bottom-color:var(--chrome)}
+.tgl{border:1px solid var(--rule);background:var(--panel);color:var(--ink);cursor:pointer;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:6px 12px;display:inline-flex;align-items:center;gap:8px}
+.tgl:hover{border-color:var(--chrome);color:var(--chrome)}
+.tgl:focus-visible{outline:2px solid var(--chrome);outline-offset:2px}
+.tgl .dot{width:8px;height:8px;background:var(--chrome);display:inline-block}
+
+/* sections */
+section{padding-top:52px}
+.secnum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.2em;color:var(--chrome);display:block;margin-bottom:6px}
+h2{font-size:clamp(22px,3.2vw,32px);border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:18px}
+h3{font-size:19px;margin:26px 0 10px;color:var(--ink)}
+h4{font-size:14px;letter-spacing:.10em;margin:18px 0 8px;color:var(--ink2)}
+p{margin:0 0 14px}
+a{color:var(--chrome-ink)} [data-theme="dark"] a{color:var(--chrome)}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--rule);padding:20px 22px;margin:18px 0}
+.callout{border-left:5px solid var(--chrome);background:var(--panel);padding:16px 20px;margin:18px 0}
+.callout.stop{border-left-color:var(--stop)}
+.callout.ok{border-left-color:var(--ok)}
+.callout.warn{border-left-color:var(--ground)}
+.callout .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:6px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+
+/* stat tiles */
+.stat{border:1px solid var(--rule);border-top:5px solid var(--chrome);background:var(--panel);padding:14px 16px}
+.stat.ok{border-top-color:var(--ok)} .stat.stop{border-top-color:var(--stop)} .stat.warn{border-top-color:var(--ground)}
+.stat .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink2)}
+.stat .v{font-family:"Oswald","Arial Narrow",sans-serif;font-size:26px;line-height:1.15;margin:4px 0 2px}
+.stat .n{font-size:12.5px;color:var(--ink2)}
+
+/* tables */
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--panel)}
+thead th{background:var(--thead);color:var(--thead-ink);font-family:"Oswald","Arial Narrow",sans-serif;font-weight:400;
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;text-align:left;padding:10px 12px;white-space:nowrap}
+td,tbody th{border-top:1px solid var(--rule);padding:9px 12px;vertical-align:top;text-align:left}
+tbody th{font-weight:600;font-family:"Public Sans",Helvetica,Arial,sans-serif}
+tbody tr:nth-child(even){background:var(--panel2)}
+td.mono,th.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+
+/* pills */
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ok{color:var(--ok)} .p-stop{color:var(--stop)} .p-warn{color:var(--ground)}
+.p-air{color:var(--air)} .p-space{color:var(--space)} .p-chrome{color:var(--chrome)}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.65;border:1px solid var(--rule);margin:14px 0}
+pre .c{color:#7E8C82}
+pre b{color:#8FD3DA;font-weight:400}
+p code,li code,td code{background:var(--panel2);padding:1px 5px;font-size:12.5px;border:1px solid var(--rule)}
+
+/* figure */
+figure{margin:22px 0;border:1px solid var(--rule);background:var(--panel);padding:16px}
+figure svg{display:block;width:100%;height:auto}
+figcaption{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.svg-ink{fill:var(--ink)} .svg-ink2{fill:var(--ink2)}
+.n-box{fill:var(--panel2);stroke:var(--rule)}
+.n-done{fill:var(--panel2);stroke:var(--ok);stroke-width:2}
+.n-a{fill:var(--panel2);stroke:var(--ground);stroke-width:2}
+.n-v{fill:var(--panel2);stroke:var(--chrome);stroke-width:2}
+.n-b{fill:var(--panel2);stroke:var(--stop);stroke-width:2;stroke-dasharray:4 3}
+.e{stroke:var(--ink2);stroke-width:1.4;fill:none}
+.e-b{stroke:var(--stop);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.nid{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;fill:var(--ink)}
+.nlb{font-family:"Public Sans",Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--ink2)}
+.axl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;fill:var(--ink2)}
+
+/* toc */
+.toc{border:1px solid var(--rule);background:var(--panel);padding:16px 20px;margin:22px 0}
+.toc .lbl{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink2);display:block;margin-bottom:8px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+.toc li{margin-bottom:4px}
+
+/* lists */
+ul,ol{margin:0 0 14px;padding-left:20px}
+li{margin-bottom:6px}
+ul.tight li{margin-bottom:3px}
+
+footer{margin-top:70px;border-top:3px solid var(--ink);padding-top:16px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}html{scroll-behavior:auto}}
+@media (max-width:640px){.topbar nav{display:none}.wrap{padding:0 16px 64px}.toc ol{columns:1}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">Worklog &middot; 2026-09-01 &middot; SIM-45</span>
+  <nav><a href="#decides">What the stack decides</a><a href="#choice">The choice</a><a href="#verify">Three checks</a><a href="#narrow">Narrowing a bridge</a><a href="#built">Built</a><a href="#ran">Then it ran</a><a href="#gate">The gate</a><a href="#gcs">SIM-46: a ground station</a><a href="index.html">Index</a></nav>
+  <button class="tgl" id="themeBtn" aria-label="Switch colour theme"><span class="dot"></span><span id="themeLbl">Dark</span></button>
+</div>
+<div class="wrap">
+<header class="mast">
+  <span class="eyebrow">Worklog &middot; 2026-09-01 &middot; SIM-45 + SIM-46 &middot; 7 flights</span>
+  <h1>A Web Interface,<br>Over ROS&nbsp;2</h1>
+  <p class="sub">Three site-survey failures in a row were about <em>where</em> the aircraft was put, and each was diagnosed by teleporting a disarmed vehicle and photographing it through a throwaway script. The fix is a browser. The interesting part is that the transport chosen for it exists to expose an entire ROS graph &mdash; and this one has a button that arms an aircraft.</p>
+  <div class="mastmeta"><span>New tests <b>41</b></span><span>Publishable topics <b>1</b></span><span>New containers <b>0</b></span><span>Defects found by running it <b>11</b></span><span>Containers <b>5 &rarr; 6</b></span></div>
+</header>
+
+<div class="grid g3">
+<div class="stat"><div class="k">Transport</div><div class="v">rosbridge 2.7.0</div><div class="n">the owner&rsquo;s call: reuse upstream, then make it narrow</div></div>
+<div class="stat ok"><div class="k">Chase camera</div><div class="v">a ROS topic</div><div class="n">an abstract X socket crosses the container boundary</div></div>
+<div class="stat warn"><div class="k">Found by running it</div><div class="v">7 defects</div><div class="n">green tests, right design, and none of these were catchable off-target</div></div>
+</div>
+
+<div class="toc"><span class="lbl">Contents</span>
+<ol>
+<li><a href="#decides">What the existing stack decides for you</a></li>
+<li><a href="#choice">The transport choice, and what it cost</a></li>
+<li><a href="#verify">Three things checked before being relied on</a></li>
+<li><a href="#narrow">Narrowing a bridge built to be wide</a></li>
+<li><a href="#built">What was built</a></li>
+<li><a href="#ran">Then it was run, and seven things were wrong</a></li>
+<li><a href="#gate">The gate: 2/3, and the failing seed is not this ticket’s</a></li>
+<li><a href="#gcs">SIM-46 — the same day: it becomes a ground station</a></li>
+</ol></div>
+
+<h2 id="decides"><span class="secnum">01</span> What the existing stack decides for you</h2>
+<p>Five facts, read out of the code before anything was designed. Each one removes an option
+that would otherwise have looked reasonable.</p>
+<div class="tw"><table>
+<thead><tr><th>Fact</th><th>Where</th><th>What it rules out</th></tr></thead>
+<tbody>
+<tr><td><code>sim_up.sh</code> publishes <strong>no ports at all</strong>; in the default <code>shared</code> mode the renderer owns a private network namespace and everything else joins it</td><td class="mono">sim_up.sh:485</td><td>Anything that assumes a browser can already reach the stack. Ports have to be published on <code>sim-unreal</code>, because it owns the namespace.</td></tr>
+<tr><td>Teardown removes exactly <strong>five</strong> container names</td><td class="mono">sim_up.sh:252</td><td>A sixth container &mdash; which is the failure this ticket was written to avoid.</td></tr>
+<tr><td>The chase camera is <strong>not a ROS topic and cannot be fetched over RPC</strong>: <code>AirSimCameraDirector</code> has no binding, and <code>simGetImages</code> serves vehicle-mounted cameras only</td><td class="mono">record_chase.sh</td><td>Serving the one view an operator actually wants straight from the graph &mdash; without doing something first.</td></tr>
+<tr><td>The vehicle cameras are <strong>already JPEG</strong>, measured 15.1 Hz / 32.9 KB (q95) and 17.9 Hz / 12.8 KB (q70) &mdash; but <code>airsim_node</code> is not started by <code>sim_up.sh</code></td><td class="mono">quickstart.md</td><td>Re-encoding anything. Also rules out assuming those topics exist on a default bring-up.</td></tr>
+<tr><td><code>offboard_control</code> is a <strong>fire-once mission machine</strong>: every state is timed out and the node exits at <code>DONE</code></td><td class="mono">offboard_control.py</td><td>Hand flying, entirely. There is no state in which it holds a hover waiting for a human.</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="choice"><span class="secnum">02</span> The transport choice, and what it cost</h2>
+<p>Two options went to the owner. A purpose-built HTTP+SSE server with a hard-coded
+two-command allowlist would have needed no new dependency and would have been narrow by
+construction. <strong>The owner chose <code>rosbridge_suite</code></strong> &mdash; the right call
+against this project&rsquo;s primary rule, reuse upstream rather than reinvent.</p>
+<p>The trade is worth stating plainly, because it is the whole shape of the work that followed:
+the cost moved from <em>write a transport</em> to <em>make a deliberately general bridge obey
+hard stop&nbsp;1</em>. rosbridge exists to expose an entire ROS graph to a browser. That is
+precisely the wrong default for a page with a <span class="pill p-stop">take off</span> button
+on it.</p>
+<div class="note ok"><span class="lbl">What the choice bought</span>
+<p>It also made the design better in a way the narrow option would not have. Once the browser
+speaks ROS 2 for <em>everything</em>, the chase camera has to become a ROS topic too &mdash; and
+solving that turned out to remove a risk rather than add one. <code>record_chase.sh</code>, which
+the gate depends on, is left completely untouched.</p></div>
+
+<h2 id="verify"><span class="secnum">03</span> Three things checked before being relied on</h2>
+<p>None of this was taken from memory or from documentation.</p>
+
+<h3>Availability</h3>
+<p>Resolved in a throwaway <code>drone-sim/ros2:v1.16.0</code> container:</p>
+<pre>ros-jazzy-rosbridge-suite     2.7.0-1noble.20260615.164124
+ros-jazzy-web-video-server    3.1.0-1noble.20260615.150732
+ffmpeg                        7:6.1.1-3ubuntu5</pre>
+
+<h3>The publish allowlist is real, and it has three traps</h3>
+<p><code>rosbridge_library/capabilities/publish.py</code> checks <code>topics_pub_glob</code>
+<strong>before</strong> it creates the topic registration and returns silently on no match. So the
+enforcement point exists. Reading <code>rosbridge_websocket.py</code> at the same time turned up
+three properties that a page could depend on wrongly &mdash; each of which produces something that
+<em>looks</em> locked down and is not:</p>
+<div class="tw"><table>
+<thead><tr><th>Property</th><th>What getting it wrong looks like</th></tr></thead>
+<tbody>
+<tr><td>The globs are <strong>strings containing a list literal</strong>, not string arrays</td><td>A parameter type error at best; an unfiltered bridge at worst.</td></tr>
+<tr><td><code>parse_glob_string("")</code> returns <code>None</code>, and <code>None</code> means <strong>no checking at all</strong></td><td>Security is opt-in. A glob left off <em>opens</em> the bridge rather than closing it &mdash; the failure is silent and inverted.</td></tr>
+<tr><td><code>topics_pub_glob</code> and <code>topics_sub_glob</code> are <strong>independent</strong></td><td>Using the legacy single <code>topics_glob</code> applies one list to both directions &mdash; and the read set must be wide while the write set must be exactly one topic.</td></tr>
+</tbody>
+</table></div>
+
+<h3>The chase camera can be a ROS topic after all</h3>
+<p>An X server binds an <strong>abstract</strong> unix socket, and Linux scopes abstract sockets to
+the <strong>network namespace</strong> &mdash; which every container in this stack shares. This repo
+has already paid for that fact once, from the other direction: <code>sim_up.sh:75</code> records
+<code>:99</code> resolving to QGroundControl&rsquo;s Xvfb, after which the chase recorder cheerfully
+filmed a map view and wrote it out as evidence.</p>
+<p>Probed with two throwaway containers sharing one netns &mdash; which is exactly
+<code>sim-ros2</code>&rsquo;s position relative to the renderer:</p>
+<pre>filesystem socket /tmp/.X11-unix/X77 visible from the second container : <b>False</b>
+abstract socket   @/tmp/.X11-unix/X77 from the second container        : <b>CONNECTED</b>
+ffmpeg -f x11grab -i :77 -frames:v 5 -f mpjpeg                         : <b>5 JPEG frames, 8270 B</b></pre>
+<p>The probe also logged <code>Cannot get the image data &hellip; major_code:130</code> (MIT-SHM) and
+fell back to a plain read &mdash; because the probe shared only the <em>network</em> namespace. The
+real stack shares IPC as well, so the shared-memory path is available there. The fallback working
+either way is the useful half.</p>
+
+<h2 id="narrow"><span class="secnum">04</span> Narrowing a bridge built to be wide</h2>
+
+<figure>
+<svg viewBox="0 0 980 380" role="img" aria-labelledby="figtitle">
+  <title id="figtitle">What the browser may write, what it may read, and where the interlock sits</title>
+
+  <!-- browser -->
+  <rect class="n-box" x="16" y="150" width="150" height="72" rx="2"/>
+  <text class="nid" x="91" y="180" text-anchor="middle">browser</text>
+  <text class="nlb" x="91" y="198" text-anchor="middle">127.0.0.1 only</text>
+  <text class="nlb" x="91" y="212" text-anchor="middle">no authentication</text>
+
+  <!-- the boundary -->
+  <line x1="235" y1="18" x2="235" y2="362" stroke="var(--stop)" stroke-width="2" stroke-dasharray="5 4"/>
+  <text class="axl" x="243" y="32" fill="var(--stop)">rosbridge allowlist &mdash; the trust boundary</text>
+
+  <!-- write path -->
+  <path class="e" d="M166 172 H 300" marker-end="url(#ar)"/>
+  <rect class="n-a" x="300" y="146" width="196" height="52" rx="2"/>
+  <text class="nid" x="398" y="168" text-anchor="middle">/mission/command</text>
+  <text class="nlb" x="398" y="186" text-anchor="middle">the ONLY writable topic</text>
+  <path class="e" d="M496 172 H 604" marker-end="url(#ar)"/>
+
+  <!-- refused -->
+  <path class="e-b" d="M166 246 H 300" marker-end="url(#arstop)"/>
+  <rect class="n-b" x="300" y="220" width="196" height="52" rx="2"/>
+  <text class="nid" x="398" y="242" text-anchor="middle" fill="var(--stop)">/fmu/in/*</text>
+  <text class="nlb" x="398" y="260" text-anchor="middle">arm &middot; disarm &middot; reboot</text>
+  <text class="axl" x="398" y="296" text-anchor="middle" fill="var(--stop)">dropped before registration</text>
+
+  <!-- read path -->
+  <path class="e" d="M300 92 H 172" marker-end="url(#ar)"/>
+  <rect class="n-v" x="300" y="66" width="196" height="52" rx="2"/>
+  <text class="nid" x="398" y="88" text-anchor="middle">/fmu/out/* &middot; /chase/*</text>
+  <text class="nlb" x="398" y="106" text-anchor="middle">read-only, enumerated &mdash; never a bare *</text>
+
+  <!-- the node -->
+  <rect class="n-done" x="604" y="120" width="200" height="104" rx="2"/>
+  <text class="nid" x="704" y="148" text-anchor="middle">offboard_control</text>
+  <text class="nlb" x="704" y="166" text-anchor="middle">manual:=true</text>
+  <text class="nlb" x="704" y="184" text-anchor="middle">IDLE &harr; HOVER</text>
+  <text class="nlb" x="704" y="204" text-anchor="middle" fill="var(--ok)">SITL interlock lives HERE</text>
+
+  <!-- ros2 topic pub also passes through the interlock -->
+  <path class="e" d="M704 300 V 224" marker-end="url(#ar)"/>
+  <rect class="n-box" x="604" y="300" width="200" height="46" rx="2"/>
+  <text class="nid" x="704" y="322" text-anchor="middle">ros2 topic pub</text>
+  <text class="nlb" x="704" y="338" text-anchor="middle">bypasses the bridge entirely</text>
+
+  <!-- px4 -->
+  <path class="e" d="M804 172 H 900" marker-end="url(#ar)"/>
+  <rect class="n-box" x="900" y="146" width="66" height="52" rx="2"/>
+  <text class="nid" x="933" y="170" text-anchor="middle">PX4</text>
+  <text class="nlb" x="933" y="186" text-anchor="middle">SITL</text>
+
+  <defs>
+    <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--ink2)"/></marker>
+    <marker id="arstop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--stop)"/></marker>
+  </defs>
+</svg>
+<figcaption>The allowlist stops a browser. It does not stop a shell &mdash; which is why the proof-of-sim interlock sits in the node that arms, not in the transport.</figcaption>
+</figure>
+
+<p>Four measures, in the order they take effect:</p>
+<ol>
+<li><code>topics_pub_glob = ['/mission/command']</code>. One topic, and it is subscribed only by
+<code>offboard_control</code> with <code>manual:=true</code> &mdash; so even that single permission
+is inert during a gate run.</li>
+<li><code>services_glob = "[]"</code> and <code>actions_glob = "[]"</code>. Without these the page
+could call any node&rsquo;s <code>set_parameters</code> and retune <code>takeoff_altitude</code>
+mid-flight. <code>"[]"</code> is an <em>empty allowlist</em>, which is not the same as
+<code>""</code>. rosbridge appends <code>/rosapi/*</code> to a non-<code>None</code> services glob
+by itself, so roslibjs still resolves topic types.</li>
+<li>Bound to loopback. Under <code>NET_MODE=host</code> the container namespace <em>is</em> the
+host&rsquo;s, so the bind address is the only thing keeping the buttons off the VPN &mdash; the
+exposure <code>sim_up.sh:104</code> already records for MAVLink port 14540.</li>
+<li><strong>A proof-of-sim interlock in <code>offboard_control</code>, not in the transport.</strong>
+It refuses every take-off unless AirSim&rsquo;s RPC answers.</li>
+</ol>
+<div class="note stop"><span class="lbl">Why the interlock is a positive proof, and why it is not in the web layer</span>
+<p>The tempting version is &ldquo;refuse if it looks like hardware&rdquo; &mdash; no
+<code>/dev/ttyACM0</code>, a particular <code>SYS_AUTOSTART</code>, a hostname. Every one of those
+<strong>fails open</strong>: an unrecognised setup passes, so the check is weakest exactly where it
+is least understood. Asking instead whether a <em>simulator</em> answers fails closed.</p>
+<p>And at the node that actually sends <code>VEHICLE_CMD_COMPONENT_ARM_DISARM</code> it guards every
+route to <code>/mission/command</code>. Put in the web layer it would have guarded the browser and
+nothing else &mdash; <code>ros2 topic pub</code> walks straight past it, which is the lower path in
+the diagram above.</p></div>
+
+<h2 id="built"><span class="secnum">05</span> What was built</h2>
+<p><code>offboard_control</code> gained a <em>mode</em>, not a sibling: a <code>manual</code>
+parameter, default false, two states, one subscription. TAKE OFF walks
+<code>IDLE &rarr; STREAM_SETPOINTS &rarr; REQUEST_OFFBOARD &rarr; ARM &rarr; TAKEOFF &rarr; HOVER</code>
+through the existing handlers unchanged. Every existing caller gets byte-identical behaviour.</p>
+<div class="tw"><table>
+<thead><tr><th>Decision</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>IDLE</code> and <code>HOVER</code> are exempt from the per-state timeout, and nothing else is</td><td>The timeout exists so a controller waiting on an <code>arming_state</code> that never arrives cannot hang a CI job for its whole budget. Applied to a state that waits on a <em>human</em>, the same mechanism fails an aircraft for doing exactly what was asked.</td></tr>
+<tr><td>A hand-flying session is many sorties: <code>DONE</code>/<code>FAILED</code> publish, then recycle to <code>IDLE</code></td><td>The terminal <code>MissionStatus</code> and the <code>MissionResult</code> go out first, so each sortie leaves the evidence a mission run does. A node that exited after the first landing would leave a page whose buttons silently do nothing.</td></tr>
+<tr><td>Commands are validated in the callback and applied in the timer</td><td>Mutating <code>state</code> from the executor thread races every handler in the file, and the symptom is an aircraft that changed state halfway through a tick.</td></tr>
+<tr><td>The policy, the allowlist and the MJPEG framing live in modules that <strong>import nothing</strong></td><td><code>webui.launch.py</code> and <code>chase_camera.py</code> cannot be imported without a ROS 2 environment, and a test that needs the target can only ever pass on the target. So the tests assert the objects the nodes actually read, rather than a re-expression of them.</td></tr>
+</tbody>
+</table></div>
+<p><strong>32 new tests, all passing</strong>, and local CI tier 1 is green. The ones that matter
+most: the interlock refuses a server that answers with something that is not a msgpack-RPC reply
+(failing open is the entire risk); the MJPEG splitter keeps a lone trailing <code>0xFF</code>
+because it may be the first byte of the next <code>SOI</code>, and dropping it would lose one frame
+per read forever at a rate nothing would flag; and a test that the launch file still <em>reads</em>
+the shared allowlist rather than having re-inlined its own copy &mdash; which would leave every other
+assertion passing while describing a module nothing uses.</p>
+<div class="note stop"><span class="lbl">Nothing has been flown, and no stack has been brought up</span>
+<p>That is the part that decides whether any of this works. The image needs rebuilding for
+rosbridge, web_video_server and ffmpeg. Then: bring up with <code>--display</code>; cross-check
+every telemetry field against <code>ros2 topic echo</code>, watching for the em dashes the page
+renders in place of a plausible zero; prove from the browser console that a publish to
+<code>/fmu/in/vehicle_command</code> is dropped; one hand take-off and landing; a 3-seed
+<code>citysample-gate1</code> to show the gate path did not move; and a verified teardown.</p>
+<p><strong>The flight needs the owner&rsquo;s go-ahead for that specific run.</strong></p></div>
+
+<h2 id="ran"><span class="secnum">06</span> Then it was run, and seven things were wrong</h2>
+<p>The off-target tests were green and the design was right. Everything below was found by bringing
+the stack up, and <strong>none of it is the kind of defect a test in this repo could have
+caught</strong> &mdash; every one is a claim about the target.</p>
+
+<div class="tw"><table>
+<thead><tr><th>#</th><th>What broke</th><th>Why it is worth writing down</th></tr></thead>
+<tbody>
+<tr><td class="num">1</td><td><code>ldd</code> reported <strong>three</strong> ROS libraries &ldquo;not found&rdquo; for a healthy <code>web_video_server</code>, failing my own artifact assertion</td><td>A Dockerfile <code>RUN</code> gets <code>bash -o pipefail -c</code>, not a login shell. I had checked the binary by hand first with <code>docker exec &hellip; bash -lc</code>, which <em>does</em> source ROS and reported 0 &mdash; the exact trap <code>ros-profile.sh</code> exists for, in the file I was editing. <strong>Verify in the shell the thing actually runs in.</strong></td></tr>
+<tr><td class="num">2</td><td><code>colcon build</code> reported success in 2.84 s; the launch then died on <em>&ldquo;libexec directory &hellip;/lib/webui does not exist&rdquo;</em></td><td>ament_python packages carry a <code>setup.cfg</code> redirecting <code>install_scripts</code>; the new one did not, so the console script went to <code>bin/</code>. A build-time success with a launch-time failure.</td></tr>
+<tr><td class="num">3</td><td><code>web_ui.sh start</code> refused to start the controller &mdash; <em>&ldquo;already running&rdquo;</em> &mdash; on a stack where none ever had</td><td><code>pgrep -f offboard_control</code> matched <strong>PID 44</strong>: the sim-ros2 entrypoint, whose text contains that string in a comment <em>and</em> in a build assertion. CLAUDE.md warns about the two neighbours of this; this is the third &mdash; <strong>a liveness check that reads a comment as a process</strong>. Liveness is now asked of <code>ros2 node list</code>.</td></tr>
+<tr><td class="num">4</td><td>The chase topic published at <strong>9.99 Hz</strong> and the browser received <strong>22 bytes</strong></td><td>I published BEST_EFFORT, reasoning that for video only the newest frame matters. The reasoning is fine; the <em>consumer</em> decides. <code>web_video_server</code> subscribes RELIABLE, which matches <strong>nothing</strong> from a BEST_EFFORT publisher. See below.</td></tr>
+<tr><td class="num">5</td><td><code>/fmu/out/sensor_gps</code> does not exist</td><td><code>SensorGps</code> is the <em>type</em>; PX4 v1.16 advertises it on <code>/fmu/out/vehicle_gps_position</code>. The page showed em dashes &mdash; the designed behaviour for a field that never arrives, and how this was caught rather than shipped. A plausible <code>0</code> would have reported <em>no GPS fix</em> on a stack with 15 satellites and a 3-D lock.</td></tr>
+<tr><td class="num">6</td><td><code>stop</code> needed SIGKILL, and an <code>x11grab</code> outlived its node</td><td>rclpy handles <strong>SIGINT only</strong>. SIGTERM kills the interpreter outright, so <code>destroy_node()</code> &mdash; whose job is terminating the ffmpeg it spawned &mdash; never runs, and the orphan holds the renderer&rsquo;s X connection.</td></tr>
+<tr><td class="num">7</td><td><code>stop</code> still escalated, on a process that was already dead</td><td>Everything starts with <code>docker exec -d</code>, whose shell exits without waiting, so exited nodes linger as <code>&lt;defunct&gt;</code> &mdash; and <code>pgrep</code> matches zombies. The teardown was reporting a clean shutdown as a stubborn one and signalling a corpse.</td></tr>
+</tbody>
+</table></div>
+
+<div class="note stop"><span class="lbl">No.&nbsp;4 is the mirror of a trap this repo already documents</span>
+<p><code>docs/quickstart.md</code> records that <code>/fmu/out/*</code> publishes BEST_EFFORT, so a default
+RELIABLE subscription sees <strong>silence against a completely healthy stack</strong>. This is the
+same incompatibility from the other side: a BEST_EFFORT <em>publisher</em> against a RELIABLE
+<em>subscriber</em>. Neither direction produces a warning anywhere &mdash; no node complains,
+<code>ros2 topic hz</code> shows a healthy publisher, and the browser shows an empty pane that reads
+as &ldquo;the camera is broken&rdquo; or &ldquo;the world is dark&rdquo;.</p>
+<p><code>airsim_node</code> publishes its compressed images RELIABLE, which is why the drone camera
+worked on the first attempt and only the one I wrote did not. After the change: <strong>120 frames
+of 1920&times;1080 in 10 s</strong>.</p></div>
+
+<h3>Measured, on the stack</h3>
+<div class="tw"><table>
+<thead><tr><th>What</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>image</td><td>4.59 &rarr; <strong>4.68 GB</strong> (+90 MB); all four artifact assertions pass</td></tr>
+<tr><td>bring-up</td><td><strong>91 s</strong>, EKF origin <strong>0.000 m</strong> from GPS (tolerance 1 m)</td></tr>
+<tr><td>chase camera</td><td>topic <strong>9.99 Hz</strong>; through <code>web_video_server</code> <strong>120 frames / 10 s</strong> at 1920&times;1080</td></tr>
+<tr><td>drone camera</td><td>topic 5.9 Hz; <strong>63 frames / 10 s</strong>, first frame 118,281 B, well-formed</td></tr>
+<tr><td>roslibjs</td><td>served at sha256 <code>3c510df2&hellip;</code>, byte-identical to the pin</td></tr>
+<tr><td>telemetry</td><td><strong>9 of 9 topics; every field the page reads present</strong></td></tr>
+<tr><td>allowlist</td><td>publish to <code>/fmu/in/vehicle_command</code> &rarr; <strong>0 bytes on the topic</strong></td></tr>
+<tr><td>sortie 1</td><td>12.0 m commanded &rarr; <strong>11.98 m</strong>, held 12 s at 12.01 m, landed in 19 s</td></tr>
+<tr><td>sortie 2</td><td>6.0 m commanded &rarr; <strong>6.14 m</strong>, landed in 11 s &mdash; same node, no restart</td></tr>
+</tbody>
+</table></div>
+
+<h3>The allowlist, proven rather than asserted</h3>
+<p>Driven over the websocket exactly as the page does. rosbridge&rsquo;s own log, and
+<code>ros2 topic echo</code> running on the forbidden topic throughout:</p>
+<pre>[WARN] [rosbridge_websocket]: [Client b3d84b72-...] No match found for topic,
+       cancelling publish to: <b>/fmu/in/vehicle_command</b>
+
+$ wc -c &lt; forbidden.txt
+<b>0</b></pre>
+<p>The payload was <code>command: 512</code> (<code>REQUEST_MESSAGE</code>), not an arm: the claim under
+test is that the <em>topic</em> is unreachable regardless of payload, and proving that with a live
+arm command would be proving it the reckless way. The same session published to the allowed topic,
+and both halves of the design show up in two lines:</p>
+<pre>[INFO] [offboard_control]: command received: hold
+[WARN] [offboard_control]: refused hold in state idle; allowed from ['hover']</pre>
+
+<figure>
+<svg viewBox="0 0 980 200" role="img" aria-labelledby="chasetitle">
+  <title id="chasetitle">What the chase camera showed on the first frame</title>
+  <rect class="n-box" x="10" y="40" width="230" height="120" rx="2"/>
+  <text class="nid" x="125" y="70" text-anchor="middle">frame 1</text>
+  <text class="nlb" x="125" y="92" text-anchor="middle">1920 &times; 1080, 107,946 B</text>
+  <text class="nlb" x="125" y="112" text-anchor="middle">CitySample pavement</text>
+  <text class="nlb" x="125" y="132" text-anchor="middle">world origin</text>
+  <path class="e" d="M240 100 H 330" marker-end="url(#ar2)"/>
+  <rect class="n-a" x="330" y="18" width="290" height="48" rx="2"/>
+  <text class="nid" x="475" y="40" text-anchor="middle">a pedestrian, on the drone</text>
+  <text class="nlb" x="475" y="57" text-anchor="middle">Collision#211 with BP_CrowdCharacter_C_7</text>
+  <rect class="n-box" x="330" y="76" width="290" height="44" rx="2"/>
+  <text class="nid" x="475" y="98" text-anchor="middle">a parked car alongside</text>
+  <text class="nlb" x="475" y="114" text-anchor="middle">the SIM-44 family, again</text>
+  <rect class="n-box" x="330" y="130" width="290" height="44" rx="2"/>
+  <text class="nid" x="475" y="152" text-anchor="middle">bollards to the right</text>
+  <text class="nlb" x="475" y="168" text-anchor="middle">inside the &plusmn;5 m jitter disc</text>
+  <path class="e" d="M620 96 H 700" marker-end="url(#ar2)"/>
+  <rect class="n-done" x="700" y="66" width="270" height="66" rx="2"/>
+  <text class="nid" x="835" y="94" text-anchor="middle">one glance</text>
+  <text class="nlb" x="835" y="114" text-anchor="middle">instead of a throwaway script and an afternoon</text>
+  <defs><marker id="ar2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L8 4 L0 8 z" fill="var(--ink2)"/></marker></defs>
+</svg>
+<figcaption>The point of the ticket, on frame one. The world origin is on a crowd walking route.</figcaption>
+</figure>
+
+<h2 id="gate"><span class="secnum">07</span> The gate: 2/3, and the failing seed is not this ticket&rsquo;s</h2>
+<pre>  [ 1/3] seed 1   <b>PASS</b>  worst 0.842 m  208s
+  [ 2/3] seed 2   <b>FAIL</b>  worst 0.828 m  358s  &mdash; timeout in state land
+  [ 3/3] seed 3   <b>PASS</b>  worst 0.835 m  188s
+
+  success rate : 2/3  (67%)          FAIL &mdash; criterion is SR = 100%</pre>
+<p><strong>The gate is red, and it was red before this work.</strong> Seed 2 is the parked car the
+2026-09-01 handoff already names. That is not taken on trust &mdash; three independent things say
+so.</p>
+<p><strong>One.</strong> The flight was perfect and only the landing was not: 2 of 2 waypoints at
+0.761 m and 0.828 m, indistinguishable from the seeds that passed. Its result reads
+<code>"mission_source": "scenario"</code>, and <code>manual:=true</code> appears <strong>zero</strong>
+times in the gate log. The new mode was never entered.</p>
+<p><strong>Two.</strong> The landing trace is the documented fault, measured &mdash; the final 26 s:</p>
+<pre>actor z      : 0.322 .. 0.345 m   <b>a 0.023 m band. THE VEHICLE IS NOT MOVING.</b>
+reported vz  : +1.76 m/s          a steady descent that never terminates
+final actor z: 0.345 m            resting on something, and not on the ground</pre>
+<p>Every sensor PX4 receives describes a fall that is not happening, so touchdown never registers
+and <code>LAND</code> runs out its 180 s budget.</p>
+<p><strong>Three, and this is the one that settles it.</strong> Rather than argue that the
+manual-mode branches are inert in mission mode, <code>offboard_control.py</code> was reverted to
+<code>HEAD</code> &mdash; byte-identical, zero occurrences of <code>manual</code> &mdash; and seed 2
+flown again:</p>
+<div class="tw"><table>
+<thead><tr><th>Controller</th><th>Verdict</th><th>Worst</th><th>Landing trace</th></tr></thead>
+<tbody>
+<tr><td>with <code>SIM-45</code></td><td>FAIL, <code>timeout in state land</code>, 358 s</td><td class="num">0.828 m</td><td>z range <strong>0.023 m</strong>, descent <strong>+1.76 m/s</strong>, final z 0.345 m</td></tr>
+<tr><td><code>HEAD</code>, pre-change</td><td>FAIL, <code>timeout in state land</code>, 334 s</td><td class="num">0.847 m</td><td>z range <strong>0.026 m</strong>, descent <strong>+1.73 m/s</strong>, final z 0.364 m</td></tr>
+</tbody>
+</table></div>
+<div class="note ok"><span class="lbl">The gate did not move</span>
+<p>Same failure, same signature, same seed, on code that has never heard of this feature. What the
+gate is still waiting on is the site problem the handoff left open: the survey the tree hunt never
+did, pointed <em>down</em> instead of up. Which is exactly what this ticket built the tool for.</p></div>
+
+<h3>Teardown</h3>
+<pre>  containers (sim-*)               none running
+  pgrep -x UnrealEditor            none
+  Xvfb on :77                      none
+  GPU compute apps                 none holding memory
+  <b>teardown verified</b></pre>
+<p>Confirmed independently afterwards: <code>docker ps -a</code> lists no <code>sim-*</code> container
+and <code>nvidia-smi</code> reports no compute apps.</p>
+
+<h2 id="gcs"><span class="secnum">08</span> SIM-46 &mdash; the same day: it becomes a ground station</h2>
+<p>The owner&rsquo;s response to <code>SIM-45</code> landing was <em>&ldquo;lets make it its own
+container, faithful to the real thing&rdquo;</em>. That is a fidelity argument, and it settles a
+design question rather than reopening one: <strong>on real hardware the ROS 2 graph runs on the
+companion computer and a web page that flies the aircraft does not &mdash; it runs on someone&rsquo;s
+laptop.</strong> <code>sim-qgc</code> has modelled that boundary since the Gazebo era; this is its
+sibling. It is a safety improvement too: rosbridge is a <em>general</em> ROS-to-websocket bridge,
+and hosting one on the companion computer is what hard stop 1 is about.</p>
+
+<div class="tw"><table>
+<thead><tr><th></th><th>SIM-45</th><th>SIM-46</th></tr></thead>
+<tbody>
+<tr><td>rosbridge, <code>web_video_server</code>, the page</td><td><code>sim-ros2</code></td><td><strong><code>sim-webui</code></strong></td></tr>
+<tr><td><code>chase_camera</code> + ffmpeg</td><td><code>sim-ros2</code></td><td><strong>stays</strong></td></tr>
+<tr><td><code>offboard_control</code> + the SITL interlock</td><td><code>sim-ros2</code></td><td><strong>stays</strong>, unchanged</td></tr>
+</tbody>
+</table></div>
+
+<div class="note ok"><span class="lbl">The chase camera cannot move, and the reason is the interesting half</span>
+<p>The mechanical reason is that it reads the renderer&rsquo;s screen through an X abstract socket
+scoped to the network namespace. The real reason is that <strong>a real aircraft has no chase
+camera</strong>. It is simulator scaffolding, in the same family as ground truth, and a ground
+station that could produce it would be <em>less</em> faithful, not more. So the split is two
+packages, physical rather than conventional: <code>webui</code> (page, launch, allowlist &mdash; no
+Python nodes at all) and <code>chase_camera</code>.</p></div>
+
+<h3>The container list was the trap, and it was named in advance</h3>
+<p><code>sim_up.sh</code> held the list <strong>twice</strong> &mdash; <code>teardown()</code> removed
+them, the verifier greped a separately written list. A sixth container added to one and not the
+other gives the worst outcome the script has: a container left running under a teardown that
+printed &ldquo;verified&rdquo;. One <code>STACK_CONTAINERS</code> array now, both consumers derived
+from it, and a test asserting nothing else in the file names three or more containers.</p>
+
+<h3>Four things the split broke, all found by running it</h3>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>What broke</th><th>Why it matters</th></tr></thead>
+<tbody>
+<tr><td class="num">1</td><td>The ground-station image had <strong>no compiler</strong>, so <code>drone_interfaces</code> failed to build</td><td>The container came up with <code>px4_msgs</code> fine (24 <code>/fmu/out</code> topics) and <code>MissionCommand</code> missing &mdash; the browser could have read everything and published nothing.</td></tr>
+<tr><td class="num">2</td><td><code>pkill -f chase_camera</code> would have signalled <strong>the uXRCE-DDS agent&rsquo;s supervisor</strong></td><td>Moving the package put that string into the sim-ros2 entrypoint, so <code>pgrep -f</code> matched PID 44 again. The SIM-45 version only <em>misreported</em>; this one would have taken every <code>/fmu/*</code> topic down. <strong>Caught by the test written for the first occurrence</strong>, which is the best argument for having written it.</td></tr>
+<tr><td class="num">3</td><td>The page requested every camera with <strong>percent-encoded slashes</strong></td><td>See below &mdash; the one that took longest.</td></tr>
+<tr><td class="num">4</td><td><code>/snapshot</code> is broken for these topics while <code>/stream</code> is fine</td><td>Not chased down; recorded because it misdirected a diagnostic and will meet anyone who switches endpoints.</td></tr>
+</tbody>
+</table></div>
+
+<div class="note stop"><span class="lbl">Three confident wrong theories, then a server log settled it in one line</span>
+<p><code>app.js</code> built its URL with <code>encodeURIComponent(topic)</code>, turning
+<code>/chase/image</code> into <code>%2Fchase%2Fimage</code>. <strong><code>web_video_server</code>
+does not url-decode that parameter</strong> &mdash; it hands the raw string to the ROS name
+validator:</p>
+<pre>Invalid topic name: topic name must not contain characters other than
+alphanumerics, '_', '~', '{', or '}':  <b>'%2Fchase%2Fimage'</b></pre>
+<p>And it fails <strong>quietly</strong>: HTTP 200, the multipart boundary written, connection
+closed. 22 bytes. The browser sees a successful response and an <code>&lt;img&gt;</code> that never
+decodes, so the pane is empty &mdash; indistinguishable from &ldquo;no camera is publishing&rdquo;.
+What separated them was the same topic answering <strong>22 bytes to the page and 100 frames / 10 s
+to curl</strong>, because curl had been sending raw slashes all along.</p>
+<div class="tw"><table>
+<thead><tr><th>Theory</th><th>Why it was believed</th><th>Why it was wrong</th></tr></thead>
+<tbody>
+<tr><td>a headless-Chrome artifact</td><td><code>--virtual-time-budget</code> really does cut off endless streams</td><td>the panes stayed empty under real time and <code>--headless=new</code> too</td></tr>
+<tr><td>the <code>load</code> event never fires for a multipart stream</td><td>plausible, and browsers genuinely differ</td><td>an <code>&lt;img&gt;</code> with the <em>unencoded</em> URL reported 1920&times;1080 immediately</td></tr>
+<tr><td><code>display:none</code> prevents Chrome decoding the stream</td><td>also plausible</td><td>fixed it, <code>display</code> became <code>block</code>, <code>naturalWidth</code> stayed 0</td></tr>
+</tbody>
+</table></div>
+<p>Two of those produced changes worth keeping anyway. But neither was the bug, and saying so is
+the point: <strong>three confident explanations in a row, none of them measured.</strong>
+<code>SIM-27</code>&rsquo;s worklog records the same shape.</p></div>
+
+<div class="note ok"><span class="lbl">One build assertion was wrong, and the build refused it</span>
+<p><code>ffmpeg</code> is a hard <code>Depends:</code> of <code>ros-jazzy-web-video-server</code> and
+cannot be removed without removing the server the image exists to run. The claim was narrowed to
+what is true &mdash; no AirSim RPC client, no msgpack, no vendored Cosys-AirSim, no chase camera
+&mdash; so the boundary now rests on <em>there being no node there that opens a display</em>, which
+was the load-bearing part all along. A claim narrowed to what is true is worth more than a stronger
+one that has to be forced.</p></div>
+
+<h3>Verified on the stack</h3>
+<pre>sim-webui  (ground station)      rosbridge_websocket &middot; web_video_server &middot; http.server
+sim-ros2   (companion computer)  offboard_control &middot; chase_camera &middot; airsim_node &middot; MicroXRCEAgent</pre>
+<ul>
+<li>bring-up <strong>79 s</strong>, EKF origin 0.000 m from GPS</li>
+<li><strong>9 of 9 telemetry topics</strong>, every field the page reads, subscribed from the ground station</li>
+<li>both video streams &mdash; the chase camera published on the <em>companion</em> and served to the browser by the <em>ground station</em>, crossing the boundary over DDS exactly as it would from a laptop</li>
+<li>the allowlist still holds from its new home: <code>/fmu/in/vehicle_command</code> &rarr; <strong>0 bytes on the topic</strong></li>
+<li><strong>one hand sortie flown from the ground station</strong>: 12.0 m commanded &rarr; <strong>12.00 m</strong>, 0.03 m to target, held 30 s, landed and recycled to <code>idle</code></li>
+</ul>
+<p>The flight driver had to move to <code>sim-webui</code> mid-run, because <code>tornado</code> left
+<code>sim-ros2</code> with rosbridge &mdash; the split asserting itself: commands originate at the
+ground station now.</p>
+
+<footer>
+  <span>Worklog &middot; 2026-09-01 &middot; SIM-45</span>
+  <span>7 flights &middot; 46 tests &middot; 6 containers &middot; teardown verified</span>
+  <span><a href="index.html">Index</a></span>
+</footer>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('themeBtn'),
+      lbl=document.getElementById('themeLbl'),order=['light','dark','eink'],
+      names={light:'Light',dark:'Dark',eink:'E-ink'};
+  function set(t){root.setAttribute('data-theme',t);
+    var n=order[(order.indexOf(t)+1)%order.length];lbl.textContent=names[n];
+    btn.setAttribute('title','Current: '+names[t]+' — switch to '+names[n]);}
+  set(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  btn.addEventListener('click',function(){
+    set(order[(order.indexOf(root.getAttribute('data-theme'))+1)%order.length]);});
+})();
+</script>
+</body>
+</html>

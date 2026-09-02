@@ -13,6 +13,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -28,6 +29,16 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("setpoint_rate_hz", default_value="20.0"),
         DeclareLaunchArgument("state_timeout_s", default_value="60.0"),
         DeclareLaunchArgument("result_path", default_value=""),
+        # HAND FLYING.                                                            (SIM-45)
+        # Default false, so a mission run is byte-identical to what it was. True adds the
+        # IDLE/HOVER states and the /mission/command subscription and flies nothing until a
+        # human says so -- see docs/todo.md SIM-45 and scripts/web_ui.sh.
+        #
+        # NOTE `on_exit=Shutdown()` below: in manual mode the node deliberately does NOT exit
+        # after a landing (a hand-flying session is many sorties), so this launch stays up
+        # until it is stopped. That is correct here and is exactly what the scenario runner
+        # must never get, which is why the default is false.
+        DeclareLaunchArgument("manual", default_value="false"),
     ]
 
     controller = Node(
@@ -49,6 +60,7 @@ def generate_launch_description() -> LaunchDescription:
             "setpoint_rate_hz": LaunchConfiguration("setpoint_rate_hz"),
             "state_timeout_s": LaunchConfiguration("state_timeout_s"),
             "result_path": LaunchConfiguration("result_path"),
+            "manual": ParameterValue(LaunchConfiguration("manual"), value_type=bool),
         }],
         # Bring the whole launch down when the controller exits.
         #
