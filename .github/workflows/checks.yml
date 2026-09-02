@@ -47,9 +47,17 @@ jobs:
           python-version: '3.12'   # matches ROS 2 Jazzy, per versions.lock
 
       - name: Install test dependencies
-        # PyYAML only: the suite deliberately has no simulator, ROS or container
-        # dependency, which is what lets it run here at all.
-        run: pip install --quiet pytest pyyaml
+        # The suite deliberately has no simulator, ROS or container dependency, which is
+        # what lets it run here at all. These three are plain libraries and do not break
+        # that: PyYAML reads the scenarios, and numpy is the depth colouriser's own
+        # dependency (`depth_view/colorize.py`), where the fixed-range and no-return
+        # decisions live and are worth testing off-target.
+        #
+        # KEEP THIS IN STEP WITH tests/. `tests/test_ci_dependencies.py` fails if any
+        # unguarded third-party import in tests/ is missing here -- numpy was added to the
+        # suite and not to this line, and the check went red on a PR after a local run had
+        # been green, because the developer's machine had numpy and the runner did not.
+        run: pip install --quiet pytest pyyaml numpy
 
       - name: Off-target tests
         run: python3 -m pytest tests/ -v
